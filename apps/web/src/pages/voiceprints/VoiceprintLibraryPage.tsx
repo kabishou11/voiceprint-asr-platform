@@ -171,7 +171,7 @@ export function VoiceprintLibraryPage() {
   return (
     <PageSection
       title="声纹库"
-      description="集中管理声纹档案，并上传真实音频完成注册、验证与识别操作。"
+      description="集中管理声纹档案。说话人分离默认可直接使用，声纹注册属于按需启用的可选操作。"
       loading={profilesState.loading}
       error={profilesState.error}
       actions={
@@ -259,10 +259,13 @@ export function VoiceprintLibraryPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card variant="outlined">
               <CardContent>
                 <Stack spacing={1.5}>
-                  <Typography variant="h6">注册基准音频</Typography>
+                  <Typography variant="h6">可选：注册基准音频</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    当你需要把某个身份写入声纹库时，再上传注册音频；默认转写和说话人分离流程不依赖这一步。
+                  </Typography>
                   <AudioUploadField
                     label="选择用于注册的音频文件"
                     fileName={(enrollFile?.name ?? enrollAssetName) || null}
@@ -277,7 +280,7 @@ export function VoiceprintLibraryPage() {
                       resetMessages();
                     }}
                   />
-                  <Button variant="contained" onClick={handleEnroll} disabled={!activeProfile || busy}>
+                  <Button variant="outlined" onClick={handleEnroll} disabled={!activeProfile || busy}>
                     开始注册
                   </Button>
                   {enrollResult ? <Alert severity="success">{enrollResult}</Alert> : null}
@@ -365,7 +368,7 @@ export function VoiceprintLibraryPage() {
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="档案名称" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
             <Typography variant="body2" color="text.secondary">
-              创建后即可用于注册、验证和识别流程。
+              创建后即可用于按需注册、验证和识别流程。
             </Typography>
           </Stack>
         </DialogContent>

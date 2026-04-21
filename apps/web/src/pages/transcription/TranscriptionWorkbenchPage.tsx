@@ -15,13 +15,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
 import {
   formatDateTime,
-  jobStatusLabels,
   jobTypeLabels,
   modelAvailabilityLabels,
   modelTaskLabels,
@@ -51,9 +50,15 @@ export function TranscriptionWorkbenchPage() {
   const jobsState = useAsyncData(() => fetchJobs(), []);
 
   const diarizationOptions = useMemo(
-    () => (modelsState.data?.items ?? []).filter((item) => item.task === 'diarization'),
+    () => (modelsState.data?.items ?? []).filter((item) => item.task === 'diarization' && item.availability === 'available'),
     [modelsState.data],
   );
+
+  useEffect(() => {
+    if (!diarizationModel && diarizationOptions.length > 0) {
+      setDiarizationModel(diarizationOptions[0].key);
+    }
+  }, [diarizationModel, diarizationOptions]);
 
   const modelSummary = useMemo(() => {
     const items = modelsState.data?.items ?? [];
@@ -93,7 +98,7 @@ export function TranscriptionWorkbenchPage() {
     <Stack spacing={3}>
       <PageSection
         title="智能语音工作台"
-        description="上传真实音频文件，创建转写任务、跟踪处理进度，并集中查看模型与结果状态。"
+        description="上传真实音频文件，默认按多人转写流程处理，并集中查看模型与结果状态。"
         loading={modelsState.loading || jobsState.loading}
         error={modelsState.error ?? jobsState.error}
         actions={
@@ -116,9 +121,9 @@ export function TranscriptionWorkbenchPage() {
                   <Grid size={{ xs: 12, md: 7 }}>
                     <Stack spacing={2.5}>
                       <Chip label="语音任务中心" sx={{ alignSelf: 'flex-start', bgcolor: 'rgba(255,255,255,0.16)', color: '#fff' }} />
-                      <Typography variant="h3">一站式完成转写、分离与声纹识别</Typography>
+                      <Typography variant="h3">默认直达多人转写与说话人分离</Typography>
                       <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontSize: 16, lineHeight: 1.75 }}>
-                        面向会议纪要、客服质检和安全核验场景，上传真实音频并快速发起任务。
+                        面向会议纪要、客服质检和安全核验场景，上传真实音频后优先输出带说话人标签的转写结果。
                       </Typography>
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                         {quickTemplates.map((item) => (
@@ -163,8 +168,9 @@ export function TranscriptionWorkbenchPage() {
                             label="说话人模式"
                             value={diarizationModel}
                             onChange={(event) => setDiarizationModel(event.target.value)}
+                            helperText="默认已启用说话人分离；如需仅文本转写，可切换为标准转写。"
                           >
-                            <MenuItem value="">标准转写</MenuItem>
+                            <MenuItem value="">标准转写（可选）</MenuItem>
                             {diarizationOptions.map((item) => (
                               <MenuItem key={item.key} value={item.key}>
                                 {item.display_name}
