@@ -1,9 +1,11 @@
 import AddRounded from '@mui/icons-material/AddRounded';
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
-import GraphicEqRounded from '@mui/icons-material/GraphicEqRounded';
+import FingerprintRounded from '@mui/icons-material/FingerprintRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
+import MicExternalOnRounded from '@mui/icons-material/MicExternalOnRounded';
 import QueueMusicRounded from '@mui/icons-material/QueueMusicRounded';
+import RecordVoiceOverRounded from '@mui/icons-material/RecordVoiceOverRounded';
 import {
   Alert,
   Box,
@@ -21,18 +23,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
-import {
-  formatDateTime,
-  jobStatusLabels,
-  jobTypeLabels,
-  modelTaskLabels,
-  providerLabels,
-  type ModelInfo,
-} from '../../api/types';
+import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { BrandLogo } from '../../components/BrandLogo';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
+import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
 
 const quickTemplates = [
@@ -40,48 +36,6 @@ const quickTemplates = [
   '丹山路.m4a',
   '5分钟.wav',
 ];
-
-function JobStatCard({
-  label,
-  value,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  color: 'primary' | 'success' | 'error' | 'warning';
-}) {
-  return (
-    <Card>
-      <CardContent>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 3,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              bgcolor: `${color}.main`,
-              color: '#fff',
-              opacity: 0.9,
-            }}
-          >
-            {icon}
-          </Box>
-          <Box>
-            <Typography color="text.secondary" variant="body2">
-              {label}
-            </Typography>
-            <Typography variant="h5">{value}</Typography>
-          </Box>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
 
 export function TranscriptionWorkbenchPage() {
   const navigate = useNavigate();
@@ -147,7 +101,9 @@ export function TranscriptionWorkbenchPage() {
     <Stack spacing={3}>
       <PageSection
         title="智能语音工作台"
-        description="上传真实音频文件，默认按多人转写流程处理，任务状态随时可查。"
+        eyebrow="任务工作台"
+        eyebrowColor="secondary"
+        description="上传音频即可发起任务，实时追踪处理状态，随时查看转写结果。"
         loading={modelsState.loading || jobsState.loading}
         error={modelsState.error ?? jobsState.error}
         actions={
@@ -257,7 +213,7 @@ export function TranscriptionWorkbenchPage() {
             <Stack spacing={3}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="总任务数"
                     value={String(jobSummary.total)}
                     icon={<QueueMusicRounded fontSize="small" />}
@@ -265,7 +221,7 @@ export function TranscriptionWorkbenchPage() {
                   />
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="处理中"
                     value={String(jobSummary.running)}
                     icon={<HourglassEmptyRounded fontSize="small" />}
@@ -273,7 +229,7 @@ export function TranscriptionWorkbenchPage() {
                   />
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="已完成"
                     value={String(jobSummary.done)}
                     icon={<CheckCircleOutlineRounded fontSize="small" />}
@@ -282,7 +238,7 @@ export function TranscriptionWorkbenchPage() {
                 </Grid>
                 {jobSummary.failed > 0 ? (
                   <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                    <JobStatCard
+                    <StatCard
                       label="失败"
                       value={String(jobSummary.failed)}
                       icon={<ErrorOutlineRounded fontSize="small" />}
@@ -344,19 +300,78 @@ export function TranscriptionWorkbenchPage() {
             </Card>
           </Grid>
           <Grid size={{ xs: 12, lg: 5 }}>
-            <Card>
-              <CardContent>
-                <Stack spacing={2.5}>
-                  <Typography variant="h6">声纹库</Typography>
-                  <Typography color="text.secondary">
-                    声纹验证与识别属于按需能力，无需每次操作。已有档案时可直接上传待比对音频进行核验。
-                  </Typography>
-                  <Button variant="outlined" onClick={() => navigate('/voiceprints')}>
-                    前往声纹库
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
+            <Stack spacing={2}>
+              <Typography variant="h6">核心能力</Typography>
+              <Grid container spacing={2}>
+                {[
+                  {
+                    icon: <MicExternalOnRounded sx={{ fontSize: 28 }} />,
+                    label: '语音识别',
+                    desc: 'FunASR 高精度模型，音频转文字，支持中文普通话及多语言',
+                    chip: 'ASR',
+                    chipColor: 'primary' as const,
+                    action: () => {},
+                    actionLabel: '已内置',
+                    actionVariant: 'outlined' as const,
+                  },
+                  {
+                    icon: <RecordVoiceOverRounded sx={{ fontSize: 28 }} />,
+                    label: '说话人分离',
+                    desc: '自动识别不同说话人，带说话人标签输出转写结果',
+                    chip: '默认启用',
+                    chipColor: 'success' as const,
+                    action: () => {},
+                    actionLabel: '已内置',
+                    actionVariant: 'outlined' as const,
+                  },
+                  {
+                    icon: <FingerprintRounded sx={{ fontSize: 28 }} />,
+                    label: '声纹识别',
+                    desc: '1:1 验证与 1:N 识别，精准核验说话人身份',
+                    chip: '按需启用',
+                    chipColor: 'warning' as const,
+                    action: () => navigate('/voiceprints'),
+                    actionLabel: '前往声纹库',
+                    actionVariant: 'outlined' as const,
+                  },
+                ].map((item) => (
+                  <Grid key={item.label} size={{ xs: 12 }}>
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        borderRadius: 4,
+                        transition: 'box-shadow 0.18s',
+                        '&:hover': { boxShadow: '0 8px 24px rgba(15,23,42,0.1)' },
+                      }}
+                    >
+                      <CardContent sx={{ p: '16px !important' }}>
+                        <Stack spacing={1.5}>
+                          <Stack direction="row" spacing={1.5} alignItems="center">
+                            <Box sx={{ color: 'primary.main', flexShrink: 0 }}>{item.icon}</Box>
+                            <Box sx={{ flex: 1 }}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Typography fontWeight={700}>{item.label}</Typography>
+                                <Chip size="small" label={item.chip} color={item.chipColor} sx={{ height: 18, fontSize: 11 }} />
+                              </Stack>
+                            </Box>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">
+                            {item.desc}
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant={item.actionVariant}
+                            onClick={item.action}
+                          >
+                            {item.actionLabel}
+                          </Button>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Stack>
           </Grid>
         </Grid>
       </PageSection>
