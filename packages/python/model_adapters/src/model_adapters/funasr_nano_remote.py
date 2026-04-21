@@ -7,15 +7,26 @@ import string
 import time
 import traceback
 
-import torch
-import torch.nn as nn
-from funasr import AutoModel
-from funasr.metrics.compute_acc import compute_accuracy
-from funasr.register import tables
-from funasr.train_utils.device_funcs import force_gatherable, to_device
-from funasr.utils.datadir_writer import DatadirWriter
-from funasr.utils.load_utils import extract_fbank, load_audio_text_image_video
-from transformers import AutoConfig, AutoModelForCausalLM
+try:
+    import torch
+    import torch.nn as nn
+except ImportError:
+    raise ImportError(
+        "torch is not installed. Install it with: pip install torch torchaudio"
+    ) from None
+
+try:
+    from funasr import AutoModel
+    from funasr.metrics.compute_acc import compute_accuracy
+    from funasr.register import tables
+    from funasr.train_utils.device_funcs import force_gatherable, to_device
+    from funasr.utils.datadir_writer import DatadirWriter
+    from funasr.utils.load_utils import extract_fbank, load_audio_text_image_video
+    from transformers import AutoConfig, AutoModelForCausalLM
+except ImportError:
+    raise ImportError(
+        "funasr is not installed. Install it with: pip install funasr"
+    ) from None
 
 
 dtype_map = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}

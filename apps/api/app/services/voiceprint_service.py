@@ -38,9 +38,13 @@ class VoiceprintService:
         self._enroll_sample_profile(demo_profile.profile_id, "声纹-女1.wav")
 
     def _enroll_sample_profile(self, profile_id: str, asset_name: str) -> None:
-        registry = get_model_registry()
-        adapter = registry.get_voiceprint("3dspeaker-embedding")
-        adapter.enroll(asset=self._build_asset(asset_name), profile_id=profile_id)
+        try:
+            registry = get_model_registry()
+            adapter = registry.get_voiceprint("3dspeaker-embedding")
+            adapter.enroll(asset=self._build_asset(asset_name), profile_id=profile_id)
+        except (ImportError, ModuleNotFoundError):
+            # skip enrollment when optional audio libs (librosa/soundfile) are not installed
+            pass
 
     def list_profiles(self) -> list[VoiceprintProfile]:
         return list(self._profiles.values())
