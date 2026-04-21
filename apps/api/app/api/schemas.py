@@ -29,6 +29,10 @@ class JobListResponse(BaseModel):
 class CreateTranscriptionRequest(BaseModel):
     asset_name: str
     diarization_model: str | None = None
+    hotwords: list[str] | None = None
+    language: str = "zh-cn"
+    vad_enabled: bool = False
+    itn: bool = True
 
 
 class CreateTranscriptionResponse(BaseModel):

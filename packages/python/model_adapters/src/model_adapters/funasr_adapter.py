@@ -87,7 +87,7 @@ class FunASRTranscribeAdapter(ASRAdapter):
             "device": self._resolve_device(),
             "disable_update": True,
         }
-        # VAD 配置
+        # VAD 配置（仅在启用时传递，避免 FunASR 尝试下载未请求的模型）
         if self.vad_enabled:
             model_kwargs["vad_model"] = self.vad_model
             model_kwargs["vad_model_revision"] = "v2.0.4"

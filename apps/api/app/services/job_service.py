@@ -34,16 +34,44 @@ class JobService:
     def get_job(self, job_id: str) -> JobDetail | None:
         return self._jobs.get(job_id)
 
-    def create_transcription_job(self, asset_name: str, job_type: str = "transcription") -> JobDetail:
+    def create_transcription_job(
+        self,
+        asset_name: str,
+        job_type: str = "transcription",
+        *,
+        hotwords: list[str] | None = None,
+        language: str = "zh-cn",
+        vad_enabled: bool = True,
+        itn: bool = True,
+    ) -> JobDetail:
         registry = get_model_registry()
         result: TranscriptResult | None = None
         if job_type == "transcription":
             adapter = registry.get_asr("funasr-nano")
-            result = adapter.transcribe(asset=self._build_asset(asset_name))
+            asset = self._build_asset(asset_name)
+            # 注入高级 ASR 参数
+            if hotwords and hasattr(adapter, "hotwords"):
+                adapter.hotwords = hotwords
+            if hasattr(adapter, "language"):
+                adapter.language = language
+            if hasattr(adapter, "vad_enabled"):
+                adapter.vad_enabled = vad_enabled
+            if hasattr(adapter, "itn"):
+                adapter.itn = itn
+            result = adapter.transcribe(asset=asset)
         elif job_type == "multi_speaker_transcription":
             asr_adapter = registry.get_asr("funasr-nano")
             diarization_adapter = registry.get_diarization("3dspeaker-diarization")
             asset = self._build_asset(asset_name)
+            # 注入高级 ASR 参数
+            if hotwords and hasattr(asr_adapter, "hotwords"):
+                asr_adapter.hotwords = hotwords
+            if hasattr(asr_adapter, "language"):
+                asr_adapter.language = language
+            if hasattr(asr_adapter, "vad_enabled"):
+                asr_adapter.vad_enabled = vad_enabled
+            if hasattr(asr_adapter, "itn"):
+                asr_adapter.itn = itn
             transcript = asr_adapter.transcribe(asset=asset)
             diarization_segments = diarization_adapter.diarize(asset=asset)
             merged_segments = self._merge_segments(transcript.segments, diarization_segments)
