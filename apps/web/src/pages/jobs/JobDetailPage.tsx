@@ -25,6 +25,8 @@ export function JobDetailPage() {
   return (
     <PageSection
       title="任务详情"
+      eyebrow="结果查看"
+      eyebrowColor="primary"
       description="查看任务摘要、转写全文和分段结果。"
       loading={loading}
       error={error}
