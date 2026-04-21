@@ -37,38 +37,67 @@ export function JobDetailPage() {
       {data?.job ? (
         <Stack spacing={3}>
           <Grid container spacing={2}>
-            {[
-              { label: '文件', value: data.job.asset_name ?? '未命名文件' },
-              { label: '任务类型', value: jobTypeLabels[data.job.job_type] },
-              { label: '更新时间', value: formatDateTime(data.job.updated_at) },
-              { label: '分段数', value: `${segments.length}` },
-            ].map((item) => (
-              <Grid key={item.label} size={{ xs: 12, sm: 6, lg: 3 }}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="body2" color="text.secondary">
-                      {item.label}
-                    </Typography>
-                    <Typography variant="h6" sx={{ mt: 1 }}>
-                      {item.value}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    文件名
+                  </Typography>
+                  <Typography variant="h6" sx={{ mt: 1, wordBreak: 'break-all' }}>
+                    {data.job.asset_name ?? '未命名文件'}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 6, lg: 3 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    任务类型
+                  </Typography>
+                  <Typography variant="h6" sx={{ mt: 1 }}>
+                    {jobTypeLabels[data.job.job_type]}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 6, lg: 3 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    状态
+                  </Typography>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                    <StatusChip status={data.job.status} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 6, lg: 3 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    分段数
+                  </Typography>
+                  <Typography variant="h6" sx={{ mt: 1 }}>
+                    {segments.length}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 9 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    更新时间
+                  </Typography>
+                  <Typography variant="h6" sx={{ mt: 1 }}>
+                    {formatDateTime(data.job.updated_at)}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
           </Grid>
-
-          <Card>
-            <CardContent>
-              <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="h5">{data.job.asset_name ?? data.job.job_id}</Typography>
-                  <Typography color="text.secondary">任务编号 {data.job.job_id}</Typography>
-                </Stack>
-                <StatusChip status={data.job.status} />
-              </Stack>
-            </CardContent>
-          </Card>
 
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, lg: 5 }}>
@@ -79,7 +108,9 @@ export function JobDetailPage() {
                     <Typography color="text.secondary" sx={{ lineHeight: 1.9 }}>
                       {data.transcript?.text ?? '暂无转写结果'}
                     </Typography>
-                    {data.job.error_message ? <Alert severity="error">{data.job.error_message}</Alert> : null}
+                    {data.job.error_message ? (
+                      <Alert severity="error">{data.job.error_message}</Alert>
+                    ) : null}
                   </Stack>
                 </CardContent>
               </Card>
@@ -92,7 +123,11 @@ export function JobDetailPage() {
                     {segments.length ? (
                       <Stack spacing={1.5}>
                         {segments.map((segment, index) => (
-                          <Card key={`${segment.start_ms}-${index}`} variant="outlined" sx={{ borderRadius: 4 }}>
+                          <Card
+                            key={`${segment.start_ms}-${index}`}
+                            variant="outlined"
+                            sx={{ borderRadius: 4 }}
+                          >
                             <CardContent>
                               <Stack spacing={1}>
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">

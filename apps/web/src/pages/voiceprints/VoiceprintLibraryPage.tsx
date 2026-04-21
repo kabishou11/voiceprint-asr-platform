@@ -171,7 +171,7 @@ export function VoiceprintLibraryPage() {
   return (
     <PageSection
       title="声纹库"
-      description="集中管理声纹档案。说话人分离默认可直接使用，声纹注册属于按需启用的可选操作。"
+      description="上传待比对音频，对选中的档案执行 1:1 验证或在声纹库中识别候选人。"
       loading={profilesState.loading}
       error={profilesState.error}
       actions={
@@ -205,7 +205,7 @@ export function VoiceprintLibraryPage() {
                       >
                         <ListItemText
                           primary={profile.display_name}
-                          secondary={`样本 ${profile.sample_count} · ${profile.model_key}`}
+                          secondary={`样本 ${profile.sample_count}`}
                         />
                       </ListItemButton>
                     ))}
@@ -219,52 +219,81 @@ export function VoiceprintLibraryPage() {
         </Grid>
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack spacing={3}>
+            {activeProfile ? (
+              <Card>
+                <CardContent>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems={{ xs: 'flex-start', md: 'center' }}>
+                    <Avatar sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
+                      <FingerprintRounded />
+                    </Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h5">{activeProfile.display_name}</Typography>
+                      <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
+                        <Chip size="small" label={`样本 ${activeProfile.sample_count}`} color={activeProfile.sample_count > 0 ? 'success' : 'default'} />
+                        <Chip size="small" variant="outlined" label={`档案 ${activeProfile.profile_id}`} />
+                      </Stack>
+                    </Box>
+                    <Stack direction="row" spacing={1.5}>
+                      <Button variant="outlined" onClick={handleVerify} disabled={busy}>
+                        声纹验证
+                      </Button>
+                      <Button variant="outlined" onClick={handleIdentify} disabled={busy}>
+                        声纹识别
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ) : (
+              <Alert severity="info">请选择一个档案开始操作。</Alert>
+            )}
+
             <Card>
               <CardContent>
-                {activeProfile ? (
-                  <Stack spacing={2.5}>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
-                      <Avatar sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
-                        <FingerprintRounded />
-                      </Avatar>
-                      <Box>
-                        <Typography variant="h5">{activeProfile.display_name}</Typography>
-                        <Typography color="text.secondary">档案编号 {activeProfile.profile_id}</Typography>
-                      </Box>
-                    </Stack>
-                    <Grid container spacing={2}>
-                      {[
-                        { label: '样本数', value: String(activeProfile.sample_count) },
-                        { label: '模型', value: activeProfile.model_key },
-                        { label: '待比对音频', value: (probeFile?.name ?? probeAssetName) || '尚未上传' },
-                      ].map((item) => (
-                        <Grid key={item.label} size={{ xs: 12, md: 4 }}>
-                          <Card variant="outlined" sx={{ borderRadius: 4 }}>
-                            <CardContent>
-                              <Typography variant="body2" color="text.secondary">
-                                {item.label}
-                              </Typography>
-                              <Typography variant="h6" sx={{ mt: 1 }}>
-                                {item.value}
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
+                <Stack spacing={1.5}>
+                  <Typography variant="h6">上传待比对音频</Typography>
+                  <AudioUploadField
+                    label="选择用于验证 / 识别的音频文件"
+                    fileName={(probeFile?.name ?? probeAssetName) || null}
+                    helperText="支持 wav、m4a、mp3、flac；点击验证或识别时会先上传文件，再调用后端声纹能力。"
+                    disabled={busy}
+                    error={null}
+                    onChange={(file) => {
+                      setProbeFile(file);
+                      if (file) {
+                        setProbeAssetName('');
+                      }
+                      resetMessages();
+                    }}
+                  />
+                  {verifyResult ? (
+                    <Alert severity={verifyResult.matched ? 'success' : 'warning'}>
+                      相似度 {verifyResult.score}，{verifyResult.matched ? '已通过验证' : '未达到阈值'}
+                    </Alert>
+                  ) : null}
+                  {identifyResult.length ? (
+                    <Stack spacing={1}>
+                      <Typography variant="body2" color="text.secondary">
+                        识别结果
+                      </Typography>
+                      {identifyResult.map((item) => (
+                        <Chip key={item} label={item} sx={{ justifyContent: 'flex-start' }} />
                       ))}
-                    </Grid>
-                  </Stack>
-                ) : (
-                  <Alert severity="info">请选择一个档案开始操作。</Alert>
-                )}
+                    </Stack>
+                  ) : null}
+                </Stack>
               </CardContent>
             </Card>
 
             <Card variant="outlined">
               <CardContent>
                 <Stack spacing={1.5}>
-                  <Typography variant="h6">可选：注册基准音频</Typography>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <RecordVoiceOverRounded color="action" fontSize="small" />
+                    <Typography variant="h6">注册基准音频（可选）</Typography>
+                  </Stack>
                   <Typography variant="body2" color="text.secondary">
-                    当你需要把某个身份写入声纹库时，再上传注册音频；默认转写和说话人分离流程不依赖这一步。
+                    当你需要把某个身份写入声纹库时，上传注册音频；默认验证与识别流程不依赖这一步。
                   </Typography>
                   <AudioUploadField
                     label="选择用于注册的音频文件"
@@ -287,75 +316,6 @@ export function VoiceprintLibraryPage() {
                 </Stack>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardContent>
-                <Stack spacing={1.5}>
-                  <Typography variant="h6">上传待比对音频</Typography>
-                  <AudioUploadField
-                    label="选择用于验证 / 识别的音频文件"
-                    fileName={(probeFile?.name ?? probeAssetName) || null}
-                    helperText="支持 wav、m4a、mp3、flac；点击验证或识别时会先上传文件，再调用后端声纹能力。"
-                    disabled={busy}
-                    error={null}
-                    onChange={(file) => {
-                      setProbeFile(file);
-                      if (file) {
-                        setProbeAssetName('');
-                      }
-                      resetMessages();
-                    }}
-                  />
-                </Stack>
-              </CardContent>
-            </Card>
-
-            <Grid container spacing={3}>
-              <Grid size={{ xs: 12, lg: 6 }}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Stack spacing={2}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <RecordVoiceOverRounded color="primary" />
-                        <Typography variant="h6">声纹验证</Typography>
-                      </Stack>
-                      <Typography color="text.secondary">上传一段待比对音频，对选中的档案执行 1:1 核验。</Typography>
-                      <Button variant="contained" onClick={handleVerify} disabled={!activeProfile || busy}>
-                        开始验证
-                      </Button>
-                      {verifyResult ? (
-                        <Alert severity={verifyResult.matched ? 'success' : 'warning'}>
-                          相似度 {verifyResult.score}，{verifyResult.matched ? '已通过验证' : '未达到阈值'}
-                        </Alert>
-                      ) : null}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 12, lg: 6 }}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Stack spacing={2}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <FingerprintRounded color="primary" />
-                        <Typography variant="h6">声纹识别</Typography>
-                      </Stack>
-                      <Typography color="text.secondary">上传一段待比对音频，在声纹库中返回最相近的候选档案。</Typography>
-                      <Button variant="outlined" onClick={handleIdentify} disabled={busy}>
-                        开始识别
-                      </Button>
-                      {identifyResult.length ? (
-                        <Stack spacing={1}>
-                          {identifyResult.map((item) => (
-                            <Chip key={item} label={item} sx={{ justifyContent: 'flex-start' }} />
-                          ))}
-                        </Stack>
-                      ) : null}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
 
             {actionError ? <Alert severity="error">{actionError}</Alert> : null}
           </Stack>

@@ -108,26 +108,7 @@ describe('VoiceprintLibraryPage', () => {
     expect((await screen.findAllByText('测试用户')).length).toBeGreaterThan(0);
   });
 
-  it('uploads and enrolls voiceprint sample', async () => {
-    const { container } = renderPage();
-
-    await waitFor(() => {
-      expect(fetchVoiceprintProfiles).toHaveBeenCalled();
-    });
-
-    const fileInputs = container.querySelectorAll('input[type="file"]');
-    const file = new File(['voice'], 'voice.wav', { type: 'audio/wav' });
-    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: '开始注册' }));
-
-    await waitFor(() => {
-      expect(uploadAudio).toHaveBeenCalled();
-      expect(enrollVoiceprint).toHaveBeenCalledWith('sample-female-1', 'uploaded.wav');
-    });
-    expect(await screen.findByText(/注册完成/)).toBeInTheDocument();
-  });
-
-  it('uploads probe and calls verify / identify', async () => {
+  it('uploads probe and calls verify', async () => {
     const { container } = renderPage();
 
     await waitFor(() => {
@@ -137,20 +118,52 @@ describe('VoiceprintLibraryPage', () => {
     const fileInputs = container.querySelectorAll('input[type="file"]');
     const file = new File(['probe'], 'probe.wav', { type: 'audio/wav' });
 
-    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: '开始验证' }));
+    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '声纹验证' }));
 
     await waitFor(() => {
+      expect(uploadAudio).toHaveBeenCalled();
       expect(verifyVoiceprint).toHaveBeenCalledWith('sample-female-1', 'uploaded.wav', 0.7);
     });
     expect(await screen.findByText(/相似度 0.98/)).toBeInTheDocument();
+  });
 
-    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: '开始识别' }));
+  it('uploads probe and calls identify', async () => {
+    const { container } = renderPage();
 
     await waitFor(() => {
+      expect(fetchVoiceprintProfiles).toHaveBeenCalled();
+    });
+
+    const fileInputs = container.querySelectorAll('input[type="file"]');
+    const file = new File(['probe'], 'probe.wav', { type: 'audio/wav' });
+
+    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '声纹识别' }));
+
+    await waitFor(() => {
+      expect(uploadAudio).toHaveBeenCalled();
       expect(identifyVoiceprint).toHaveBeenCalledWith('uploaded.wav', 3);
     });
     expect(await screen.findByText(/1\. 女声样本 1 · 相似度 0.98/)).toBeInTheDocument();
+  });
+
+  it('uploads and enrolls voiceprint sample', async () => {
+    const { container } = renderPage();
+
+    await waitFor(() => {
+      expect(fetchVoiceprintProfiles).toHaveBeenCalled();
+    });
+
+    const fileInputs = container.querySelectorAll('input[type="file"]');
+    const file = new File(['voice'], 'voice.wav', { type: 'audio/wav' });
+    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '开始注册' }));
+
+    await waitFor(() => {
+      expect(uploadAudio).toHaveBeenCalled();
+      expect(enrollVoiceprint).toHaveBeenCalledWith('sample-female-1', 'uploaded.wav');
+    });
+    expect(await screen.findByText(/注册完成/)).toBeInTheDocument();
   });
 });

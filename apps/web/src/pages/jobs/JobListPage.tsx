@@ -1,10 +1,15 @@
+import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
+import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
+import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardActionArea,
   CardContent,
   Chip,
+  Grid,
   MenuItem,
   Stack,
   TextField,
@@ -19,16 +24,39 @@ import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
 
+function StatChip({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: 'primary' | 'success' | 'error' | 'warning';
+}) {
+  return (
+    <Chip
+      label={`${label} ${value}`}
+      color={color}
+      sx={{ fontWeight: 700, fontSize: 13 }}
+    />
+  );
+}
+
 export function JobListPage() {
   const { data, loading, error, reload } = useAsyncData(() => fetchJobs(), []);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const filteredJobs = useMemo(() => {
+  const { filteredJobs, statCounts } = useMemo(() => {
     const items = data?.items ?? [];
-    if (statusFilter === 'all') {
-      return items;
-    }
-    return items.filter((job) => job.status === statusFilter);
+    const counts = { all: items.length, queued: 0, running: 0, succeeded: 0, failed: 0 };
+    items.forEach((job) => {
+      if (job.status in counts) {
+        counts[job.status as keyof typeof counts]++;
+      }
+    });
+    const filtered =
+      statusFilter === 'all' ? items : items.filter((job) => job.status === statusFilter);
+    return { filteredJobs: filtered, statCounts: counts };
   }, [data?.items, statusFilter]);
 
   return (
@@ -39,7 +67,13 @@ export function JobListPage() {
       error={error}
       actions={
         <Stack direction="row" spacing={1.5}>
-          <TextField select size="small" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} sx={{ minWidth: 140 }}>
+          <TextField
+            select
+            size="small"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            sx={{ minWidth: 140 }}
+          >
             <MenuItem value="all">全部状态</MenuItem>
             <MenuItem value="queued">排队中</MenuItem>
             <MenuItem value="running">处理中</MenuItem>
@@ -52,6 +86,15 @@ export function JobListPage() {
         </Stack>
       }
     >
+      <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+        <StatChip label="全部" value={statCounts.all} color="primary" />
+        <StatChip label="处理中" value={statCounts.queued + statCounts.running} color="warning" />
+        <StatChip label="已完成" value={statCounts.succeeded} color="success" />
+        {statCounts.failed > 0 ? (
+          <StatChip label="失败" value={statCounts.failed} color="error" />
+        ) : null}
+      </Stack>
+
       <Stack spacing={2}>
         {filteredJobs.length ? (
           filteredJobs.map((job) => (

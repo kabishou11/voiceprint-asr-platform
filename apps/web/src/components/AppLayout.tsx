@@ -1,11 +1,8 @@
 import HomeRounded from '@mui/icons-material/HomeRounded';
 import ManageSearchRounded from '@mui/icons-material/ManageSearchRounded';
 import MicRounded from '@mui/icons-material/MicRounded';
-import RadarRounded from '@mui/icons-material/RadarRounded';
 import {
-  Avatar,
   Box,
-  Chip,
   Divider,
   Drawer,
   List,
@@ -17,13 +14,14 @@ import {
 import { alpha } from '@mui/material/styles';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
+import { BrandLogo } from './BrandLogo';
+
 const drawerWidth = 288;
 
 const navItems = [
   { label: '工作台', to: '/', icon: <HomeRounded fontSize="small" /> },
   { label: '任务中心', to: '/jobs', icon: <ManageSearchRounded fontSize="small" /> },
   { label: '声纹库', to: '/voiceprints', icon: <MicRounded fontSize="small" /> },
-  { label: '模型状态', to: '/system/models', icon: <RadarRounded fontSize="small" /> },
 ];
 
 function resolveCurrentPage(pathname: string) {
@@ -51,36 +49,8 @@ export function AppLayout() {
         }}
       >
         <Stack spacing={3} sx={{ height: '100%' }}>
-          <Stack spacing={2} sx={{ px: 1.5, pt: 1.5 }}>
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <Avatar
-                sx={{
-                  bgcolor: 'primary.main',
-                  width: 48,
-                  height: 48,
-                  fontWeight: 800,
-                }}
-              >
-                VP
-              </Avatar>
-              <Box>
-                <Typography variant="h6" sx={{ color: '#f8fafc' }}>
-                  智能语音平台
-                </Typography>
-                <Typography variant="body2" sx={{ color: alpha('#e2e8f0', 0.72) }}>
-                  转写、分离、声纹一体化工作台
-                </Typography>
-              </Box>
-            </Stack>
-            <Chip
-              size="small"
-              label="企业版工作台"
-              sx={{
-                alignSelf: 'flex-start',
-                bgcolor: alpha('#60a5fa', 0.18),
-                color: '#bfdbfe',
-              }}
-            />
+          <Stack sx={{ px: 1.5, pt: 1.5 }}>
+            <BrandLogo light />
           </Stack>
 
           <List sx={{ px: 0.5 }}>
