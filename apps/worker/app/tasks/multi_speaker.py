@@ -13,11 +13,48 @@ def run_multi_speaker_transcription(
     asset_name: str,
     asr_model_key: str = "funasr-nano",
     diarization_model_key: str = "3dspeaker-diarization",
+    *,
+    hotwords: list[str] | None = None,
+    language: str = "zh-cn",
+    vad_enabled: bool = True,
+    itn: bool = True,
+    num_speakers: int | None = None,
 ) -> TranscriptResult:
+    """运行多人转写任务。
+
+    参数：
+        job_id: 任务 ID
+        asset_name: 音频资产名
+        asr_model_key: ASR 模型键（默认 funasr-nano）
+        diarization_model_key: 说话人分离模型键（默认 3dspeaker-diarization）
+        hotwords: 热词列表，用于提升专业术语识别率
+        language: 语言/方言（zh-cn / en / yue / Sichuan 等）
+        vad_enabled: 是否启用 VAD（语音活动检测，过滤静音噪声）
+        itn: 是否启用逆文本正则化（数字/日期/货币格式化）
+        num_speakers: 已知说话人数量（用于聚类提示，None 则自动估计）
+    """
     registry = get_worker_registry()
     asset = preprocess_audio(adapter_asset(asset_name))
-    transcript = registry.get_asr(asr_model_key).transcribe(asset)
-    diarization_segments = registry.get_diarization(diarization_model_key).diarize(asset)
+
+    # 配置 ASR 适配器
+    asr_adapter = registry.get_asr(asr_model_key)
+    if hotwords and hasattr(asr_adapter, "hotwords"):
+        asr_adapter.hotwords = hotwords
+    if hasattr(asr_adapter, "language"):
+        asr_adapter.language = language
+    if hasattr(asr_adapter, "vad_enabled"):
+        asr_adapter.vad_enabled = vad_enabled
+    if hasattr(asr_adapter, "itn"):
+        asr_adapter.itn = itn
+
+    # 运行 ASR 转写
+    transcript = asr_adapter.transcribe(asset)
+
+    # 运行说话人分离（VAD + CAM++ + 谱聚类）
+    diarization_adapter = registry.get_diarization(diarization_model_key)
+    diarization_segments = diarization_adapter.diarize(asset)
+
+    # 对齐转写文本与说话人标签
     return align_transcript_with_speakers(transcript, diarization_segments)
 
 
