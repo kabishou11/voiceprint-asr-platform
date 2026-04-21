@@ -62,6 +62,8 @@ export function JobListPage() {
   return (
     <PageSection
       title="任务中心"
+      eyebrow="处理记录"
+      eyebrowColor="primary"
       description="集中查看当前任务、处理状态和结果入口。"
       loading={loading}
       error={error}

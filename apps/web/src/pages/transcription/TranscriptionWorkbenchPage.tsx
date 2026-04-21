@@ -1,7 +1,6 @@
 import AddRounded from '@mui/icons-material/AddRounded';
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
-import GraphicEqRounded from '@mui/icons-material/GraphicEqRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import QueueMusicRounded from '@mui/icons-material/QueueMusicRounded';
 import {
@@ -21,18 +20,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
-import {
-  formatDateTime,
-  jobStatusLabels,
-  jobTypeLabels,
-  modelTaskLabels,
-  providerLabels,
-  type ModelInfo,
-} from '../../api/types';
+import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { BrandLogo } from '../../components/BrandLogo';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
+import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
 
 const quickTemplates = [
@@ -40,48 +33,6 @@ const quickTemplates = [
   '丹山路.m4a',
   '5分钟.wav',
 ];
-
-function JobStatCard({
-  label,
-  value,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  color: 'primary' | 'success' | 'error' | 'warning';
-}) {
-  return (
-    <Card>
-      <CardContent>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 3,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              bgcolor: `${color}.main`,
-              color: '#fff',
-              opacity: 0.9,
-            }}
-          >
-            {icon}
-          </Box>
-          <Box>
-            <Typography color="text.secondary" variant="body2">
-              {label}
-            </Typography>
-            <Typography variant="h5">{value}</Typography>
-          </Box>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
 
 export function TranscriptionWorkbenchPage() {
   const navigate = useNavigate();
@@ -147,7 +98,9 @@ export function TranscriptionWorkbenchPage() {
     <Stack spacing={3}>
       <PageSection
         title="智能语音工作台"
-        description="上传真实音频文件，默认按多人转写流程处理，任务状态随时可查。"
+        eyebrow="任务工作台"
+        eyebrowColor="secondary"
+        description="上传音频即可发起任务，实时追踪处理状态，随时查看转写结果。"
         loading={modelsState.loading || jobsState.loading}
         error={modelsState.error ?? jobsState.error}
         actions={
@@ -257,7 +210,7 @@ export function TranscriptionWorkbenchPage() {
             <Stack spacing={3}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="总任务数"
                     value={String(jobSummary.total)}
                     icon={<QueueMusicRounded fontSize="small" />}
@@ -265,7 +218,7 @@ export function TranscriptionWorkbenchPage() {
                   />
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="处理中"
                     value={String(jobSummary.running)}
                     icon={<HourglassEmptyRounded fontSize="small" />}
@@ -273,7 +226,7 @@ export function TranscriptionWorkbenchPage() {
                   />
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                  <JobStatCard
+                  <StatCard
                     label="已完成"
                     value={String(jobSummary.done)}
                     icon={<CheckCircleOutlineRounded fontSize="small" />}
@@ -282,7 +235,7 @@ export function TranscriptionWorkbenchPage() {
                 </Grid>
                 {jobSummary.failed > 0 ? (
                   <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
-                    <JobStatCard
+                    <StatCard
                       label="失败"
                       value={String(jobSummary.failed)}
                       icon={<ErrorOutlineRounded fontSize="small" />}

@@ -1,9 +1,11 @@
 import AudioFileRounded from '@mui/icons-material/AudioFileRounded';
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import {
   Alert,
   Box,
   Button,
+  Chip,
   Stack,
   Typography,
 } from '@mui/material';
@@ -30,6 +32,7 @@ export function AudioUploadField({
 }: AudioUploadFieldProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const hasFile = Boolean(fileName);
 
   return (
     <Stack spacing={1.25}>
@@ -39,21 +42,28 @@ export function AudioUploadField({
       <Box
         sx={{
           border: '1px dashed',
-          borderColor: error ? 'error.main' : 'divider',
+          borderColor: error ? 'error.main' : hasFile ? 'success.main' : 'divider',
           borderRadius: 4,
           p: 2,
           bgcolor: 'background.default',
+          transition: 'border-color 0.18s, background-color 0.18s',
+          ...(hasFile && !error
+            ? {
+                bgcolor: 'rgba(22, 163, 74, 0.05)',
+                borderColor: 'success.main',
+              }
+            : {}),
         }}
       >
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Button
             component="label"
             htmlFor={inputId}
-            variant="outlined"
-            startIcon={<UploadFileRounded />}
+            variant={hasFile ? 'outlined' : 'contained'}
+            startIcon={hasFile ? <CheckCircleRounded /> : <UploadFileRounded />}
             disabled={disabled}
           >
-            选择音频
+            {hasFile ? '更换文件' : '选择音频'}
           </Button>
           <input
             id={inputId}
@@ -66,10 +76,26 @@ export function AudioUploadField({
               onChange(file);
             }}
           />
-          <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+          <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              <AudioFileRounded fontSize="small" color="primary" />
-              <Typography noWrap>{fileName || '尚未选择文件'}</Typography>
+              <AudioFileRounded fontSize="small" color={hasFile ? 'success' : 'primary'} />
+              <Typography
+                noWrap
+                sx={{
+                  color: hasFile ? 'text.primary' : 'text.secondary',
+                  fontWeight: hasFile ? 600 : 400,
+                }}
+              >
+                {fileName || '尚未选择文件'}
+              </Typography>
+              {hasFile ? (
+                <Chip
+                  size="small"
+                  label="已就绪"
+                  color="success"
+                  sx={{ height: 20, fontSize: 11 }}
+                />
+              ) : null}
             </Stack>
             {helperText ? (
               <Typography variant="body2" color="text.secondary">
@@ -77,9 +103,10 @@ export function AudioUploadField({
               </Typography>
             ) : null}
           </Stack>
-          {fileName ? (
+          {hasFile ? (
             <Button
               color="inherit"
+              size="small"
               disabled={disabled}
               onClick={() => {
                 if (inputRef.current) {

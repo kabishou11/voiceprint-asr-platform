@@ -171,6 +171,8 @@ export function VoiceprintLibraryPage() {
   return (
     <PageSection
       title="声纹库"
+      eyebrow="身份核验"
+      eyebrowColor="secondary"
       description="上传待比对音频，对选中的档案执行 1:1 验证或在声纹库中识别候选人。"
       loading={profilesState.loading}
       error={profilesState.error}

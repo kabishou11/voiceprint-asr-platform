@@ -3,6 +3,7 @@ import ManageSearchRounded from '@mui/icons-material/ManageSearchRounded';
 import MicRounded from '@mui/icons-material/MicRounded';
 import {
   Box,
+  Chip,
   Divider,
   Drawer,
   List,
@@ -85,13 +86,26 @@ export function AppLayout() {
 
           <Box sx={{ px: 1.5, mt: 'auto' }}>
             <Divider sx={{ borderColor: alpha('#ffffff', 0.08), mb: 2 }} />
-            <Stack spacing={0.75}>
-              <Typography variant="body2" sx={{ color: alpha('#e2e8f0', 0.66) }}>
-                当前页面
-              </Typography>
+            <Stack spacing={1}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ color: alpha('#e2e8f0', 0.66) }}>
+                  当前页面
+                </Typography>
+              </Stack>
               <Typography variant="subtitle1" sx={{ color: '#f8fafc', fontWeight: 700 }}>
                 {resolveCurrentPage(location.pathname)}
               </Typography>
+              <Chip
+                size="small"
+                label="v1.0.0"
+                sx={{
+                  alignSelf: 'flex-start',
+                  bgcolor: alpha('#ffffff', 0.06),
+                  color: alpha('#e2e8f0', 0.5),
+                  fontSize: 11,
+                  height: 20,
+                }}
+              />
             </Stack>
           </Box>
         </Stack>

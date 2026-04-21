@@ -1,16 +1,27 @@
-import { Alert, Box, LinearProgress, Stack, Typography } from '@mui/material';
+import { Alert, Box, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 interface PageSectionProps {
   title: string;
   description?: string;
+  eyebrow?: string;
+  eyebrowColor?: 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'default';
   loading?: boolean;
   error?: string | null;
   actions?: ReactNode;
   children: ReactNode;
 }
 
-export function PageSection({ title, description, loading, error, actions, children }: PageSectionProps) {
+export function PageSection({
+  title,
+  description,
+  eyebrow,
+  eyebrowColor = 'primary',
+  loading,
+  error,
+  actions,
+  children,
+}: PageSectionProps) {
   return (
     <Stack spacing={3}>
       <Box
@@ -30,6 +41,14 @@ export function PageSection({ title, description, loading, error, actions, child
           justifyContent="space-between"
         >
           <Stack spacing={0.75}>
+            {eyebrow ? (
+              <Chip
+                size="small"
+                label={eyebrow}
+                color={eyebrowColor}
+                sx={{ alignSelf: 'flex-start', fontWeight: 700, fontSize: 12 }}
+              />
+            ) : null}
             <Typography variant="h4">{title}</Typography>
             {description ? (
               <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
