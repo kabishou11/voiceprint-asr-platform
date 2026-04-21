@@ -1,8 +1,11 @@
 import AddRounded from '@mui/icons-material/AddRounded';
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
+import FingerprintRounded from '@mui/icons-material/FingerprintRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
+import MicExternalOnRounded from '@mui/icons-material/MicExternalOnRounded';
 import QueueMusicRounded from '@mui/icons-material/QueueMusicRounded';
+import RecordVoiceOverRounded from '@mui/icons-material/RecordVoiceOverRounded';
 import {
   Alert,
   Box,
@@ -297,19 +300,78 @@ export function TranscriptionWorkbenchPage() {
             </Card>
           </Grid>
           <Grid size={{ xs: 12, lg: 5 }}>
-            <Card>
-              <CardContent>
-                <Stack spacing={2.5}>
-                  <Typography variant="h6">声纹库</Typography>
-                  <Typography color="text.secondary">
-                    声纹验证与识别属于按需能力，无需每次操作。已有档案时可直接上传待比对音频进行核验。
-                  </Typography>
-                  <Button variant="outlined" onClick={() => navigate('/voiceprints')}>
-                    前往声纹库
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
+            <Stack spacing={2}>
+              <Typography variant="h6">核心能力</Typography>
+              <Grid container spacing={2}>
+                {[
+                  {
+                    icon: <MicExternalOnRounded sx={{ fontSize: 28 }} />,
+                    label: '语音识别',
+                    desc: 'FunASR 高精度模型，音频转文字，支持中文普通话及多语言',
+                    chip: 'ASR',
+                    chipColor: 'primary' as const,
+                    action: () => {},
+                    actionLabel: '已内置',
+                    actionVariant: 'outlined' as const,
+                  },
+                  {
+                    icon: <RecordVoiceOverRounded sx={{ fontSize: 28 }} />,
+                    label: '说话人分离',
+                    desc: '自动识别不同说话人，带说话人标签输出转写结果',
+                    chip: '默认启用',
+                    chipColor: 'success' as const,
+                    action: () => {},
+                    actionLabel: '已内置',
+                    actionVariant: 'outlined' as const,
+                  },
+                  {
+                    icon: <FingerprintRounded sx={{ fontSize: 28 }} />,
+                    label: '声纹识别',
+                    desc: '1:1 验证与 1:N 识别，精准核验说话人身份',
+                    chip: '按需启用',
+                    chipColor: 'warning' as const,
+                    action: () => navigate('/voiceprints'),
+                    actionLabel: '前往声纹库',
+                    actionVariant: 'outlined' as const,
+                  },
+                ].map((item) => (
+                  <Grid key={item.label} size={{ xs: 12 }}>
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        borderRadius: 4,
+                        transition: 'box-shadow 0.18s',
+                        '&:hover': { boxShadow: '0 8px 24px rgba(15,23,42,0.1)' },
+                      }}
+                    >
+                      <CardContent sx={{ p: '16px !important' }}>
+                        <Stack spacing={1.5}>
+                          <Stack direction="row" spacing={1.5} alignItems="center">
+                            <Box sx={{ color: 'primary.main', flexShrink: 0 }}>{item.icon}</Box>
+                            <Box sx={{ flex: 1 }}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Typography fontWeight={700}>{item.label}</Typography>
+                                <Chip size="small" label={item.chip} color={item.chipColor} sx={{ height: 18, fontSize: 11 }} />
+                              </Stack>
+                            </Box>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">
+                            {item.desc}
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant={item.actionVariant}
+                            onClick={item.action}
+                          >
+                            {item.actionLabel}
+                          </Button>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Stack>
           </Grid>
         </Grid>
       </PageSection>
