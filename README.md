@@ -1,35 +1,10 @@
 # voiceprint-asr-platform
 
 <p align="center">
-  <!-- Logo SVG: concentric rings + waveform bars + VP mark -->
-  <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="logoGrad" x1="0" y1="0" x2="72" y2="72" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="#2563eb"/>
-        <stop offset="48%" stop-color="#1d4ed8"/>
-        <stop offset="100%" stop-color="#0f766e"/>
-      </linearGradient>
-    </defs>
-    <rect width="72" height="72" rx="20" fill="url(#logoGrad)" opacity="0.12"/>
-    <rect x="10" y="10" width="52" height="52" rx="26" stroke="white" stroke-width="1.5" opacity="0.22"/>
-    <rect x="18" y="18" width="36" height="36" rx="18" stroke="white" stroke-width="1.5" opacity="0.3"/>
-    <rect x="26" y="26" width="20" height="20" rx="10" fill="white" opacity="0.18" stroke="white" stroke-width="1.5"/>
-    <rect x="26" y="26" width="20" height="20" rx="10" fill="white" opacity="0.15"/>
-    <text x="36" y="40" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="900" fill="white" opacity="0.95" letter-spacing="0.08em">VP</text>
-    <!-- Waveform bars left -->
-    <rect x="11" y="28" width="3" height="8" rx="1.5" fill="white" opacity="0.82"/>
-    <rect x="16" y="24" width="3" height="16" rx="1.5" fill="white" opacity="0.72"/>
-    <rect x="21" y="20" width="3" height="24" rx="1.5" fill="white" opacity="0.62"/>
-    <!-- Waveform bars right -->
-    <rect x="48" y="24" width="3" height="16" rx="1.5" fill="white" opacity="0.82"/>
-    <rect x="53" y="28" width="3" height="8" rx="1.5" fill="white" opacity="0.72"/>
-    <rect x="58" y="30" width="3" height="4" rx="1.5" fill="white" opacity="0.62"/>
-    <!-- Dot accent -->
-    <circle cx="57" cy="58" r="3" fill="#99f6e4" opacity="0.95"/>
-  </svg>
+  <img src="docs/logo.svg" alt="智能语音平台 Logo" width="96" />
 </p>
 
-<h1 align="center" style="margin-top: 8px;">智能语音平台</h1>
+<h1 align="center">智能语音平台</h1>
 
 <p align="center" style="color: #64748b; font-size: 15px; margin-top: -4px;">
   多人转写 · 说话人分离 · 声纹核验
