@@ -20,6 +20,5 @@ describe('AppLayout', () => {
     expect(screen.getAllByText('工作台').length).toBeGreaterThan(0);
     expect(screen.getByText('任务中心')).toBeInTheDocument();
     expect(screen.getAllByText('声纹库').length).toBeGreaterThan(0);
-    expect(screen.getByText('模型状态')).toBeInTheDocument();
   });
 });

@@ -1,7 +1,9 @@
 import AddRounded from '@mui/icons-material/AddRounded';
+import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
+import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 import GraphicEqRounded from '@mui/icons-material/GraphicEqRounded';
+import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import QueueMusicRounded from '@mui/icons-material/QueueMusicRounded';
-import TimelineRounded from '@mui/icons-material/TimelineRounded';
 import {
   Alert,
   Box,
@@ -21,13 +23,14 @@ import { useNavigate } from 'react-router-dom';
 import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
 import {
   formatDateTime,
+  jobStatusLabels,
   jobTypeLabels,
-  modelAvailabilityLabels,
   modelTaskLabels,
   providerLabels,
   type ModelInfo,
 } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
+import { BrandLogo } from '../../components/BrandLogo';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
@@ -37,6 +40,48 @@ const quickTemplates = [
   '丹山路.m4a',
   '5分钟.wav',
 ];
+
+function JobStatCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  color: 'primary' | 'success' | 'error' | 'warning';
+}) {
+  return (
+    <Card>
+      <CardContent>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 3,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: `${color}.main`,
+              color: '#fff',
+              opacity: 0.9,
+            }}
+          >
+            {icon}
+          </Box>
+          <Box>
+            <Typography color="text.secondary" variant="body2">
+              {label}
+            </Typography>
+            <Typography variant="h5">{value}</Typography>
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function TranscriptionWorkbenchPage() {
   const navigate = useNavigate();
@@ -50,7 +95,10 @@ export function TranscriptionWorkbenchPage() {
   const jobsState = useAsyncData(() => fetchJobs(), []);
 
   const diarizationOptions = useMemo(
-    () => (modelsState.data?.items ?? []).filter((item) => item.task === 'diarization' && item.availability === 'available'),
+    () =>
+      (modelsState.data?.items ?? []).filter(
+        (item) => item.task === 'diarization' && item.availability === 'available',
+      ),
     [modelsState.data],
   );
 
@@ -60,14 +108,15 @@ export function TranscriptionWorkbenchPage() {
     }
   }, [diarizationModel, diarizationOptions]);
 
-  const modelSummary = useMemo(() => {
-    const items = modelsState.data?.items ?? [];
+  const jobSummary = useMemo(() => {
+    const items = jobsState.data?.items ?? [];
     return {
-      ready: items.filter((item) => item.availability === 'available').length,
-      optional: items.filter((item) => item.availability === 'optional').length,
       total: items.length,
+      running: items.filter((j) => j.status === 'running' || j.status === 'queued').length,
+      done: items.filter((j) => j.status === 'succeeded').length,
+      failed: items.filter((j) => j.status === 'failed').length,
     };
-  }, [modelsState.data]);
+  }, [jobsState.data]);
 
   const recentJobs = useMemo(() => (jobsState.data?.items ?? []).slice(0, 3), [jobsState.data]);
 
@@ -98,11 +147,16 @@ export function TranscriptionWorkbenchPage() {
     <Stack spacing={3}>
       <PageSection
         title="智能语音工作台"
-        description="上传真实音频文件，默认按多人转写流程处理，并集中查看模型与结果状态。"
+        description="上传真实音频文件，默认按多人转写流程处理，任务状态随时可查。"
         loading={modelsState.loading || jobsState.loading}
         error={modelsState.error ?? jobsState.error}
         actions={
-          <Button variant="contained" startIcon={<AddRounded />} onClick={handleSubmit} disabled={submitting || (!selectedFile && !uploadedAssetName.trim())}>
+          <Button
+            variant="contained"
+            startIcon={<AddRounded />}
+            onClick={handleSubmit}
+            disabled={submitting || (!selectedFile && !uploadedAssetName.trim())}
+          >
             {submitting ? '正在创建' : '新建任务'}
           </Button>
         }
@@ -120,7 +174,7 @@ export function TranscriptionWorkbenchPage() {
                 <Grid container spacing={3} alignItems="stretch">
                   <Grid size={{ xs: 12, md: 7 }}>
                     <Stack spacing={2.5}>
-                      <Chip label="语音任务中心" sx={{ alignSelf: 'flex-start', bgcolor: 'rgba(255,255,255,0.16)', color: '#fff' }} />
+                      <BrandLogo size={52} withWordmark={false} light />
                       <Typography variant="h3">默认直达多人转写与说话人分离</Typography>
                       <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontSize: 16, lineHeight: 1.75 }}>
                         面向会议纪要、客服质检和安全核验场景，上传真实音频后优先输出带说话人标签的转写结果。
@@ -179,7 +233,12 @@ export function TranscriptionWorkbenchPage() {
                           </TextField>
                           {submitError ? <Alert severity="error">{submitError}</Alert> : null}
                           <Stack direction="row" spacing={1.5}>
-                            <Button variant="contained" fullWidth onClick={handleSubmit} disabled={submitting || (!selectedFile && !uploadedAssetName.trim())}>
+                            <Button
+                              variant="contained"
+                              fullWidth
+                              onClick={handleSubmit}
+                              disabled={submitting || (!selectedFile && !uploadedAssetName.trim())}
+                            >
                               {submitting ? '创建中' : '立即开始'}
                             </Button>
                             <Button variant="outlined" fullWidth onClick={() => navigate('/jobs')}>
@@ -197,27 +256,40 @@ export function TranscriptionWorkbenchPage() {
           <Grid size={{ xs: 12, xl: 4 }}>
             <Stack spacing={3}>
               <Grid container spacing={2}>
-                {[
-                  { label: '总任务数', value: String(jobsState.data?.items?.length ?? 0), icon: <QueueMusicRounded color="primary" /> },
-                  { label: '就绪模型', value: `${modelSummary.ready}/${modelSummary.total || 0}`, icon: <GraphicEqRounded color="primary" /> },
-                  { label: '按需模型', value: String(modelSummary.optional), icon: <TimelineRounded color="primary" /> },
-                ].map((item) => (
-                  <Grid key={item.label} size={{ xs: 12, sm: 4, xl: 12 }}>
-                    <Card>
-                      <CardContent>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          {item.icon}
-                          <Box>
-                            <Typography color="text.secondary" variant="body2">
-                              {item.label}
-                            </Typography>
-                            <Typography variant="h5">{item.value}</Typography>
-                          </Box>
-                        </Stack>
-                      </CardContent>
-                    </Card>
+                <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
+                  <JobStatCard
+                    label="总任务数"
+                    value={String(jobSummary.total)}
+                    icon={<QueueMusicRounded fontSize="small" />}
+                    color="primary"
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
+                  <JobStatCard
+                    label="处理中"
+                    value={String(jobSummary.running)}
+                    icon={<HourglassEmptyRounded fontSize="small" />}
+                    color="warning"
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
+                  <JobStatCard
+                    label="已完成"
+                    value={String(jobSummary.done)}
+                    icon={<CheckCircleOutlineRounded fontSize="small" />}
+                    color="success"
+                  />
+                </Grid>
+                {jobSummary.failed > 0 ? (
+                  <Grid size={{ xs: 6, sm: 4, xl: 12 }}>
+                    <JobStatCard
+                      label="失败"
+                      value={String(jobSummary.failed)}
+                      icon={<ErrorOutlineRounded fontSize="small" />}
+                      color="error"
+                    />
                   </Grid>
-                ))}
+                ) : null}
               </Grid>
             </Stack>
           </Grid>
@@ -239,13 +311,18 @@ export function TranscriptionWorkbenchPage() {
                       recentJobs.map((job) => (
                         <Card key={job.job_id} variant="outlined" sx={{ borderRadius: 4 }}>
                           <CardContent>
-                            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
+                            <Stack
+                              direction={{ xs: 'column', md: 'row' }}
+                              justifyContent="space-between"
+                              spacing={2}
+                            >
                               <Stack spacing={0.75}>
                                 <Typography variant="subtitle1" fontWeight={700}>
                                   {job.asset_name ?? job.job_id}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                  {jobTypeLabels[job.job_type]} · 更新时间 {formatDateTime(job.updated_at)}
+                                  {jobTypeLabels[job.job_type]} · 更新时间{' '}
+                                  {formatDateTime(job.updated_at)}
                                 </Typography>
                               </Stack>
                               <Stack direction="row" spacing={1} alignItems="center">
@@ -270,21 +347,13 @@ export function TranscriptionWorkbenchPage() {
             <Card>
               <CardContent>
                 <Stack spacing={2.5}>
-                  <Typography variant="h6">模型状态</Typography>
-                  {(modelsState.data?.items ?? []).map((item: ModelInfo) => (
-                    <Stack key={item.key} direction="row" justifyContent="space-between" alignItems="center">
-                      <Stack spacing={0.5}>
-                        <Typography fontWeight={700}>{item.display_name}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {providerLabels[item.provider] ?? item.provider} · {modelTaskLabels[item.task]}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={1}>
-                        {item.experimental ? <Chip size="small" color="warning" label="实验性" /> : null}
-                        <Chip size="small" label={modelAvailabilityLabels[item.availability]} color={item.availability === 'available' ? 'success' : 'default'} />
-                      </Stack>
-                    </Stack>
-                  ))}
+                  <Typography variant="h6">声纹库</Typography>
+                  <Typography color="text.secondary">
+                    声纹验证与识别属于按需能力，无需每次操作。已有档案时可直接上传待比对音频进行核验。
+                  </Typography>
+                  <Button variant="outlined" onClick={() => navigate('/voiceprints')}>
+                    前往声纹库
+                  </Button>
                 </Stack>
               </CardContent>
             </Card>
