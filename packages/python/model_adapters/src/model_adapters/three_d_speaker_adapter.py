@@ -60,6 +60,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.tail_merge_cosine_threshold = 0.72
         self.local_reassign_cosine_threshold = 0.58
         self.local_reassign_margin = 0.02
+        self.frame_decode_step_s = 0.25
+        self.frame_decode_stickiness = 0.035
 
     @property
     def availability(self) -> str:
@@ -656,6 +658,137 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             for seg_start, seg_end, speaker_id in merged
         ]
 
+    def _decode_framewise_segments(
+        self,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        vad_segments: list[list[float]],
+    ) -> list[tuple[int, int, int]]:
+        if not chunk_list or labels.size == 0 or embeddings.size == 0 or not vad_segments:
+            return []
+
+        centers = self._speaker_centers(labels, embeddings)
+        if not centers:
+            return []
+
+        decoded_segments: list[list[float | int]] = []
+        step_s = max(0.1, float(self.frame_decode_step_s))
+        for vad_start, vad_end in vad_segments:
+            if vad_end <= vad_start:
+                continue
+            frame_labels = self._decode_vad_frames(
+                vad_start,
+                vad_end,
+                chunk_list,
+                labels,
+                embeddings,
+                centers,
+                step_s,
+            )
+            if not frame_labels:
+                continue
+            current_label = frame_labels[0][2]
+            current_start = frame_labels[0][0]
+            current_end = frame_labels[0][1]
+            for frame_start, frame_end, speaker_id in frame_labels[1:]:
+                if speaker_id == current_label and frame_start <= current_end + 1e-6:
+                    current_end = frame_end
+                    continue
+                decoded_segments.append([current_start, current_end, current_label])
+                current_start, current_end, current_label = frame_start, frame_end, speaker_id
+            decoded_segments.append([current_start, current_end, current_label])
+
+        return self._compress_segments(decoded_segments)
+
+    def _decode_vad_frames(
+        self,
+        vad_start: float,
+        vad_end: float,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+        step_s: float,
+    ) -> list[tuple[float, float, int]]:
+        frame_items: list[tuple[float, float, int]] = []
+        previous_label: int | None = None
+        previous_score = -1.0
+        cursor = vad_start
+        while cursor < vad_end - 1e-6:
+            frame_start = cursor
+            frame_end = min(vad_end, cursor + step_s)
+            overlap_indices = self._chunk_indices_for_window(chunk_list, frame_start, frame_end)
+            if not overlap_indices:
+                cursor = frame_end
+                continue
+            speaker_scores = self._speaker_scores_for_window(
+                overlap_indices,
+                chunk_list,
+                labels,
+                embeddings,
+                centers,
+                frame_start,
+                frame_end,
+            )
+            if not speaker_scores:
+                cursor = frame_end
+                continue
+            ordered = sorted(speaker_scores.items(), key=lambda item: item[1], reverse=True)
+            best_label, best_score = ordered[0]
+            if (
+                previous_label is not None
+                and previous_label in speaker_scores
+                and speaker_scores[previous_label] + self.frame_decode_stickiness >= best_score
+            ):
+                best_label = previous_label
+                best_score = speaker_scores[previous_label]
+            if previous_label is None and previous_score < 0:
+                previous_score = best_score
+            previous_label = int(best_label)
+            previous_score = best_score
+            frame_items.append((frame_start, frame_end, int(best_label)))
+            cursor = frame_end
+        return frame_items
+
+    def _chunk_indices_for_window(
+        self,
+        chunk_list: list[tuple[float, float]],
+        frame_start: float,
+        frame_end: float,
+    ) -> list[int]:
+        indices: list[int] = []
+        for index, (chunk_start, chunk_end) in enumerate(chunk_list):
+            if chunk_end <= frame_start or chunk_start >= frame_end:
+                continue
+            indices.append(index)
+        return indices
+
+    def _speaker_scores_for_window(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+        frame_start: float,
+        frame_end: float,
+    ) -> dict[int, float]:
+        scores: dict[int, float] = {}
+        for index in overlap_indices:
+            chunk_start, chunk_end = chunk_list[index]
+            overlap = max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+            if overlap <= 0:
+                continue
+            chunk_embedding = embeddings[index]
+            for speaker_id, center in centers.items():
+                cosine = self._cosine_between(chunk_embedding, center)
+                if cosine <= 0:
+                    continue
+                boost = 0.06 if int(labels[index]) == int(speaker_id) else 0.0
+                scores[int(speaker_id)] = scores.get(int(speaker_id), 0.0) + overlap * (cosine + boost)
+        return scores
+
     def _postprocess(self, chunk_list: list, labels: np.ndarray) -> list[tuple[int, int, int]]:
         """将 chunk 级标签合并为稳定的 speaker 段。"""
         if not chunk_list:
@@ -900,7 +1033,10 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             labels = self._reassign_local_label_noise(chunk_list, labels, embeddings)
             labels = self._refine_tail_labels(chunk_list, labels, embeddings)
 
-            ms_segments = self._smooth_segments(self._postprocess(chunk_list, labels))
+            ms_segments = self._decode_framewise_segments(chunk_list, labels, embeddings, vad_segments)
+            if not ms_segments:
+                ms_segments = self._postprocess(chunk_list, labels)
+            ms_segments = self._smooth_segments(ms_segments)
             if not ms_segments:
                 raise RuntimeError("3D-Speaker 说话人后处理失败，未得到稳定分段。")
 

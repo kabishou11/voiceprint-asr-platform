@@ -225,3 +225,28 @@ def test_reassign_local_label_noise_merges_tiny_global_weak_run_to_single_neighb
     refined = adapter._reassign_local_label_noise(chunk_list, labels, embeddings)
 
     assert np.all(refined == 0)
+
+
+def test_decode_framewise_segments_prefers_temporally_consistent_speaker():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_decode_step_s = 0.5
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.96, 0.04],
+            [0.99, 0.01],
+        ],
+        dtype=np.float32,
+    )
+    vad_segments = [[0.0, 3.0]]
+
+    decoded = adapter._decode_framewise_segments(chunk_list, labels, embeddings, vad_segments)
+
+    assert decoded[0][2] == 0
+    assert all(speaker == 0 for _, _, speaker in decoded)
