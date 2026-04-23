@@ -45,6 +45,8 @@ function StatChip({
 export function JobListPage() {
   const { data, loading, error, reload } = useAsyncData(() => fetchJobs(), []);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [jobTypeFilter, setJobTypeFilter] = useState('all');
+  const [keyword, setKeyword] = useState('');
 
   const { filteredJobs, statCounts } = useMemo(() => {
     const items = data?.items ?? [];
@@ -54,21 +56,50 @@ export function JobListPage() {
         counts[job.status as keyof typeof counts]++;
       }
     });
-    const filtered =
-      statusFilter === 'all' ? items : items.filter((job) => job.status === statusFilter);
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    const filtered = items.filter((job) => {
+      if (statusFilter !== 'all' && job.status !== statusFilter) {
+        return false;
+      }
+      if (jobTypeFilter !== 'all' && job.job_type !== jobTypeFilter) {
+        return false;
+      }
+      if (!normalizedKeyword) {
+        return true;
+      }
+      return (
+        (job.asset_name ?? '').toLowerCase().includes(normalizedKeyword) ||
+        job.job_id.toLowerCase().includes(normalizedKeyword)
+      );
+    });
     return { filteredJobs: filtered, statCounts: counts };
-  }, [data?.items, statusFilter]);
+  }, [data?.items, jobTypeFilter, keyword, statusFilter]);
 
   return (
     <PageSection
       title="任务中心"
-      eyebrow="处理记录"
-      eyebrowColor="primary"
-      description="集中查看当前任务、处理状态和结果入口。"
       loading={loading}
       error={error}
       actions={
         <Stack direction="row" spacing={1.5}>
+          <TextField
+            size="small"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="搜索文件名或任务号"
+            sx={{ minWidth: 220 }}
+          />
+          <TextField
+            select
+            size="small"
+            value={jobTypeFilter}
+            onChange={(event) => setJobTypeFilter(event.target.value)}
+            sx={{ minWidth: 150 }}
+          >
+            <MenuItem value="all">全部类型</MenuItem>
+            <MenuItem value="transcription">单人转写</MenuItem>
+            <MenuItem value="multi_speaker_transcription">多人转写</MenuItem>
+          </TextField>
           <TextField
             select
             size="small"
@@ -97,16 +128,18 @@ export function JobListPage() {
         ) : null}
       </Stack>
 
-      <Stack spacing={2}>
+      <Stack spacing={1.35}>
         {filteredJobs.length ? (
           filteredJobs.map((job) => (
             <Card key={job.job_id}>
               <CardActionArea component={RouterLink} to={`/jobs/${job.job_id}`}>
-                <CardContent>
+                <CardContent sx={{ py: 2 }}>
                   <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
-                    <Stack spacing={1}>
+                    <Stack spacing={0.65}>
                       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Typography variant="h6">{job.asset_name ?? job.job_id}</Typography>
+                        <Typography variant="h6" sx={{ fontSize: '1rem', lineHeight: 1.3 }}>
+                          {job.asset_name ?? job.job_id}
+                        </Typography>
                         <Chip size="small" variant="outlined" label={jobTypeLabels[job.job_type]} />
                       </Stack>
                       <Typography variant="body2" color="text.secondary">
@@ -118,7 +151,9 @@ export function JobListPage() {
                     </Stack>
                     <Stack direction="row" spacing={1} alignItems="center">
                       <StatusChip status={job.status} />
-                      <Button size="small">查看详情</Button>
+                      <Button size="small">
+                        {job.job_type === 'multi_speaker_transcription' ? '继续复核' : '查看详情'}
+                      </Button>
                     </Stack>
                   </Stack>
                 </CardContent>

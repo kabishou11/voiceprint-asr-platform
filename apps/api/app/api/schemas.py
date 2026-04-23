@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel
@@ -8,9 +9,19 @@ from domain.schemas.voiceprint import VoiceprintIdentificationResult, Voiceprint
 ModelAvailability = Literal["available", "optional", "unavailable"]
 
 
+class ModelStatus(str, Enum):
+    unloaded = "unloaded"
+    loading = "loading"
+    loaded = "loaded"
+    load_failed = "load_failed"
+
+
 class HealthResponse(BaseModel):
     status: str
     app_name: str
+    broker_available: bool = False
+    worker_available: bool = False
+    async_available: bool = False
 
 
 class ModelInfo(BaseModel):
@@ -33,6 +44,9 @@ class CreateTranscriptionRequest(BaseModel):
     language: str = "zh-cn"
     vad_enabled: bool = False
     itn: bool = True
+    num_speakers: int | None = None
+    min_speakers: int | None = None
+    max_speakers: int | None = None
 
 
 class CreateTranscriptionResponse(BaseModel):
@@ -73,6 +87,7 @@ class EnrollVoiceprintRequest(BaseModel):
 class EnrollVoiceprintResponse(BaseModel):
     profile: VoiceprintProfile
     enrollment: VoiceprintEnrollmentResult
+    job_id: str | None = None
 
 
 class VerifyVoiceprintRequest(BaseModel):
@@ -83,6 +98,7 @@ class VerifyVoiceprintRequest(BaseModel):
 
 class VerifyVoiceprintResponse(BaseModel):
     result: VoiceprintVerificationResult
+    job_id: str | None = None
 
 
 class IdentifyVoiceprintRequest(BaseModel):
@@ -92,3 +108,43 @@ class IdentifyVoiceprintRequest(BaseModel):
 
 class IdentifyVoiceprintResponse(BaseModel):
     result: VoiceprintIdentificationResult
+    job_id: str | None = None
+
+
+# GPU and model management schemas
+
+class GPUInfo(BaseModel):
+    name: str | None = None
+    total_memory_mb: int | None = None
+    used_memory_mb: int | None = None
+    cuda_available: bool = False
+
+
+class ModelInfoWithStatus(BaseModel):
+    key: str
+    display_name: str
+    task: str
+    provider: str
+    status: ModelStatus
+    gpu_memory_mb: int | None = None
+    load_progress: float | None = None
+    error: str | None = None
+    experimental: bool = False
+
+
+class ModelLoadResponse(BaseModel):
+    key: str
+    status: ModelStatus
+    gpu_memory_mb: int | None = None
+    error: str | None = None
+
+
+class ModelUnloadResponse(BaseModel):
+    key: str
+    status: ModelStatus
+    released_mb: int | None = None
+
+
+class ModelListWithGPUResponse(BaseModel):
+    items: list[ModelInfoWithStatus]
+    gpu: GPUInfo

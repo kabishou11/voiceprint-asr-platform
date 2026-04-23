@@ -1,15 +1,19 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 
-import { ModelRegistryPage } from './ModelRegistryPage';
+import { ModelManagementPage } from './ModelManagementPage';
 import { appTheme } from '../../theme/appTheme';
 
 const fetchModels = vi.fn();
+const loadModel = vi.fn();
+const unloadModel = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchModels: () => fetchModels(),
+  loadModel: (...args: unknown[]) => loadModel(...args),
+  unloadModel: (...args: unknown[]) => unloadModel(...args),
 }));
 
 function renderPage() {
@@ -17,15 +21,14 @@ function renderPage() {
     <ThemeProvider theme={appTheme}>
       <CssBaseline />
       <MemoryRouter>
-        <ModelRegistryPage />
+        <ModelManagementPage />
       </MemoryRouter>
     </ThemeProvider>,
   );
 }
 
-describe('ModelRegistryPage', () => {
+describe('ModelManagementPage', () => {
   beforeEach(() => {
-    cleanup();
     vi.clearAllMocks();
     fetchModels.mockResolvedValue({
       gpu: {
@@ -40,8 +43,8 @@ describe('ModelRegistryPage', () => {
           display_name: 'FunASR Nano',
           task: 'transcription',
           provider: 'funasr',
-          status: 'unloaded',
-          gpu_memory_mb: null,
+          status: 'loaded',
+          gpu_memory_mb: 1024,
           load_progress: null,
           error: null,
           experimental: false,
@@ -51,32 +54,7 @@ describe('ModelRegistryPage', () => {
           display_name: '3D-Speaker Diarization',
           task: 'diarization',
           provider: '3dspeaker',
-          availability: 'available',
-          status: 'loaded',
-          gpu_memory_mb: 2048,
-          load_progress: null,
-          error: null,
-          experimental: false,
-        },
-        {
-          key: '3dspeaker-embedding',
-          display_name: '3D-Speaker Voiceprint',
-          task: 'voiceprint',
-          provider: '3dspeaker',
-          availability: 'available',
-          status: 'loaded',
-          gpu_memory_mb: 1024,
-          load_progress: null,
-          error: null,
-          experimental: false,
-        },
-        {
-          key: 'pyannote-community-1',
-          display_name: 'pyannote Community-1',
-          task: 'diarization',
-          provider: 'pyannote',
-          availability: 'unavailable',
-          status: 'load_failed',
+          status: 'unloaded',
           gpu_memory_mb: null,
           load_progress: null,
           error: null,
@@ -84,18 +62,27 @@ describe('ModelRegistryPage', () => {
         },
       ],
     });
+    loadModel.mockResolvedValue({});
+    unloadModel.mockResolvedValue({});
   });
 
-  it('explains the current local model state and gated pyannote limitation', async () => {
+  it('surfaces gpu runtime control and load/unload actions', async () => {
     renderPage();
 
     await waitFor(() => {
       expect(fetchModels).toHaveBeenCalled();
     });
 
-    expect(await screen.findByText('模型')).toBeInTheDocument();
-    expect(screen.getAllByText(/已加载 2/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/失败 1/).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('模型')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已加载 1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/RTX 4060/).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '加载' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '卸载' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: '加载' })[0]);
+
+    await waitFor(() => {
+      expect(loadModel).toHaveBeenCalledWith('3dspeaker-diarization');
+    });
   });
 });

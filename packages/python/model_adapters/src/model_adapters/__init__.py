@@ -3,6 +3,8 @@ from model_adapters.base import (
     AudioAsset,
     DiarizationAdapter,
     VoiceprintAdapter,
+    has_cuda_runtime,
+    require_available_model,
     resolve_audio_asset_path,
     resolve_model_reference,
 )
@@ -23,6 +25,8 @@ __all__ = [
     "PyannoteDiarizationAdapter",
     "ModelRegistry",
     "RegistryEntry",
+    "has_cuda_runtime",
+    "require_available_model",
     "build_default_registry",
     "ThreeDSpeakerDiarizationAdapter",
     "ThreeDSpeakerVoiceprintAdapter",
@@ -37,4 +41,3 @@ def __getattr__(name: str):
 
         return FunASRNano
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-

@@ -18,3 +18,11 @@ def get_job(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    deleted = job_service.delete_job(job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job_id": job_id, "deleted": True}

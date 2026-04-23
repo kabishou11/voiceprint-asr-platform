@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -21,18 +21,31 @@ class Segment(BaseModel):
     confidence: float | None = None
 
 
+class TranscriptTimeline(BaseModel):
+    label: str
+    source: str
+    segments: list[Segment] = Field(default_factory=list)
+
+
+class TranscriptMetadata(BaseModel):
+    timelines: list[TranscriptTimeline] = Field(default_factory=list)
+    diarization_model: str | None = None
+    alignment_source: str | None = None
+
+
 class TranscriptResult(BaseModel):
     text: str
     language: str | None = None
     segments: list[Segment] = Field(default_factory=list)
+    metadata: TranscriptMetadata | None = None
 
 
 class JobSummary(BaseModel):
     job_id: str
     job_type: JobType
     status: JobStatus
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     asset_name: str | None = None
 
 

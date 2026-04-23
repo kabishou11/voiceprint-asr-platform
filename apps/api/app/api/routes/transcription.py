@@ -12,15 +12,31 @@ router = APIRouter(prefix="/transcriptions", tags=["transcriptions"])
 
 @router.post("", response_model=CreateTranscriptionResponse)
 def create_transcription(payload: CreateTranscriptionRequest) -> CreateTranscriptionResponse:
-    job_type = "multi_speaker_transcription" if payload.diarization_model else "transcription"
-    job = job_service.create_transcription_job(
-        asset_name=payload.asset_name,
-        job_type=job_type,
-        hotwords=payload.hotwords,
-        language=payload.language,
-        vad_enabled=payload.vad_enabled,
-        itn=payload.itn,
+    multi_speaker_requested = any(
+        value is not None
+        for value in (
+            payload.diarization_model,
+            payload.num_speakers,
+            payload.min_speakers,
+            payload.max_speakers,
+        )
     )
+    job_type = "multi_speaker_transcription" if multi_speaker_requested else "transcription"
+    try:
+        job = job_service.create_transcription_job(
+            asset_name=payload.asset_name,
+            job_type=job_type,
+            diarization_model=payload.diarization_model,
+            hotwords=payload.hotwords,
+            language=payload.language,
+            vad_enabled=payload.vad_enabled,
+            itn=payload.itn,
+            num_speakers=payload.num_speakers,
+            min_speakers=payload.min_speakers,
+            max_speakers=payload.max_speakers,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return CreateTranscriptionResponse(job=job)
 
 

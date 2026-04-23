@@ -36,13 +36,22 @@ describe('TranscriptionWorkbenchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchModels.mockResolvedValue({
+      gpu: {
+        name: 'NVIDIA GeForce RTX 4060 Laptop GPU',
+        total_memory_mb: 8192,
+        used_memory_mb: 2048,
+        cuda_available: true,
+      },
       items: [
         {
           key: 'funasr-nano',
           display_name: 'FunASR Nano',
           task: 'transcription',
           provider: 'funasr',
-          availability: 'available',
+          status: 'unloaded',
+          gpu_memory_mb: null,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -50,7 +59,10 @@ describe('TranscriptionWorkbenchPage', () => {
           display_name: '3D-Speaker Diarization',
           task: 'diarization',
           provider: '3dspeaker',
-          availability: 'available',
+          status: 'loaded',
+          gpu_memory_mb: 1024,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -58,7 +70,10 @@ describe('TranscriptionWorkbenchPage', () => {
           display_name: '3D-Speaker Voiceprint',
           task: 'voiceprint',
           provider: '3dspeaker',
-          availability: 'available',
+          status: 'unloaded',
+          gpu_memory_mb: null,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -66,7 +81,10 @@ describe('TranscriptionWorkbenchPage', () => {
           display_name: 'pyannote Community-1',
           task: 'diarization',
           provider: 'pyannote',
-          availability: 'unavailable',
+          status: 'load_failed',
+          gpu_memory_mb: null,
+          load_progress: null,
+          error: 'missing gated weights',
           experimental: false,
         },
       ],
@@ -143,8 +161,8 @@ describe('TranscriptionWorkbenchPage', () => {
       expect(fetchJobs).toHaveBeenCalled();
     });
 
-    expect(screen.getByText(/已从历史任务带入资产与基础参数/)).toBeInTheDocument();
-    expect(screen.getByText(/当前将使用资产：meeting\.wav/)).toBeInTheDocument();
+    expect(screen.getByText(/已带入历史任务参数/)).toBeInTheDocument();
+    expect(screen.getAllByText(/当前将使用资产：meeting\.wav/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText('语言')).toHaveTextContent('英文');
 
     fireEvent.click(screen.getByRole('button', { name: '立即开始' }));
@@ -167,9 +185,9 @@ describe('TranscriptionWorkbenchPage', () => {
   it('shows current local model state when 3dspeaker is ready but pyannote is unavailable', async () => {
     renderPage();
 
-    expect(await screen.findByText(/3D-Speaker 与本地 VAD 已就绪/)).toBeInTheDocument();
-    expect(screen.getByText(/GPU 已就绪/)).toBeInTheDocument();
-    expect(screen.getByText(/高级重叠说话增强仍未启用/)).toBeInTheDocument();
-    expect(screen.getByText('本地已就绪')).toBeInTheDocument();
+    expect(await screen.findByText('ASR 可加载')).toBeInTheDocument();
+    expect(screen.getByText('分离 已就绪')).toBeInTheDocument();
+    expect(screen.getByText('pyannote 未启用')).toBeInTheDocument();
+    expect(screen.getByText('开始任务')).toBeInTheDocument();
   });
 });

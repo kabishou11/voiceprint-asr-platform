@@ -267,10 +267,7 @@ export function JobDetailPage() {
 
   return (
     <PageSection
-      title="结果查看与 speaker 复核工作台"
-      eyebrow="结果查看"
-      eyebrowColor="primary"
-      description="这里优先呈现当前任务的 display timeline、speaker 聚焦视图与分段阅读流。核心目标不是展示更多卡片，而是让你更快定位 speaker、导出结果并继续进入声纹处理。"
+      title="结果"
       loading={loading}
       error={error}
       actions={
@@ -303,31 +300,28 @@ export function JobDetailPage() {
               <Card>
                 <CardContent>
                   <Stack spacing={2.3}>
-                    <Stack
+                  <Stack
                       direction={{ xs: 'column', lg: 'row' }}
                       justifyContent="space-between"
                       spacing={2}
                     >
-                      <Stack spacing={1}>
-                        <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: '0.08em' }}>
-                          当前任务
-                        </Typography>
+                      <Stack spacing={0.6}>
                         <BalancedPretextText
                           text={data.job.asset_name ?? '未命名文件'}
-                          font='500 44px "Iowan Old Style"'
-                          lineHeight={50}
+                          font='500 34px "Iowan Old Style"'
+                          lineHeight={39}
                           targetLines={2}
-                          minWidth={360}
-                          maxWidth={700}
+                          minWidth={320}
+                          maxWidth={620}
                           typographyProps={{
                             variant: 'h3',
                             sx: {
-                              fontSize: { xs: '2rem', md: '2.7rem' },
-                              maxWidth: 700,
+                              fontSize: { xs: '1.7rem', md: '2.1rem' },
+                              maxWidth: 620,
                             },
                           }}
                         />
-                        <Typography color="text.secondary" sx={{ maxWidth: 700, textWrap: 'pretty' }}>
+                        <Typography color="text.secondary" sx={{ maxWidth: 620, textWrap: 'pretty', fontSize: '0.93rem' }}>
                           {jobTypeLabels[data.job.job_type]} · 更新时间 {formatDateTime(data.job.updated_at)}
                         </Typography>
                       </Stack>
@@ -370,8 +364,8 @@ export function JobDetailPage() {
 
                     <Box
                       sx={{
-                        p: 1.6,
-                        borderRadius: 4,
+                        p: 1.25,
+                        borderRadius: 3,
                         bgcolor: alpha('#ffffff', 0.68),
                         border: '1px solid',
                         borderColor: alpha('#1c2431', 0.06),
@@ -397,11 +391,8 @@ export function JobDetailPage() {
             <Grid size={{ xs: 12, xl: 4 }}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
-                  <Stack spacing={1.8}>
-                    <Typography variant="h6">Speaker 总览</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ textWrap: 'pretty' }}>
-                      当前任务结果优先按 speaker 聚合排序，先让你快速确定说话人，再进一步进入声纹识别或验证。
-                    </Typography>
+                  <Stack spacing={1.2}>
+                    <Typography variant="h6">Speaker</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                       <Chip
                         label={`全部 ${segments.length} 段`}
@@ -511,13 +502,11 @@ export function JobDetailPage() {
                 <CardContent>
                   <Stack spacing={2}>
                     <Typography variant="h6">
-                      {selectedSpeakerGroup ? `${selectedSpeakerGroup.displaySpeaker} 聚焦视图` : '全文结果'}
+                      {selectedSpeakerGroup ? selectedSpeakerGroup.displaySpeaker : '全文结果'}
                     </Typography>
                     {selectedSpeakerGroup ? (
                       <Alert severity="info">
-                        当前仅聚焦 {selectedSpeakerGroup.displaySpeaker}。总时长{' '}
-                        {formatDuration(selectedSpeakerGroup.durationMs)}，共{' '}
-                        {selectedSpeakerGroup.segments.length} 段。
+                        {selectedSpeakerGroup.displaySpeaker} · {formatDuration(selectedSpeakerGroup.durationMs)} · {selectedSpeakerGroup.segments.length} 段
                       </Alert>
                     ) : null}
                     <Box

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from model_adapters import AudioAsset
@@ -49,7 +50,41 @@ def preprocess_audio(asset: AudioAsset) -> AudioAsset:
     3. 重采样为 16kHz（如需要）
     4. 转换为单声道（如需要）
     """
-    return AudioAsset(path=asset.path, sample_rate=16000, channels=1)
+    source = Path(asset.path)
+    if not source.exists():
+        return AudioAsset(path=asset.path, sample_rate=16000, channels=1)
+
+    try:
+        import librosa
+        import numpy as np
+        import soundfile as sf
+    except Exception:
+        return AudioAsset(path=asset.path, sample_rate=16000, channels=1)
+
+    processed_dir = Path("storage/processed")
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = hashlib.sha1(f"{source.resolve()}:{source.stat().st_mtime_ns}".encode("utf-8")).hexdigest()[:16]
+    target = processed_dir / f"{source.stem}-{fingerprint}.wav"
+    if target.exists():
+        return AudioAsset(path=str(target), sample_rate=16000, channels=1)
+
+    suffix = source.suffix.lower()
+    if suffix == ".wav":
+        audio, sample_rate = sf.read(source, dtype="float32", always_2d=False)
+    else:
+        audio, sample_rate = librosa.load(str(source), sr=None, mono=False)
+
+    audio = np.asarray(audio, dtype=np.float32)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=0 if audio.shape[0] <= 8 else 1)
+    if sample_rate != 16000:
+        audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak > 0:
+        audio = audio / max(peak, 1e-6) * 0.95
+
+    sf.write(target, audio, 16000)
+    return AudioAsset(path=str(target), sample_rate=16000, channels=1)
 
 
 def validate_audio_asset(path: str) -> tuple[bool, str]:

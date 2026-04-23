@@ -43,37 +43,45 @@ const baseTheme = createTheme({
       fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
       fontWeight: 500,
       letterSpacing: '-0.04em',
-      lineHeight: 1.04,
+      lineHeight: 1.02,
+      fontSize: '3.2rem',
     },
     h3: {
       fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
       fontWeight: 500,
       letterSpacing: '-0.03em',
-      lineHeight: 1.08,
+      lineHeight: 1.05,
+      fontSize: '2.35rem',
     },
     h4: {
       fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
       fontWeight: 500,
       letterSpacing: '-0.025em',
-      lineHeight: 1.12,
+      lineHeight: 1.08,
+      fontSize: '1.95rem',
     },
     h5: {
       fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
       fontWeight: 600,
       letterSpacing: '-0.02em',
+      fontSize: '1.42rem',
     },
     h6: {
       fontWeight: 600,
       letterSpacing: '-0.01em',
+      fontSize: '1.02rem',
     },
     subtitle1: {
       fontWeight: 600,
+      letterSpacing: '-0.01em',
     },
     body1: {
-      lineHeight: 1.75,
+      fontSize: '0.98rem',
+      lineHeight: 1.66,
     },
     body2: {
-      lineHeight: 1.7,
+      fontSize: '0.9rem',
+      lineHeight: 1.58,
     },
     button: {
       fontWeight: 600,
@@ -140,8 +148,8 @@ export const appTheme = createTheme(baseTheme, {
       styleOverrides: {
         root: {
           borderRadius: 16,
-          paddingInline: 18,
-          minHeight: 42,
+          paddingInline: 16,
+          minHeight: 40,
           boxShadow: 'none',
         },
       },
@@ -173,14 +181,22 @@ export const appTheme = createTheme(baseTheme, {
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 20,
+          borderRadius: 16,
           backgroundColor: alpha('#ffffff', 0.82),
+          minHeight: 48,
           '& fieldset': {
             borderColor: alpha('#1c2431', 0.1),
           },
           '&:hover fieldset': {
             borderColor: alpha('#1c2431', 0.18),
           },
+        },
+      },
+    },
+    MuiInputLabel: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.92rem',
         },
       },
     },

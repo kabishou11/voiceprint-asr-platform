@@ -7,6 +7,7 @@ export type JobType =
   | 'voiceprint_identify';
 export type ModelTask = 'transcription' | 'diarization' | 'voiceprint';
 export type ModelAvailability = 'available' | 'optional' | 'unavailable';
+export type ModelStatus = 'unloaded' | 'loading' | 'loaded' | 'load_failed';
 
 export const jobStatusLabels: Record<JobStatus, string> = {
   pending: '待处理',
@@ -42,6 +43,13 @@ export const providerLabels: Record<string, string> = {
   pyannote: 'pyannote',
 };
 
+export const modelStatusLabels: Record<ModelStatus, string> = {
+  unloaded: '未加载',
+  loading: '加载中',
+  loaded: '已就绪',
+  load_failed: '加载失败',
+};
+
 export interface Segment {
   start_ms: number;
   end_ms: number;
@@ -54,6 +62,19 @@ export interface TranscriptResult {
   text: string;
   language?: string | null;
   segments: Segment[];
+  metadata?: TranscriptMetadata | null;
+}
+
+export interface TranscriptTimeline {
+  label: string;
+  source: string;
+  segments: Segment[];
+}
+
+export interface TranscriptMetadata {
+  timelines: TranscriptTimeline[];
+  diarization_model?: string | null;
+  alignment_source?: string | null;
 }
 
 export interface JobDetail {
@@ -75,6 +96,18 @@ export interface CreateTranscriptionResponse {
   job: JobDetail;
 }
 
+export interface CreateTranscriptionRequest {
+  asset_name: string;
+  diarization_model?: string | null;
+  hotwords?: string[] | null;
+  language?: string;
+  vad_enabled?: boolean;
+  itn?: boolean;
+  num_speakers?: number | null;
+  min_speakers?: number | null;
+  max_speakers?: number | null;
+}
+
 export interface TranscriptResponse {
   job: JobDetail;
   transcript?: TranscriptResult | null;
@@ -91,6 +124,52 @@ export interface ModelInfo {
 
 export interface ModelListResponse {
   items: ModelInfo[];
+}
+
+export interface GPUInfo {
+  name: string | null;
+  total_memory_mb: number | null;
+  used_memory_mb: number | null;
+  cuda_available: boolean;
+}
+
+export interface ModelInfoWithStatus {
+  key: string;
+  display_name: string;
+  task: ModelTask;
+  provider: string;
+  availability?: ModelAvailability;
+  status: ModelStatus;
+  gpu_memory_mb: number | null;
+  load_progress: number | null;
+  error: string | null;
+  experimental: boolean;
+}
+
+export interface ModelLoadResponse {
+  key: string;
+  status: ModelStatus;
+  gpu_memory_mb: number | null;
+  error: string | null;
+}
+
+export interface ModelUnloadResponse {
+  key: string;
+  status: ModelStatus;
+  released_mb: number | null;
+}
+
+export interface ModelListWithGPUResponse {
+  items: ModelInfoWithStatus[];
+  gpu: GPUInfo;
+}
+
+export interface HealthResponse {
+  status: string;
+  app_name: string;
+  broker_available: boolean;
+  worker_available: boolean;
+  async_available: boolean;
 }
 
 export interface UploadAssetResponse {

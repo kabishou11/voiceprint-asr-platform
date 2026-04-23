@@ -1,4 +1,10 @@
-import { layout, measureLineStats, measureNaturalWidth, prepare, prepareWithSegments, setLocale } from '@chenglou/pretext';
+import {
+  layoutWithLines,
+  measureLineStats,
+  measureNaturalWidth,
+  prepareWithSegments,
+  setLocale,
+} from '@chenglou/pretext';
 import { Box, Typography, type TypographyProps } from '@mui/material';
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -167,9 +173,8 @@ export function MeasuredPretextBlock({
     }
     try {
       setLocale('zh-CN');
-      const prepared = prepare(deferredText, font);
-      const result = layout(prepared, deferredWidth, lineHeight);
-      return result;
+      const prepared = prepareWithSegments(deferredText, font);
+      return layoutWithLines(prepared, deferredWidth, lineHeight);
     } catch {
       return null;
     }
@@ -183,10 +188,22 @@ export function MeasuredPretextBlock({
         sx={{
           ...(typographyProps?.sx ?? {}),
           minHeight: measured ? `${measured.height}px` : undefined,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
           textWrap: 'pretty',
         }}
       >
-        {text}
+        {measured?.lines?.length
+          ? measured.lines.map((line, index) => (
+              <Box
+                key={`${line.start.segmentIndex}-${line.start.graphemeIndex}-${index}`}
+                component="span"
+                sx={{ display: 'block' }}
+              >
+                {line.text}
+              </Box>
+            ))
+          : text}
       </Typography>
     </Box>
   );
