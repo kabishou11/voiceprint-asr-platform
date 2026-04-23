@@ -28,15 +28,20 @@ describe('ModelRegistryPage', () => {
     cleanup();
     vi.clearAllMocks();
     fetchModels.mockResolvedValue({
+      gpu: {
+        name: 'NVIDIA GeForce RTX 4060 Laptop GPU',
+        total_memory_mb: 8192,
+        used_memory_mb: 2048,
+        cuda_available: true,
+      },
       items: [
         {
           key: 'funasr-nano',
           display_name: 'FunASR Nano',
           task: 'transcription',
           provider: 'funasr',
-          availability: 'available',
-          status: 'loaded',
-          gpu_memory_mb: 1024,
+          status: 'unloaded',
+          gpu_memory_mb: null,
           load_progress: null,
           error: null,
           experimental: false,
@@ -88,9 +93,9 @@ describe('ModelRegistryPage', () => {
       expect(fetchModels).toHaveBeenCalled();
     });
 
-    expect(await screen.findByText(/3D-Speaker 本地模型已就绪/)).toBeInTheDocument();
-    expect(screen.getByText(/已识别到 CUDA GPU/)).toBeInTheDocument();
-    expect(screen.getByText(/复杂重叠说话增强不会启用/)).toBeInTheDocument();
-    expect(screen.getByText(/不会启用/)).toBeInTheDocument();
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+    expect(screen.getAllByText(/已加载 2/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/失败 1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '加载' }).length).toBeGreaterThan(0);
   });
 });

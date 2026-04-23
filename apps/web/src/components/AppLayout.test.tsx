@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
@@ -72,5 +72,9 @@ describe('AppLayout', () => {
     expect(screen.getByText('任务中心')).toBeInTheDocument();
     expect(screen.getAllByText('声纹库').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/运行中 1/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }));
+
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument();
   });
 });

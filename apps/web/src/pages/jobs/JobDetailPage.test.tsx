@@ -119,8 +119,8 @@ describe('JobDetailPage', () => {
     expect(screen.getAllByTestId('speaker-timeline-row')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'SPEAKER_00 · 1 段' }));
 
-    expect(await screen.findByText(/SPEAKER_00 聚焦视图/)).toBeInTheDocument();
-    expect(screen.getByText(/当前仅聚焦 SPEAKER_00/)).toBeInTheDocument();
+    expect((await screen.findAllByText('SPEAKER_00')).length).toBeGreaterThan(0);
+    expect(screen.getByText(/SPEAKER_00 · 6\.0 秒 · 1 段/)).toBeInTheDocument();
     expect(screen.getAllByText('我们开始开会。').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('speaker-timeline-row')).toHaveLength(1);
     expect(screen.getAllByText('2000ms - 8000ms').length).toBeGreaterThan(0);

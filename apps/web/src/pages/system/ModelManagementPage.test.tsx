@@ -73,14 +73,13 @@ describe('ModelManagementPage', () => {
       expect(fetchModels).toHaveBeenCalled();
     });
 
-    expect(
-      await screen.findByText(/模型管理页负责让本地 GPU 路径可见、可控/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/RTX 4060/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '加载' })).toBeInTheDocument();
+    expect((await screen.findAllByText('模型')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已加载 1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/RTX 4060/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '加载' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '卸载' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '加载' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '加载' })[0]);
 
     await waitFor(() => {
       expect(loadModel).toHaveBeenCalledWith('3dspeaker-diarization');

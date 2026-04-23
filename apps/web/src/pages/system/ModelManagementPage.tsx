@@ -18,7 +18,6 @@ import { fetchModels, loadModel, unloadModel } from '../../api/client';
 import { modelStatusLabels, modelTaskLabels, providerLabels } from '../../api/types';
 import type { GPUInfo, ModelInfoWithStatus } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
-import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
 import { PageSection } from '../../components/PageSection';
 
 interface GPUStatusProps {
@@ -29,7 +28,7 @@ function GPUStatus({ gpu }: GPUStatusProps) {
   if (!gpu.cuda_available) {
     return (
       <Alert severity="warning">
-        CUDA 不可用。当前系统未检测到 NVIDIA GPU 或 CUDA 驱动，请确保已安装支持 CUDA 的 PyTorch 版本。
+        CUDA 不可用。请检查 GPU 驱动和 PyTorch。
       </Alert>
     );
   }
@@ -258,10 +257,14 @@ export function ModelManagementPage() {
     [loadingKeys],
   );
 
+  const loadedCount = items.filter((item) => item.status === 'loaded').length;
+  const queueingCount = items.filter((item) => item.status === 'loading').length;
+  const failedCount = items.filter((item) => item.status === 'load_failed').length;
+
   return (
     <PageSection
-      title="模型管理与显存控制台"
-      description="这里专门处理模型加载、显存占用与手动卸载，不再让 GPU 状态只停留在模型清单页。"
+      title="模型"
+      description="加载、卸载、显存、错误。"
       loading={loading}
       error={fetchError}
       actions={
@@ -279,28 +282,17 @@ export function ModelManagementPage() {
 
         <Card>
           <CardContent>
-            <Stack spacing={2}>
-              <BalancedPretextText
-                text="模型管理页负责让本地 GPU 路径可见、可控，而不是只告诉你模型已经存在"
-                font='500 38px "Iowan Old Style"'
-                lineHeight={46}
-                targetLines={2}
-                minWidth={360}
-                maxWidth={860}
-                typographyProps={{
-                  variant: 'h4',
-                  sx: { maxWidth: 860 },
-                }}
-              />
-              <MeasuredPretextBlock
-                text="你可以在这里手动加载或卸载模型，确认当前显存剩余情况，并把高精度转写、说话人分离、声纹识别的运行时准备工作显式地做完。"
-                font='400 16px "PingFang SC"'
-                lineHeight={30}
-                typographyProps={{
-                  color: 'text.secondary',
-                  sx: { maxWidth: 860, lineHeight: 1.85 },
-                }}
-              />
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip size="small" color="success" label={`已加载 ${loadedCount}`} />
+              <Chip size="small" color="warning" label={`加载中 ${queueingCount}`} />
+              <Chip size="small" color={failedCount ? 'error' : 'default'} label={`失败 ${failedCount}`} />
+              {gpu ? (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={gpu.cuda_available ? `${gpu.name ?? 'GPU'} 已连接` : 'CUDA 未就绪'}
+                />
+              ) : null}
             </Stack>
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -43,6 +44,27 @@ def resolve_audio_asset_path(asset_name: str) -> str:
         if candidate.exists():
             return str(candidate)
     return str(candidates[0])
+
+
+@lru_cache(maxsize=1)
+def has_cuda_runtime() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    try:
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def require_available_model(availability: ModelAvailability, *, model_label: str, purpose: str) -> None:
+    if availability == "available":
+        return
+    raise RuntimeError(
+        f"{model_label} 当前不可用于{purpose}。系统已强制要求本地模型文件、运行时依赖和 CUDA GPU 同时就绪；"
+        "未满足条件时不会退回 CPU 或占位结果。"
+    )
 
 
 class ASRAdapter(ABC):

@@ -24,16 +24,16 @@ export function PageSection({
   children,
 }: PageSectionProps) {
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.2}>
       <Box
         sx={{
-          p: { xs: 2.6, md: 3.2 },
-          borderRadius: 7,
+          p: { xs: 2.1, md: 2.6 },
+          borderRadius: 5,
           background:
             'linear-gradient(180deg, rgba(255,253,249,0.94) 0%, rgba(255,251,245,0.82) 100%)',
           border: '1px solid',
           borderColor: alpha('#1c2431', 0.06),
-          boxShadow: '0 20px 44px rgba(15,23,42,0.04)',
+          boxShadow: '0 14px 34px rgba(15,23,42,0.035)',
         }}
       >
         <Stack
@@ -42,7 +42,7 @@ export function PageSection({
           alignItems={{ xs: 'flex-start', md: 'center' }}
           justifyContent="space-between"
         >
-          <Stack spacing={0.75}>
+          <Stack spacing={0.45}>
             {eyebrow ? (
               <Chip
                 size="small"
@@ -56,7 +56,10 @@ export function PageSection({
                 }}
               />
             ) : null}
-            <Typography variant="h4" sx={{ maxWidth: 760 }}>
+            <Typography
+              variant="h4"
+              sx={{ maxWidth: 760, fontSize: { xs: '1.8rem', md: '2rem' }, lineHeight: 1.08 }}
+            >
               {title}
             </Typography>
             {description ? (
@@ -65,6 +68,8 @@ export function PageSection({
                 sx={{
                   maxWidth: 760,
                   textWrap: 'pretty',
+                  fontSize: '0.95rem',
+                  lineHeight: 1.62,
                 }}
               >
                 {description}
@@ -76,7 +81,7 @@ export function PageSection({
       </Box>
       {loading ? <LinearProgress sx={{ borderRadius: 999, height: 6 }} /> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
-      <Stack spacing={3}>{children}</Stack>
+      <Stack spacing={2.2}>{children}</Stack>
     </Stack>
   );
 }

@@ -23,7 +23,6 @@ class VoiceprintService:
             profile_id="sample-female-1",
             display_name="女声样本 1",
             model_key="3dspeaker-embedding",
-            sample_count=1,
         )
         self._profiles[sample_profile.profile_id] = sample_profile
         self._enroll_sample_profile(sample_profile.profile_id, "声纹-女1.wav")
@@ -32,7 +31,6 @@ class VoiceprintService:
             profile_id="demo-user",
             display_name="演示用户",
             model_key="3dspeaker-embedding",
-            sample_count=1,
         )
         self._profiles[demo_profile.profile_id] = demo_profile
         self._enroll_sample_profile(demo_profile.profile_id, "声纹-女1.wav")
@@ -40,11 +38,13 @@ class VoiceprintService:
     def _enroll_sample_profile(self, profile_id: str, asset_name: str) -> None:
         try:
             registry = get_model_registry()
+            registry.require_available("3dspeaker-embedding")
             adapter = registry.get_voiceprint("3dspeaker-embedding")
             adapter.enroll(asset=self._build_asset(asset_name), profile_id=profile_id)
-        except (ImportError, ModuleNotFoundError):
-            # skip enrollment when optional audio libs (librosa/soundfile) are not installed
-            pass
+        except Exception:
+            # Demo profile seed must never block API startup.
+            return
+        self._profiles[profile_id] = self._profiles[profile_id].model_copy(update={'sample_count': 1})
 
     def list_profiles(self) -> list[VoiceprintProfile]:
         return list(self._profiles.values())
@@ -70,6 +70,7 @@ class VoiceprintService:
             raise ValueError('音频资产不存在')
 
         registry = get_model_registry()
+        registry.require_available(profile.model_key)
         adapter = registry.get_voiceprint(profile.model_key)
         adapter.enroll(asset=asset, profile_id=profile_id)
         updated_profile = profile.model_copy(update={'sample_count': 1})
@@ -83,13 +84,20 @@ class VoiceprintService:
         return updated_profile, enrollment
 
     def verify(self, profile_id: str, probe_asset_name: str = "5分钟.wav", threshold: float = 0.7) -> VoiceprintVerificationResult:
+        profile = self._profiles.get(profile_id)
+        if profile is None:
+            raise KeyError('声纹档案不存在')
+        if profile.sample_count <= 0:
+            raise ValueError('声纹档案尚未注册样本')
         registry = get_model_registry()
+        registry.require_available(profile.model_key)
         asset = self._build_asset(probe_asset_name)
-        adapter = registry.get_voiceprint("3dspeaker-embedding")
+        adapter = registry.get_voiceprint(profile.model_key)
         return adapter.verify(asset=asset, profile_id=profile_id, threshold=threshold)
 
     def identify(self, probe_asset_name: str = "5分钟.wav", top_k: int = 3) -> VoiceprintIdentificationResult:
         registry = get_model_registry()
+        registry.require_available("3dspeaker-embedding")
         asset = self._build_asset(probe_asset_name)
         adapter = registry.get_voiceprint("3dspeaker-embedding")
         identified = adapter.identify(asset=asset, top_k=top_k)

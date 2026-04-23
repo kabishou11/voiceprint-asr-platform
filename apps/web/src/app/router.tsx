@@ -4,7 +4,6 @@ import { AppLayout } from '../components/AppLayout';
 import { JobDetailPage } from '../pages/jobs/JobDetailPage';
 import { JobListPage } from '../pages/jobs/JobListPage';
 import { ModelManagementPage } from '../pages/system/ModelManagementPage';
-import { ModelRegistryPage } from '../pages/system/ModelRegistryPage';
 import { TaskQueuePage } from '../pages/tasks/TaskQueuePage';
 import { TranscriptionWorkbenchPage } from '../pages/transcription/TranscriptionWorkbenchPage';
 import { VoiceprintLibraryPage } from '../pages/voiceprints/VoiceprintLibraryPage';
@@ -32,7 +31,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'system/models',
-        element: <ModelRegistryPage />,
+        element: <ModelManagementPage />,
       },
       {
         path: 'system/management',

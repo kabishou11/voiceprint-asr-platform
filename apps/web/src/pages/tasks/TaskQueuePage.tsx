@@ -1,4 +1,5 @@
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
@@ -21,9 +22,8 @@ import { alpha } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { fetchJobs } from '../../api/client';
+import { deleteJob, fetchHealth, fetchJobs } from '../../api/client';
 import { formatDateTime, jobTypeLabels, type JobDetail } from '../../api/types';
-import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
@@ -34,7 +34,21 @@ interface ExpandedJobs {
   [jobId: string]: boolean;
 }
 
-function JobCard({ job, expanded, onToggle }: { job: JobDetail; expanded: boolean; onToggle: () => void }) {
+function JobCard({
+  job,
+  expanded,
+  onToggle,
+  onDelete,
+  deleting,
+  queueBlocked,
+}: {
+  job: JobDetail;
+  expanded: boolean;
+  onToggle: () => void;
+  onDelete: (jobId: string) => void;
+  deleting: boolean;
+  queueBlocked: boolean;
+}) {
   const navigate = useNavigate();
 
   const resultSummary = useMemo(() => {
@@ -80,6 +94,19 @@ function JobCard({ job, expanded, onToggle }: { job: JobDetail; expanded: boolea
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
+            <Button
+              size="small"
+              color="error"
+              variant="text"
+              startIcon={<DeleteOutlineRounded />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(job.job_id);
+              }}
+              disabled={deleting}
+            >
+              {deleting ? '删除中' : '删除'}
+            </Button>
             {job.status === 'succeeded' && job.asset_name ? (
               <Button
                 size="small"
@@ -122,6 +149,12 @@ function JobCard({ job, expanded, onToggle }: { job: JobDetail; expanded: boolea
               <Alert severity="error">
                 <AlertTitle>任务失败</AlertTitle>
                 {job.error_message}
+              </Alert>
+            ) : null}
+
+            {queueBlocked && (job.status === 'queued' || job.status === 'running') ? (
+              <Alert severity="warning">
+                Worker 未连接，这个任务不会继续推进。建议删除后重建。
               </Alert>
             ) : null}
 
@@ -172,7 +205,7 @@ function JobCard({ job, expanded, onToggle }: { job: JobDetail; expanded: boolea
                   href={`/jobs/${job.job_id}`}
                   sx={{ alignSelf: 'flex-start', px: 0 }}
                 >
-                  在详情页查看完整结果 →
+                  查看详情
                 </Button>
               </Stack>
             ) : job.status !== 'failed' ? (
@@ -191,14 +224,21 @@ export function TaskQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedJobs>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set());
+  const [health, setHealth] = useState<{ broker_available: boolean; worker_available: boolean; async_available: boolean } | null>(null);
 
   const loadJobs = useCallback(async (isManual = false) => {
     if (isManual) {
       setLoading(true);
     }
     try {
-      const data = await fetchJobs();
+      const [data, runtime] = await Promise.all([fetchJobs(), fetchHealth()]);
       setJobs(data.items);
+      setHealth({
+        broker_available: runtime.broker_available,
+        worker_available: runtime.worker_available,
+        async_available: runtime.async_available,
+      });
       setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载任务失败');
@@ -236,12 +276,32 @@ export function TaskQueuePage() {
     setExpanded((prev) => ({ ...prev, [jobId]: !prev[jobId] }));
   }, []);
 
+  const handleDelete = useCallback(async (jobId: string) => {
+    setDeletingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      await deleteJob(jobId);
+      setJobs((current) => current.filter((item) => item.job_id !== jobId));
+      setExpanded((current) => {
+        const next = { ...current };
+        delete next[jobId];
+        return next;
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '删除任务失败');
+    } finally {
+      setDeletingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  }, []);
+
+  const queueBlocked = !!health?.broker_available && !health?.worker_available;
+
   return (
     <PageSection
-      title="任务队列与异步执行监控"
-      eyebrow="实时状态"
-      eyebrowColor="primary"
-      description="这里专门承接后台异步任务。即使你刷新页面或切换页面，任务也会继续在后端运行，并在这里持续可见。"
+      title="任务队列"
       loading={loading}
       error={error}
       actions={
@@ -256,38 +316,17 @@ export function TaskQueuePage() {
         </Button>
       }
     >
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <BalancedPretextText
-              text="任务不会因为刷新界面而消失，前端只是切换视图，后端异步任务仍会继续运行"
-              font='500 38px "Iowan Old Style"'
-              lineHeight={46}
-              targetLines={2}
-              minWidth={360}
-              maxWidth={860}
-              typographyProps={{
-                variant: 'h4',
-                sx: { maxWidth: 860 },
-              }}
-            />
-            <MeasuredPretextBlock
-              text="任务队列页会持续轮询任务状态。正在排队、处理中、已完成和失败的任务都会在这里保留，不再要求你靠记忆回到某个页面找刚刚发起的任务。"
-              font='400 16px "PingFang SC"'
-              lineHeight={30}
-              typographyProps={{
-                color: 'text.secondary',
-                sx: { maxWidth: 860, lineHeight: 1.85 },
-              }}
-            />
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip size="small" color="warning" label={`处理中 ${stats.queued + stats.running}`} />
-              <Chip size="small" color="success" label={`已完成 ${stats.succeeded}`} />
-              <Chip size="small" label={`自动轮询 ${POLL_INTERVAL_MS / 1000}s`} variant="outlined" />
-            </Stack>
-          </Stack>
-        </CardContent>
-      </Card>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip size="small" color="warning" label={`处理中 ${stats.queued + stats.running}`} />
+        <Chip size="small" color="success" label={`已完成 ${stats.succeeded}`} />
+        <Chip size="small" label={`自动轮询 ${POLL_INTERVAL_MS / 1000}s`} variant="outlined" />
+      </Stack>
+
+      {queueBlocked ? (
+        <Alert severity="warning">
+          Worker 未连接。队列不会推进，建议删除卡住任务后重建。
+        </Alert>
+      ) : null}
 
       {/* Stats row */}
       <Grid container spacing={2}>
@@ -333,6 +372,9 @@ export function TaskQueuePage() {
               job={job}
               expanded={!!expanded[job.job_id]}
               onToggle={() => toggleExpanded(job.job_id)}
+              onDelete={handleDelete}
+              deleting={deletingJobIds.has(job.job_id)}
+              queueBlocked={queueBlocked}
             />
           ))
         ) : (

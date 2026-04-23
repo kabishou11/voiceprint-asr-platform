@@ -164,6 +164,14 @@ export interface ModelListWithGPUResponse {
   gpu: GPUInfo;
 }
 
+export interface HealthResponse {
+  status: string;
+  app_name: string;
+  broker_available: boolean;
+  worker_available: boolean;
+  async_available: boolean;
+}
+
 export interface UploadAssetResponse {
   asset_name: string;
   original_filename: string;

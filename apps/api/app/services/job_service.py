@@ -1,110 +1,346 @@
+"""任务服务。
+
+提供任务的创建、查询和管理功能。
+支持同步和异步两种执行模式：
+- 异步模式：任务提交到 Celery 队列，由 Worker 异步执行
+- 同步模式：API 直接执行任务（Redis 不可用时的回退行为）
+"""
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from domain.schemas.transcript import JobDetail, JobSummary, Segment, TranscriptResult
-from model_adapters import resolve_audio_asset_path
 
-from .model_runtime import get_model_registry
+from apps.worker.app.celery_app import is_async_available
+from apps.worker.app.tasks.multi_speaker import (
+    run_multi_speaker_transcription,
+    run_multi_speaker_transcription_task,
+)
+from apps.worker.app.tasks.transcription import run_transcription, run_transcription_task
+
+from . import job_db
+
+logger = logging.getLogger(__name__)
+
+
+def _init_demo_job() -> None:
+    """在数据库中创建一个演示任务（仅当表为空时）"""
+    with job_db.session() as db:
+        count = db.query(job_db.JobRecord).count()
+        if count == 0:
+            demo = job_db.JobRecord(
+                job_id=str(uuid4()),
+                job_type="transcription",
+                status="succeeded",
+                asset_name="sample-meeting.wav",
+                result=TranscriptResult(
+                    text="欢迎使用 voiceprint-asr-platform。",
+                    language="zh",
+                    segments=[
+                        Segment(start_ms=0, end_ms=2300, text="欢迎使用", speaker="SPEAKER_00"),
+                        Segment(start_ms=2300, end_ms=5200, text="voiceprint-asr-platform。", speaker="SPEAKER_00"),
+                    ],
+                ).model_dump_json(),
+                error_message=None,
+            )
+            db.add(demo)
+            db.commit()
+
+
+# Ensure demo job exists on module load (creates DB + table on first access)
+_init_demo_job()
 
 
 class JobService:
-    def __init__(self) -> None:
-        self._jobs: dict[str, JobDetail] = {}
-        demo_job = JobDetail(
-            job_id=str(uuid4()),
-            job_type="transcription",
-            status="succeeded",
-            asset_name="sample-meeting.wav",
-            result=TranscriptResult(
-                text="欢迎使用 voiceprint-asr-platform。",
-                language="zh",
-                segments=[
-                    Segment(start_ms=0, end_ms=2300, text="欢迎使用", speaker="SPEAKER_00"),
-                    Segment(start_ms=2300, end_ms=5200, text="voiceprint-asr-platform。", speaker="SPEAKER_00"),
-                ],
-            ),
-        )
-        self._jobs[demo_job.job_id] = demo_job
-
     def list_jobs(self) -> list[JobSummary]:
-        return [JobSummary(**job.model_dump(exclude={"result", "error_message"})) for job in self._jobs.values()]
+        with job_db.session() as db:
+            return [
+                r.to_job_summary()
+                for r in db.query(job_db.JobRecord)
+                .order_by(job_db.JobRecord.created_at.desc())
+                .all()
+            ]
 
     def get_job(self, job_id: str) -> JobDetail | None:
-        return self._jobs.get(job_id)
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            return record.to_job_detail() if record else None
+
+    def delete_job(self, job_id: str) -> bool:
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            if record is None:
+                return False
+            db.delete(record)
+            db.commit()
+            return True
 
     def create_transcription_job(
         self,
         asset_name: str,
         job_type: str = "transcription",
         *,
+        diarization_model: str | None = None,
         hotwords: list[str] | None = None,
         language: str = "zh-cn",
         vad_enabled: bool = True,
         itn: bool = True,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
     ) -> JobDetail:
-        registry = get_model_registry()
-        result: TranscriptResult | None = None
-        if job_type == "transcription":
-            adapter = registry.get_asr("funasr-nano")
-            asset = self._build_asset(asset_name)
-            # 注入高级 ASR 参数
-            if hotwords and hasattr(adapter, "hotwords"):
-                adapter.hotwords = hotwords
-            if hasattr(adapter, "language"):
-                adapter.language = language
-            if hasattr(adapter, "vad_enabled"):
-                adapter.vad_enabled = vad_enabled
-            if hasattr(adapter, "itn"):
-                adapter.itn = itn
-            result = adapter.transcribe(asset=asset)
-        elif job_type == "multi_speaker_transcription":
-            asr_adapter = registry.get_asr("funasr-nano")
-            diarization_adapter = registry.get_diarization("3dspeaker-diarization")
-            asset = self._build_asset(asset_name)
-            # 注入高级 ASR 参数
-            if hotwords and hasattr(asr_adapter, "hotwords"):
-                asr_adapter.hotwords = hotwords
-            if hasattr(asr_adapter, "language"):
-                asr_adapter.language = language
-            if hasattr(asr_adapter, "vad_enabled"):
-                asr_adapter.vad_enabled = vad_enabled
-            if hasattr(asr_adapter, "itn"):
-                asr_adapter.itn = itn
-            transcript = asr_adapter.transcribe(asset=asset)
-            diarization_segments = diarization_adapter.diarize(asset=asset)
-            merged_segments = self._merge_segments(transcript.segments, diarization_segments)
-            result = TranscriptResult(text=transcript.text, language=transcript.language, segments=merged_segments)
+        """创建转写任务。
+
+        根据配置自动选择同步或异步执行：
+        - 异步模式：任务状态为 queued，推送到 Celery 队列
+        - 同步模式：直接执行转写，任务状态为 succeeded/failed
+
+        Args:
+            asset_name: 音频资产名称
+            job_type: 任务类型 (transcription / multi_speaker_transcription)
+            diarization_model: 说话人分离模型
+            hotwords: 热词列表
+            language: 语言
+            vad_enabled: 是否启用 VAD
+            itn: 是否启用 ITN
+            num_speakers: 已知说话人数量
+            min_speakers: 最少说话人数量
+            max_speakers: 最多说话人数量
+
+        Returns:
+            JobDetail 任务详情
+
+        Raises:
+            RuntimeError: 当资产不可用时
+        """
+        job_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+
+        # 先创建任务记录（状态为 queued）
         job = JobDetail(
-            job_id=str(uuid4()),
+            job_id=job_id,
             job_type=job_type,
-            status="succeeded" if result is not None else "queued",
+            status="queued",
+            asset_name=asset_name,
+            result=None,
+            error_message=None,
+            created_at=now,
+            updated_at=now,
+        )
+
+        # 保存到数据库
+        with job_db.session() as db:
+            record = job_db.JobRecord(
+                job_id=job.job_id,
+                job_type=job.job_type,
+                status=job.status,
+                asset_name=job.asset_name,
+                result=None,
+                error_message=None,
+                created_at=job.created_at,
+                updated_at=job.updated_at,
+            )
+            db.add(record)
+            db.commit()
+
+        # 检查是否启用异步模式
+        async_available = is_async_available()
+
+        if async_available:
+            # 异步模式：推送到 Celery 队列
+            try:
+                if job_type == "transcription":
+                    # run_transcription_task 在 celery 可用时是 Celery task 对象，否则是同步 wrapper
+                    run_transcription_task.apply_async(
+                        args=[job_id, asset_name, "funasr-nano"],
+                        kwargs={
+                            "hotwords": hotwords,
+                            "language": language,
+                            "vad_enabled": vad_enabled,
+                            "itn": itn,
+                        },
+                    )
+                    logger.info(f"任务 {job_id} 已提交到队列（转写）")
+                elif job_type == "multi_speaker_transcription":
+                    run_multi_speaker_transcription_task.apply_async(
+                        args=[job_id, asset_name, "funasr-nano", diarization_model or "3dspeaker-diarization"],
+                        kwargs={
+                            "hotwords": hotwords,
+                            "language": language,
+                            "vad_enabled": vad_enabled,
+                            "itn": itn,
+                            "num_speakers": num_speakers,
+                            "min_speakers": min_speakers,
+                            "max_speakers": max_speakers,
+                        },
+                    )
+                    logger.info(f"任务 {job_id} 已提交到队列（多人转写）")
+
+                # 返回 queued 状态的任务
+                return job
+
+            except Exception as e:
+                logger.warning(f"异步提交失败，回退到同步执行: {e}")
+                # 回退到同步执行
+
+        # 同步模式：直接执行任务
+        logger.info(f"任务 {job_id} 同步执行")
+        return self._execute_transcription_sync(
+            job_id=job_id,
+            asset_name=asset_name,
+            job_type=job_type,
+            diarization_model=diarization_model,
+            hotwords=hotwords,
+            language=language,
+            vad_enabled=vad_enabled,
+            itn=itn,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
+
+    def _execute_transcription_sync(
+        self,
+        job_id: str,
+        asset_name: str,
+        job_type: str,
+        diarization_model: str | None = None,
+        hotwords: list[str] | None = None,
+        language: str = "zh-cn",
+        vad_enabled: bool = True,
+        itn: bool = True,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
+    ) -> JobDetail:
+        """同步执行转写任务（回退模式）。
+
+        内部调用转写函数，更新任务状态为 succeeded/failed。
+        """
+        result: TranscriptResult | None = None
+        error_message: str | None = None
+
+        try:
+            # 更新状态为 running
+            self._update_job_status(job_id, "running")
+
+            if job_type == "transcription":
+                result = run_transcription(
+                    job_id=job_id,
+                    asset_name=asset_name,
+                    hotwords=hotwords,
+                    language=language,
+                    vad_enabled=vad_enabled,
+                    itn=itn,
+                )
+            elif job_type == "multi_speaker_transcription":
+                result = run_multi_speaker_transcription(
+                    job_id=job_id,
+                    asset_name=asset_name,
+                    diarization_model_key=diarization_model or "3dspeaker-diarization",
+                    hotwords=hotwords,
+                    language=language,
+                    vad_enabled=vad_enabled,
+                    itn=itn,
+                    num_speakers=num_speakers,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            error_message = str(exc)
+            logger.error(f"任务 {job_id} 执行失败: {exc}")
+
+        # 更新任务状态
+        self._update_job_result(job_id, result=result, status="succeeded" if result is not None else "failed", error_message=error_message)
+
+        # 获取更新后的任务
+        return self.get_job(job_id) or JobDetail(
+            job_id=job_id,
+            job_type=job_type,
+            status="succeeded" if result is not None else "failed",
             asset_name=asset_name,
             result=result,
+            error_message=error_message,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
-        self._jobs[job.job_id] = job
-        return job
+
+    def _update_job_status(self, job_id: str, status: str) -> bool:
+        """更新任务状态。"""
+        try:
+            with job_db.session() as db:
+                record = db.get(job_db.JobRecord, job_id)
+                if record:
+                    record.status = status
+                    record.updated_at = datetime.now(timezone.utc)
+                    db.commit()
+                    logger.debug(f"任务 {job_id} 状态更新为: {status}")
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"更新任务状态失败: {e}")
+            return False
+
+    def _update_job_result(
+        self,
+        job_id: str,
+        result: TranscriptResult | None = None,
+        status: str = "succeeded",
+        error_message: str | None = None,
+    ) -> bool:
+        """更新任务结果。"""
+        try:
+            with job_db.session() as db:
+                record = db.get(job_db.JobRecord, job_id)
+                if record:
+                    record.status = status
+                    record.updated_at = datetime.now(timezone.utc)
+                    if error_message is not None:
+                        record.error_message = error_message
+                    if result is not None:
+                        record.result = result.model_dump_json()
+                    db.commit()
+                    logger.debug(f"任务 {job_id} 结果已更新: status={status}")
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"更新任务结果失败: {e}")
+            return False
+
+    def update_job_status(self, job_id: str, status: str) -> bool:
+        """公开方法：更新任务状态。"""
+        return self._update_job_status(job_id, status)
+
+    def update_job_result(
+        self,
+        job_id: str,
+        result: TranscriptResult | None = None,
+        status: str = "succeeded",
+        error_message: str | None = None,
+    ) -> bool:
+        """公开方法：更新任务结果。"""
+        return self._update_job_result(job_id, result, status, error_message)
 
     def seed_jobs(self, jobs: Iterable[JobDetail]) -> None:
-        for job in jobs:
-            self._jobs[job.job_id] = job
-
-    def _build_asset(self, asset_name: str):
-        from model_adapters import AudioAsset
-
-        return AudioAsset(path=resolve_audio_asset_path(asset_name))
-
-    def _merge_segments(self, transcript_segments: list[Segment], speaker_segments: list[Segment]) -> list[Segment]:
-        if not transcript_segments:
-            return speaker_segments
-        if not speaker_segments:
-            return transcript_segments
-        merged: list[Segment] = []
-        for index, segment in enumerate(transcript_segments):
-            speaker = speaker_segments[min(index, len(speaker_segments) - 1)].speaker
-            merged.append(segment.model_copy(update={"speaker": speaker}))
-        return merged
+        with job_db.session() as db:
+            for job in jobs:
+                record = job_db.JobRecord(
+                    job_id=job.job_id,
+                    job_type=job.job_type,
+                    status=job.status,
+                    asset_name=job.asset_name,
+                    result=job.result.model_dump_json() if job.result else None,
+                    error_message=job.error_message,
+                    created_at=job.created_at,
+                    updated_at=job.updated_at,
+                )
+                db.add(record)
+            db.commit()
 
 
 job_service = JobService()

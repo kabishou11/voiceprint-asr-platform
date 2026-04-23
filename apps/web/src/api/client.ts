@@ -1,10 +1,14 @@
 import type {
+  CreateTranscriptionRequest,
   CreateTranscriptionResponse,
   CreateVoiceprintProfileResponse,
+  HealthResponse,
   EnrollVoiceprintResponse,
   IdentifyVoiceprintResponse,
   JobListResponse,
-  ModelListResponse,
+  ModelListWithGPUResponse,
+  ModelLoadResponse,
+  ModelUnloadResponse,
   TranscriptResponse,
   UploadAssetResponse,
   VerifyVoiceprintResponse,
@@ -43,6 +47,14 @@ export function fetchJobs(): Promise<JobListResponse> {
   return request<JobListResponse>('/jobs');
 }
 
+export function deleteJob(jobId: string): Promise<{ job_id: string; deleted: boolean }> {
+  return request<{ job_id: string; deleted: boolean }>(`/jobs/${jobId}`, { method: 'DELETE' });
+}
+
+export function fetchHealth(): Promise<HealthResponse> {
+  return request<HealthResponse>('/health');
+}
+
 export function fetchTranscript(jobId: string): Promise<TranscriptResponse> {
   return request<TranscriptResponse>(`/transcriptions/${jobId}`);
 }
@@ -56,15 +68,23 @@ export function uploadAudio(file: File): Promise<UploadAssetResponse> {
   });
 }
 
-export function createTranscription(assetName: string, diarizationModel?: string) {
+export function createTranscription(payload: CreateTranscriptionRequest) {
   return request<CreateTranscriptionResponse>('/transcriptions', {
     method: 'POST',
-    body: JSON.stringify({ asset_name: assetName, diarization_model: diarizationModel || null }),
+    body: JSON.stringify(payload),
   });
 }
 
-export function fetchModels(): Promise<ModelListResponse> {
-  return request<ModelListResponse>('/models');
+export function fetchModels(): Promise<ModelListWithGPUResponse> {
+  return request<ModelListWithGPUResponse>('/models');
+}
+
+export function loadModel(modelKey: string): Promise<ModelLoadResponse> {
+  return request<ModelLoadResponse>(`/models/${modelKey}/load`, { method: 'POST' });
+}
+
+export function unloadModel(modelKey: string): Promise<ModelUnloadResponse> {
+  return request<ModelUnloadResponse>(`/models/${modelKey}`, { method: 'DELETE' });
 }
 
 export function fetchVoiceprintProfiles(): Promise<VoiceprintProfilesResponse> {
