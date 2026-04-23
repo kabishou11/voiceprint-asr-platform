@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
@@ -25,6 +25,7 @@ function renderPage() {
 
 describe('ModelRegistryPage', () => {
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
     fetchModels.mockResolvedValue({
       items: [
@@ -34,6 +35,10 @@ describe('ModelRegistryPage', () => {
           task: 'transcription',
           provider: 'funasr',
           availability: 'available',
+          status: 'loaded',
+          gpu_memory_mb: 1024,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -42,6 +47,10 @@ describe('ModelRegistryPage', () => {
           task: 'diarization',
           provider: '3dspeaker',
           availability: 'available',
+          status: 'loaded',
+          gpu_memory_mb: 2048,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -50,6 +59,10 @@ describe('ModelRegistryPage', () => {
           task: 'voiceprint',
           provider: '3dspeaker',
           availability: 'available',
+          status: 'loaded',
+          gpu_memory_mb: 1024,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
         {
@@ -58,6 +71,10 @@ describe('ModelRegistryPage', () => {
           task: 'diarization',
           provider: 'pyannote',
           availability: 'unavailable',
+          status: 'load_failed',
+          gpu_memory_mb: null,
+          load_progress: null,
+          error: null,
           experimental: false,
         },
       ],
@@ -73,7 +90,7 @@ describe('ModelRegistryPage', () => {
 
     expect(await screen.findByText(/3D-Speaker 本地模型已就绪/)).toBeInTheDocument();
     expect(screen.getByText(/已识别到 CUDA GPU/)).toBeInTheDocument();
-    expect(screen.getByText(/gated repo/)).toBeInTheDocument();
+    expect(screen.getByText(/复杂重叠说话增强不会启用/)).toBeInTheDocument();
     expect(screen.getByText(/不会启用/)).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 # voiceprint-asr-platform
 
 <p align="center">
-  <img src="docs/logo.svg" alt="智能语音平台 Logo" width="96" />
+  <img src="apps/web/public/logo.svg" alt="智能语音平台 Logo" width="96" />
 </p>
 
 <h1 align="center">智能语音平台</h1>
@@ -223,7 +223,10 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 
 - `工作台`
   - 以“立即开始任务”为视觉中心
-  - 支持高级参数、最近任务、模型状态提示
+  - 支持高级参数、运行中任务、最近结果、模型状态提示
+- `任务队列`
+  - 用于持续查看后台异步任务
+  - 刷新页面后仍可追踪排队中、处理中和已完成任务
 - `任务详情`
   - 以 speaker 过滤、时间线、分段阅读流为核心
   - 支持导出、快速重跑、跳转声纹库继续处理
@@ -232,6 +235,9 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 - `模型状态`
   - 强调真实可用性，不再只是模型清单
   - 明确区分本地 GPU 已就绪能力与受限能力
+- `模型管理`
+  - 用于手动加载、卸载模型与查看显存占用
+  - 让 GPU 运行时准备工作显式可见
 
 ### 前端排版与视觉
 

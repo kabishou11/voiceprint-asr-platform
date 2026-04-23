@@ -47,6 +47,8 @@ const quickTemplates = [
   '5分钟.wav',
 ];
 
+const RECENT_ACTIVE_JOB_STORAGE_KEY = 'voiceprint-active-job-ids';
+
 function TonePill({
   label,
   active = false,
@@ -145,6 +147,22 @@ export function TranscriptionWorkbenchPage() {
   }, [jobsState.data]);
 
   const recentJobs = useMemo(() => (jobsState.data?.items ?? []).slice(0, 4), [jobsState.data]);
+  const activeJobs = useMemo(
+    () =>
+      (jobsState.data?.items ?? [])
+        .filter((job) => job.status === 'running' || job.status === 'queued')
+        .slice(0, 5),
+    [jobsState.data],
+  );
+  const modelRuntimeSummary = useMemo(() => {
+    const items = modelsState.data?.items ?? [];
+    return {
+      loaded: items.filter((item) => item.status === 'loaded').length,
+      loading: items.filter((item) => item.status === 'loading').length,
+      failed: items.filter((item) => item.status === 'load_failed').length,
+      total: items.length,
+    };
+  }, [modelsState.data]);
 
   const parsedHotwords = useMemo(
     () =>
@@ -189,6 +207,19 @@ export function TranscriptionWorkbenchPage() {
         min_speakers: parseInteger(minSpeakersText),
         max_speakers: parseInteger(maxSpeakersText),
       });
+      jobsState.setData((current) => ({
+        items: [response.job, ...(current?.items ?? []).filter((job) => job.job_id !== response.job.job_id)],
+      }));
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem(RECENT_ACTIVE_JOB_STORAGE_KEY);
+        const stored = raw ? (JSON.parse(raw) as string[]) : [];
+        window.localStorage.setItem(
+          RECENT_ACTIVE_JOB_STORAGE_KEY,
+          JSON.stringify(
+            [response.job.job_id, ...stored.filter((item) => item !== response.job.job_id)].slice(0, 8),
+          ),
+        );
+      }
       navigate(`/jobs/${response.job.job_id}`);
     } catch (reason) {
       setSubmitError(reason instanceof Error ? reason.message : '创建任务失败');
@@ -418,6 +449,11 @@ export function TranscriptionWorkbenchPage() {
                                 高级重叠说话增强仍未启用。`pyannote` 官方离线包尚未补齐，本地多人转写当前以 3D-Speaker 主链路为准。
                               </Alert>
                             ) : null}
+                            {activeJobs.length ? (
+                              <Alert severity="success">
+                                当前有 {activeJobs.length} 个任务仍在后台运行。刷新页面或切到别的页面后，任务不会消失；你可以随时从首页或任务队列继续追踪状态。
+                              </Alert>
+                            ) : null}
                           </Stack>
                         </Grid>
                         <Grid size={{ xs: 12, lg: 4 }}>
@@ -536,8 +572,8 @@ export function TranscriptionWorkbenchPage() {
                               >
                                 {submitting ? '创建中' : '立即开始'}
                               </Button>
-                              <Button variant="outlined" fullWidth onClick={() => navigate('/jobs')}>
-                                查看全部任务
+                              <Button variant="outlined" fullWidth onClick={() => navigate('/tasks')}>
+                                查看任务队列
                               </Button>
                             </Stack>
                           </Stack>
@@ -593,14 +629,19 @@ export function TranscriptionWorkbenchPage() {
                 <CardContent>
                   <Stack spacing={1.8}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
-                      <Typography variant="h6">最近任务</Typography>
-                      <Button size="small" onClick={() => navigate('/jobs')}>
-                        查看全部
-                      </Button>
+                      <Typography variant="h6">运行中任务与最近结果</Typography>
+                      <Stack direction="row" spacing={1}>
+                        <Button size="small" onClick={() => navigate('/tasks')}>
+                          任务队列
+                        </Button>
+                        <Button size="small" onClick={() => navigate('/jobs')}>
+                          任务中心
+                        </Button>
+                      </Stack>
                     </Stack>
-                    <Stack spacing={1.2}>
-                      {recentJobs.length ? (
-                        recentJobs.map((job) => (
+                    {activeJobs.length ? (
+                      <Stack spacing={1.2}>
+                        {activeJobs.map((job) => (
                           <Box
                             key={job.job_id}
                             sx={{
@@ -626,15 +667,46 @@ export function TranscriptionWorkbenchPage() {
                                 sx={{ alignSelf: 'flex-start', px: 0 }}
                                 onClick={() => navigate(`/jobs/${job.job_id}`)}
                               >
-                                继续复核
+                                查看实时状态
                               </Button>
                             </Stack>
                           </Box>
-                        ))
-                      ) : (
-                        <Alert severity="info">暂无任务记录。</Alert>
-                      )}
-                    </Stack>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Alert severity="info">当前没有后台运行中的任务，发起新任务后会在这里持续可见。</Alert>
+                    )}
+                    {recentJobs.length ? (
+                      <Stack spacing={1.1}>
+                        <Typography variant="body2" color="text.secondary">
+                          最近结果
+                        </Typography>
+                        {recentJobs.slice(0, 3).map((job) => (
+                          <Box
+                            key={`recent-${job.job_id}`}
+                            sx={{
+                              p: 1.35,
+                              borderRadius: 4,
+                              bgcolor: alpha('#ffffff', 0.72),
+                              border: '1px solid',
+                              borderColor: alpha('#1c2431', 0.06),
+                            }}
+                          >
+                            <Stack direction="row" justifyContent="space-between" spacing={1.5}>
+                              <Box>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                  {job.asset_name ?? job.job_id}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {formatDateTime(job.updated_at)}
+                                </Typography>
+                              </Box>
+                              <StatusChip status={job.status} />
+                            </Stack>
+                          </Box>
+                        ))}
+                      </Stack>
+                    ) : null}
                   </Stack>
                 </CardContent>
               </Card>
@@ -743,15 +815,43 @@ export function TranscriptionWorkbenchPage() {
                     ))}
                   </Grid>
                   <Divider />
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <TonePill label="多人链路就绪" active={threeDSpeakerReady} />
-                    <TonePill label="GPU 已就绪" active={asrReady} />
-                    <TonePill label="pyannote 待补齐" active={false} />
-                    <TonePill label="可直接查看结果" active />
-                  </Stack>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <TonePill label="多人链路就绪" active={threeDSpeakerReady} />
+                  <TonePill label="GPU 已就绪" active={asrReady} />
+                  <TonePill label="pyannote 待补齐" active={false} />
+                  <TonePill label="可直接查看结果" active />
                 </Stack>
-              </CardContent>
-            </Card>
+                <Box
+                  sx={{
+                    p: 1.6,
+                    borderRadius: 4,
+                    bgcolor: alpha('#ffffff', 0.68),
+                    border: '1px solid',
+                    borderColor: alpha('#1c2431', 0.06),
+                  }}
+                >
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1.5}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', md: 'center' }}
+                  >
+                    <Stack spacing={0.55}>
+                      <Typography fontWeight={700}>模型与显存控制</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        当前共 {modelRuntimeSummary.total} 个模型，已加载 {modelRuntimeSummary.loaded} 个，
+                        加载中 {modelRuntimeSummary.loading} 个
+                        {modelRuntimeSummary.failed ? `，失败 ${modelRuntimeSummary.failed} 个` : ''}。
+                      </Typography>
+                    </Stack>
+                    <Button variant="outlined" onClick={() => navigate('/system/management')}>
+                      打开模型管理
+                    </Button>
+                  </Stack>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
           </Grid>
         </Grid>
       </PageSection>
