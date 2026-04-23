@@ -116,6 +116,40 @@ def test_normalize_transcript_text_dedupes_short_repeated_tokens() -> None:
     assert "对对对对" not in normalized
 
 
+def test_normalize_transcript_text_collapses_common_cjk_stutter_runs() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text(
+        "呃这这种方案 主主业务流程 我我其实 有有什么看法 最最严重的账号密码 层层面去看 就就在提"
+    )
+
+    assert "这这种" not in normalized
+    assert "主主业务" not in normalized
+    assert "我我其实" not in normalized
+    assert "有有什么" not in normalized
+    assert "最最严重" not in normalized
+    assert "层层面" not in normalized
+    assert "就就在" not in normalized
+    assert "这种方案" in normalized
+    assert "主业务流程" in normalized
+    assert "我其实" in normalized
+    assert "有什么看法" in normalized
+    assert "最严重的账号密码" in normalized
+    assert "层面去看" in normalized
+    assert "就在提" in normalized
+
+
+def test_normalize_transcript_text_preserves_common_valid_reduplication_words() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text("刚刚开始 常常这样 人人都知道 天天都会发生")
+
+    assert "刚刚开始" in normalized
+    assert "常常这样" in normalized
+    assert "人人都知道" in normalized
+    assert "天天都会发生" in normalized
+
+
 def test_funasr_adapter_defaults_vad_model_to_local_models_directory() -> None:
     adapter = FunASRTranscribeAdapter(vad_enabled=True)
 

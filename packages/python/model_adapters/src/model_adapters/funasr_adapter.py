@@ -716,6 +716,7 @@ class FunASRTranscribeAdapter(ASRAdapter):
         cleaned = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", cleaned)
         cleaned = re.sub(r"\s+([，。！？；：、“”‘’,.!?;:])", r"\1", cleaned)
         cleaned = re.sub(r"([，。！？；,.!?;])\1+", r"\1", cleaned)
+        cleaned = self._collapse_cjk_stutter_runs(cleaned)
         cleaned = self._dedupe_adjacent_phrase(cleaned)
         cleaned = self._dedupe_repeated_tokens(cleaned)
         return cleaned.strip()
@@ -772,6 +773,16 @@ class FunASRTranscribeAdapter(ASRAdapter):
             if normalized:
                 previous_normalized = normalized
         return "".join(result)
+
+    def _collapse_cjk_stutter_runs(self, text: str) -> str:
+        cleaned = text
+        # 只处理会议口语里高频、低风险的口吃前缀字，避免误伤“刚刚开始”“文文档”这类合法词形。
+        cleaned = re.sub(
+            r"([这那有就我你他她它主最层好])[ \t]*\1+(?=[\u4e00-\u9fff])",
+            r"\1",
+            cleaned,
+        )
+        return cleaned
 
 
 def _has_model_artifacts(path: str | Path) -> bool:
