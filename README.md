@@ -16,6 +16,12 @@
 - `3D-Speaker + FSMN-VAD`：说话人分离、声纹验证与识别
 - `pyannote`：预留增强链路，当前默认关闭
 
+当前前端稳定版采用：
+
+- `Claude` 风格的浅色极简工作台
+- `pretext` 驱动的标题与长文本排版增强
+- 工作台、任务复核台、声纹回写、模型状态页统一的产品语言
+
 当前项目已经收紧为：
 
 - 所有模型都必须放在仓库根目录 `models/`
@@ -183,6 +189,14 @@ cd apps/web
 npm run test
 ```
 
+如果你只想验证当前稳定版前端主链路，推荐最小检查：
+
+```powershell
+cd apps/web
+pnpm test -- --run src/components/AppLayout.test.tsx src/pages/transcription/TranscriptionWorkbenchPage.test.tsx src/pages/jobs/JobDetailPage.test.tsx src/pages/voiceprints/VoiceprintLibraryPage.test.tsx src/pages/system/ModelRegistryPage.test.tsx
+cmd /c .\node_modules\.bin\tsc.cmd -b
+```
+
 如果你只想快速验证多人链路，可以直接用样本脚本：
 
 ```powershell
@@ -200,6 +214,33 @@ npm run test
 - `storage/uploads`：上传音频资产
 - `storage/experiments`：样本跑数、benchmark、可读稿
 - `tests`：单测与集成测试
+
+## 当前稳定版前端
+
+当前稳定版前端不是传统后台，而是一套围绕“上传任务 -> 复核结果 -> 回写身份”的极简工作台。
+
+### 页面主链路
+
+- `工作台`
+  - 以“立即开始任务”为视觉中心
+  - 支持高级参数、最近任务、模型状态提示
+- `任务详情`
+  - 以 speaker 过滤、时间线、分段阅读流为核心
+  - 支持导出、快速重跑、跳转声纹库继续处理
+- `声纹库`
+  - 既能独立做验证/识别/注册，也能承接任务上下文做 speaker 回写
+- `模型状态`
+  - 强调真实可用性，不再只是模型清单
+  - 明确区分本地 GPU 已就绪能力与受限能力
+
+### 前端排版与视觉
+
+- 整体风格参考 `Claude` 网页版：浅色、留白、弱边框、低噪声
+- 品牌视觉来自项目自己的蓝青声波语言，不直接堆大图
+- `@chenglou/pretext` 已实际接入：
+  - 首页主标题
+  - 任务详情长文本与摘要区
+  - 重点说明文案的稳定换行与阅读布局
 
 ## 当前真实运行约束
 
@@ -348,8 +389,17 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 - `exclusive alignment`：无重叠对齐时间轴
 - `storage/experiments`：统一样本产物目录
 
+当前稳定版产品链路则是：
+
+1. 工作台上传音频并发起任务
+2. 任务详情按 speaker 复核时间线与文本
+3. 从任务详情跳到声纹库做验证、识别或注册
+4. 把 speaker 身份回写回任务详情
+5. 在模型状态页确认当前模型与 GPU 路径真实可用
+
 如果你在另一台电脑上严格按本 README 执行，核心目标应该是：
 
 1. `torch.cuda.is_available() == True`
 2. `uv run pytest tests/integration/test_health.py -q` 通过
 3. 能成功跑出 `storage/experiments/...` 下的多人转写结果
+4. 前端 5 个关键页面测试通过，并能跑起极简工作台界面

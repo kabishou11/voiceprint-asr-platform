@@ -4,57 +4,81 @@ const baseTheme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#2563eb',
-      light: '#60a5fa',
-      dark: '#1d4ed8',
+      main: '#2f6fed',
+      light: '#6da7ff',
+      dark: '#1e4fb8',
       contrastText: '#ffffff',
     },
     secondary: {
-      main: '#0f766e',
-      light: '#2dd4bf',
-      dark: '#115e59',
+      main: '#3ab8d9',
+      light: '#7dddf0',
+      dark: '#1482a0',
     },
     success: {
-      main: '#16a34a',
+      main: '#14945a',
     },
     warning: {
-      main: '#f59e0b',
+      main: '#de9f3c',
     },
     error: {
-      main: '#dc2626',
+      main: '#ca5a4d',
     },
     background: {
-      default: '#f3f6fb',
-      paper: '#ffffff',
+      default: '#f7f4ee',
+      paper: '#fffdf8',
     },
     text: {
-      primary: '#0f172a',
-      secondary: '#475569',
+      primary: '#1c2431',
+      secondary: '#67707c',
     },
-    divider: alpha('#0f172a', 0.08),
+    divider: alpha('#1c2431', 0.09),
   },
   shape: {
-    borderRadius: 18,
+    borderRadius: 20,
   },
   typography: {
-    fontFamily: '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif',
+    fontFamily:
+      '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif',
+    h2: {
+      fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
+      fontWeight: 500,
+      letterSpacing: '-0.04em',
+      lineHeight: 1.04,
+    },
     h3: {
-      fontWeight: 800,
+      fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
+      fontWeight: 500,
       letterSpacing: '-0.03em',
+      lineHeight: 1.08,
     },
     h4: {
-      fontWeight: 800,
-      letterSpacing: '-0.02em',
+      fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
+      fontWeight: 500,
+      letterSpacing: '-0.025em',
+      lineHeight: 1.12,
     },
     h5: {
-      fontWeight: 700,
+      fontFamily: '"Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif',
+      fontWeight: 600,
+      letterSpacing: '-0.02em',
     },
     h6: {
-      fontWeight: 700,
+      fontWeight: 600,
+      letterSpacing: '-0.01em',
+    },
+    subtitle1: {
+      fontWeight: 600,
+    },
+    body1: {
+      lineHeight: 1.75,
+    },
+    body2: {
+      lineHeight: 1.7,
     },
     button: {
-      fontWeight: 700,
+      fontWeight: 600,
       textTransform: 'none',
+      letterSpacing: '-0.01em',
     },
   },
 });
@@ -63,28 +87,49 @@ export const appTheme = createTheme(baseTheme, {
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        ':root': {
+          colorScheme: 'light',
+        },
         body: {
-          backgroundImage:
-            'radial-gradient(circle at top right, rgba(37,99,235,0.10), transparent 24%), radial-gradient(circle at top left, rgba(15,118,110,0.08), transparent 22%)',
+          backgroundColor: '#f7f4ee',
+          backgroundImage: [
+            'radial-gradient(circle at top left, rgba(47,111,237,0.07), transparent 20%)',
+            'radial-gradient(circle at 78% 18%, rgba(58,184,217,0.08), transparent 17%)',
+            'linear-gradient(180deg, rgba(255,255,255,0.74) 0%, rgba(247,244,238,0.94) 100%)',
+          ].join(','),
+        },
+        '*::-webkit-scrollbar': {
+          width: 10,
+          height: 10,
+        },
+        '*::-webkit-scrollbar-thumb': {
+          backgroundColor: alpha('#8a939f', 0.28),
+          borderRadius: 999,
+          border: '2px solid transparent',
+          backgroundClip: 'padding-box',
+        },
+        '*::-webkit-scrollbar-track': {
+          backgroundColor: 'transparent',
         },
       },
     },
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          background:
-            'linear-gradient(180deg, rgba(15,23,42,1) 0%, rgba(15,23,42,0.96) 55%, rgba(30,41,59,0.98) 100%)',
-          color: '#e2e8f0',
+          background: 'rgba(250,248,243,0.9)',
+          backdropFilter: 'blur(24px)',
+          color: '#1c2431',
         },
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 24,
-          border: `1px solid ${alpha('#0f172a', 0.06)}`,
-          boxShadow: '0 18px 48px rgba(15,23,42,0.08)',
+          borderRadius: 28,
+          border: `1px solid ${alpha('#1c2431', 0.08)}`,
+          boxShadow: '0 18px 54px rgba(28,36,49,0.045)',
           backgroundImage: 'none',
+          backgroundColor: alpha('#fffdf9', 0.95),
         },
       },
     },
@@ -94,8 +139,10 @@ export const appTheme = createTheme(baseTheme, {
       },
       styleOverrides: {
         root: {
-          borderRadius: 14,
+          borderRadius: 16,
           paddingInline: 18,
+          minHeight: 42,
+          boxShadow: 'none',
         },
       },
     },
@@ -103,13 +150,38 @@ export const appTheme = createTheme(baseTheme, {
       styleOverrides: {
         root: {
           borderRadius: 999,
-          fontWeight: 700,
+          fontWeight: 600,
+        },
+      },
+    },
+    MuiAccordion: {
+      styleOverrides: {
+        root: {
+          borderRadius: 24,
+          overflow: 'hidden',
+          '&:before': {
+            display: 'none',
+          },
         },
       },
     },
     MuiTextField: {
       defaultProps: {
         fullWidth: true,
+      },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: {
+          borderRadius: 20,
+          backgroundColor: alpha('#ffffff', 0.82),
+          '& fieldset': {
+            borderColor: alpha('#1c2431', 0.1),
+          },
+          '&:hover fieldset': {
+            borderColor: alpha('#1c2431', 0.18),
+          },
+        },
       },
     },
     MuiPaper: {
