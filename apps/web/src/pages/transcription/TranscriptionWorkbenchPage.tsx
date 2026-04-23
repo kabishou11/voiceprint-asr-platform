@@ -37,6 +37,7 @@ import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { BrandLogo } from '../../components/BrandLogo';
 import { PageSection } from '../../components/PageSection';
+import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
 import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
 
@@ -268,31 +269,38 @@ export function TranscriptionWorkbenchPage() {
                     spacing={3}
                     justifyContent="space-between"
                   >
-                    <Stack spacing={1.6} sx={{ maxWidth: 620 }}>
-                      <Stack direction="row" spacing={1.2} alignItems="center">
-                        <BrandLogo size={54} title="Voiceprint" subtitle="ASR Platform" />
-                      </Stack>
-                      <Typography
-                        variant="h2"
-                        sx={{
-                          maxWidth: 620,
-                          fontSize: { xs: '2.3rem', md: '3.25rem' },
-                          textWrap: 'balance',
-                        }}
-                      >
-                        Good afternoon, 直接开始你的多人语音工作流
-                      </Typography>
-                      <Typography
-                        color="text.secondary"
-                        sx={{
-                          maxWidth: 580,
-                          fontSize: 16,
-                          lineHeight: 1.9,
-                          textWrap: 'pretty',
-                        }}
-                      >
-                        当前首页不再强调仪表盘，而是优先把上传、参数和模型可用性集中到一处。你可以先发起任务，再去结果页做 speaker 复核与声纹处理。
-                      </Typography>
+                      <Stack spacing={1.6} sx={{ maxWidth: 620 }}>
+                        <Stack direction="row" spacing={1.2} alignItems="center">
+                          <BrandLogo size={54} title="Voiceprint" subtitle="ASR Platform" />
+                        </Stack>
+                        <BalancedPretextText
+                          text="Good afternoon, 直接开始你的多人语音工作流"
+                          font='500 52px "Iowan Old Style"'
+                          lineHeight={58}
+                          targetLines={2}
+                          minWidth={360}
+                          maxWidth={620}
+                          typographyProps={{
+                            variant: 'h2',
+                            sx: {
+                              maxWidth: 620,
+                              fontSize: { xs: '2.3rem', md: '3.25rem' },
+                            },
+                          }}
+                        />
+                        <MeasuredPretextBlock
+                          text="当前首页不再强调仪表盘，而是优先把上传、参数和模型可用性集中到一处。你可以先发起任务，再去结果页做 speaker 复核与声纹处理。"
+                          font='400 16px "PingFang SC"'
+                          lineHeight={30}
+                          typographyProps={{
+                            color: 'text.secondary',
+                            sx: {
+                              maxWidth: 580,
+                              fontSize: 16,
+                              lineHeight: 1.9,
+                            },
+                          }}
+                        />
                       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                         <TonePill label="Claude 风格工作台" active />
                         <TonePill label="本地 GPU 推理" active={asrReady} />

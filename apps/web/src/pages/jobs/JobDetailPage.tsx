@@ -18,6 +18,7 @@ import { fetchTranscript } from '../../api/client';
 import { formatDateTime, jobTypeLabels, type Segment, type TranscriptResult } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
+import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
 import { StatusChip } from '../../components/StatusChip';
 
 const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
@@ -311,16 +312,21 @@ export function JobDetailPage() {
                         <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: '0.08em' }}>
                           当前任务
                         </Typography>
-                        <Typography
-                          variant="h3"
-                          sx={{
-                            fontSize: { xs: '2rem', md: '2.7rem' },
-                            maxWidth: 700,
-                            textWrap: 'balance',
+                        <BalancedPretextText
+                          text={data.job.asset_name ?? '未命名文件'}
+                          font='500 44px "Iowan Old Style"'
+                          lineHeight={50}
+                          targetLines={2}
+                          minWidth={360}
+                          maxWidth={700}
+                          typographyProps={{
+                            variant: 'h3',
+                            sx: {
+                              fontSize: { xs: '2rem', md: '2.7rem' },
+                              maxWidth: 700,
+                            },
                           }}
-                        >
-                          {data.job.asset_name ?? '未命名文件'}
-                        </Typography>
+                        />
                         <Typography color="text.secondary" sx={{ maxWidth: 700, textWrap: 'pretty' }}>
                           {jobTypeLabels[data.job.job_type]} · 更新时间 {formatDateTime(data.job.updated_at)}
                         </Typography>
@@ -503,14 +509,24 @@ export function JobDetailPage() {
                         minHeight: 220,
                       }}
                     >
-                      <Typography color="text.secondary" sx={{ lineHeight: 1.95, textWrap: 'pretty' }}>
-                        {selectedSpeakerGroup
-                          ? selectedSpeakerGroup.segments
-                              .map((segment) => segment.text)
-                              .filter(Boolean)
-                              .join(' ')
-                          : data.transcript?.text ?? '暂无转写结果'}
-                      </Typography>
+                      <MeasuredPretextBlock
+                        text={
+                          selectedSpeakerGroup
+                            ? selectedSpeakerGroup.segments
+                                .map((segment) => segment.text)
+                                .filter(Boolean)
+                                .join(' ')
+                            : data.transcript?.text ?? '暂无转写结果'
+                        }
+                        font='400 16px "PingFang SC"'
+                        lineHeight={31}
+                        typographyProps={{
+                          color: 'text.secondary',
+                          sx: {
+                            lineHeight: 1.95,
+                          },
+                        }}
+                      />
                     </Box>
                     {data.job.error_message ? <Alert severity="error">{data.job.error_message}</Alert> : null}
                   </Stack>
