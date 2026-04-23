@@ -1,4 +1,5 @@
 import { Alert, Box, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 
 interface PageSectionProps {
@@ -26,12 +27,13 @@ export function PageSection({
     <Stack spacing={3}>
       <Box
         sx={{
-          p: { xs: 2.5, md: 3 },
-          borderRadius: 6,
-          bgcolor: 'background.paper',
+          p: { xs: 2.6, md: 3.2 },
+          borderRadius: 7,
+          background:
+            'linear-gradient(180deg, rgba(255,253,249,0.94) 0%, rgba(255,251,245,0.82) 100%)',
           border: '1px solid',
-          borderColor: 'divider',
-          boxShadow: '0 16px 40px rgba(15,23,42,0.06)',
+          borderColor: alpha('#1c2431', 0.06),
+          boxShadow: '0 20px 44px rgba(15,23,42,0.04)',
         }}
       >
         <Stack
@@ -46,12 +48,25 @@ export function PageSection({
                 size="small"
                 label={eyebrow}
                 color={eyebrowColor}
-                sx={{ alignSelf: 'flex-start', fontWeight: 700, fontSize: 12 }}
+                sx={{
+                  alignSelf: 'flex-start',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  bgcolor: alpha('#ffffff', 0.72),
+                }}
               />
             ) : null}
-            <Typography variant="h4">{title}</Typography>
+            <Typography variant="h4" sx={{ maxWidth: 760 }}>
+              {title}
+            </Typography>
             {description ? (
-              <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
+              <Typography
+                color="text.secondary"
+                sx={{
+                  maxWidth: 760,
+                  textWrap: 'pretty',
+                }}
+              >
                 {description}
               </Typography>
             ) : null}

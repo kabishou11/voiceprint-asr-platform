@@ -10,10 +10,7 @@ interface BrandLogoProps {
 }
 
 function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | 'light'>) {
-  const bg = light
-    ? 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #0f766e 100%)'
-    : 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #0f766e 100%)';
-  const fg = light ? '#f8fafc' : '#0f172a';
+  const bg = 'linear-gradient(155deg, #1d4ed8 0%, #2563eb 58%, #14b8c8 100%)';
 
   return (
     <Box
@@ -21,14 +18,22 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
         width: size,
         height: size,
         position: 'relative',
-        borderRadius: `${Math.max(14, Math.round(size * 0.22))}px`,
+        borderRadius: `${Math.max(16, Math.round(size * 0.24))}px`,
         overflow: 'hidden',
         background: bg,
         boxShadow: light
-          ? '0 20px 56px rgba(15,23,42,0.3)'
-          : '0 20px 48px rgba(37,99,235,0.22)',
-        border: `1px solid ${alpha('#ffffff', light ? 0.2 : 0.12)}`,
+          ? '0 18px 42px rgba(7,24,68,0.24)'
+          : '0 16px 36px rgba(47,111,237,0.18)',
+        border: `1px solid ${alpha('#ffffff', light ? 0.3 : 0.2)}`,
         flexShrink: 0,
+        '&::after': {
+          content: '""',
+          position: 'absolute',
+          inset: '6%',
+          borderRadius: 'inherit',
+          border: `1px solid ${alpha('#e0f2fe', 0.45)}`,
+          opacity: 0.9,
+        },
       }}
     >
       {/* Outer arcs - left */}
@@ -40,7 +45,7 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
           width: `${size * 0.31}px`,
           height: `${size * 0.31}px`,
           borderRadius: '50%',
-          border: `${size * 0.038}px solid ${alpha('#93c5fd', 0.55)}`,
+          border: `${size * 0.038}px solid ${alpha('#bfdbfe', 0.78)}`,
           borderRightColor: 'transparent',
           borderBottomColor: 'transparent',
           transform: 'rotate(-45deg)',
@@ -55,7 +60,7 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
           width: `${size * 0.31}px`,
           height: `${size * 0.31}px`,
           borderRadius: '50%',
-          border: `${size * 0.038}px solid ${alpha('#93c5fd', 0.55)}`,
+          border: `${size * 0.038}px solid ${alpha('#93c5fd', 0.74)}`,
           borderLeftColor: 'transparent',
           borderBottomColor: 'transparent',
           transform: 'rotate(45deg)',
@@ -72,7 +77,7 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
             width: `${size * 0.055}px`,
             height: `${size * (0.078 + i * 0.06)}px`,
             borderRadius: 999,
-            bgcolor: alpha('#bfdbfe', 0.88 - i * 0.12),
+            bgcolor: alpha('#67e8f9', 0.92 - i * 0.12),
           }}
         />
       ))}
@@ -87,7 +92,7 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
             width: `${size * 0.055}px`,
             height: `${size * (0.078 + i * 0.06)}px`,
             borderRadius: 999,
-            bgcolor: alpha('#bfdbfe', 0.88 - i * 0.12),
+            bgcolor: alpha('#67e8f9', 0.92 - i * 0.12),
           }}
         />
       ))}
@@ -102,6 +107,7 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
           height: `${size * 0.22}px`,
           borderRadius: '50%',
           bgcolor: 'rgba(255,255,255,0.95)',
+          boxShadow: '0 0 24px rgba(255,255,255,0.45)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -112,7 +118,8 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
             width: `${size * 0.1}px`,
             height: `${size * 0.1}px`,
             borderRadius: '50%',
-            bgcolor: '#5eead4',
+            bgcolor: '#22d3ee',
+            boxShadow: '0 0 18px rgba(34,211,238,0.72)',
           }}
         />
       </Box>
@@ -125,7 +132,8 @@ function BrandMark({ size = 52, light = false }: Pick<BrandLogoProps, 'size' | '
           width: `${size * 0.09}px`,
           height: `${size * 0.09}px`,
           borderRadius: '50%',
-          bgcolor: alpha('#5eead4', 0.85),
+          bgcolor: alpha('#5eead4', 0.92),
+          boxShadow: '0 0 18px rgba(94,234,212,0.55)',
         }}
       />
     </Box>
@@ -153,6 +161,7 @@ export function BrandLogo({
             color: light ? '#f8fafc' : 'text.primary',
             lineHeight: 1.1,
             letterSpacing: '-0.02em',
+            fontWeight: 600,
           }}
         >
           {title}
