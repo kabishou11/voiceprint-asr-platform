@@ -116,6 +116,53 @@ def test_normalize_transcript_text_dedupes_short_repeated_tokens() -> None:
     assert "对对对对" not in normalized
 
 
+def test_normalize_transcript_text_collapses_common_cjk_stutter_runs() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text(
+        "呃这这种方案 主主业务流程 我我其实 有有什么看法 最最严重的账号密码 层层面去看 就就在提"
+    )
+
+    assert "这这种" not in normalized
+    assert "主主业务" not in normalized
+    assert "我我其实" not in normalized
+    assert "有有什么" not in normalized
+    assert "最最严重" not in normalized
+    assert "层层面" not in normalized
+    assert "就就在" not in normalized
+    assert "这种方案" in normalized
+    assert "主业务流程" in normalized
+    assert "我其实" in normalized
+    assert "有什么看法" in normalized
+    assert "最严重的账号密码" in normalized
+    assert "层面去看" in normalized
+    assert "就在提" in normalized
+
+
+def test_normalize_transcript_text_preserves_common_valid_reduplication_words() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text("刚刚开始 常常这样 人人都知道 天天都会发生")
+
+    assert "刚刚开始" in normalized
+    assert "常常这样" in normalized
+    assert "人人都知道" in normalized
+    assert "天天都会发生" in normalized
+
+
+def test_normalize_transcript_text_dedupes_repeated_prefix_clause() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text(
+        "通过它的通过他的平台里面的抽取 按照同样按照数据原数据的这种逻辑来去"
+    )
+
+    assert "通过它的通过他" not in normalized
+    assert "按照同样按照" not in normalized
+    assert "平台里面的抽取" in normalized
+    assert "逻辑来去" in normalized
+
+
 def test_funasr_adapter_defaults_vad_model_to_local_models_directory() -> None:
     adapter = FunASRTranscribeAdapter(vad_enabled=True)
 
@@ -148,6 +195,38 @@ def test_extract_segments_merges_close_sentence_info_fragments() -> None:
     assert segments[0].text == "这是第一句。"
     assert segments[0].start_ms == 0
     assert segments[0].end_ms == 2100
+
+
+def test_extract_segments_absorbs_short_followup_fragment_into_previous_sentence() -> None:
+    adapter = FunASRTranscribeAdapter(vad_enabled=True)
+    payload = {
+        "sentence_info": [
+            {"text": "前面主体已经说完。", "start": 0, "end": 1800},
+            {"text": "对吧", "start": 1900, "end": 2400},
+            {"text": "后面还有一段。", "start": 4200, "end": 6000},
+        ]
+    }
+
+    segments = adapter._extract_segments(payload, "前面主体已经说完。对吧后面还有一段。")
+
+    assert len(segments) == 2
+    assert segments[0].text == "前面主体已经说完。对吧"
+    assert segments[0].end_ms == 2400
+
+
+def test_extract_segments_merges_incomplete_sentence_prefix_with_following_sentence() -> None:
+    adapter = FunASRTranscribeAdapter(vad_enabled=True)
+    payload = {
+        "sentence_info": [
+            {"text": "没有应用加工逻", "start": 0, "end": 1200},
+            {"text": "辑的时候，这个场景是可以做到的。", "start": 1300, "end": 3200},
+        ]
+    }
+
+    segments = adapter._extract_segments(payload, "没有应用加工逻辑的时候，这个场景是可以做到的。")
+
+    assert len(segments) == 1
+    assert segments[0].text == "没有应用加工逻辑的时候，这个场景是可以做到的。"
 
 
 def test_merge_close_vad_segments_merges_small_gap_and_preserves_large_gap() -> None:

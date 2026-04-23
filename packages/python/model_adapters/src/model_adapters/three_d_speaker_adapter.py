@@ -40,8 +40,14 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
     display_name = "3D-Speaker Diarization"
     provider = "3dspeaker"
 
-    def __init__(self, model_name: str = "models/3D-Speaker/campplus") -> None:
+    def __init__(
+        self,
+        model_name: str = "models/3D-Speaker/campplus",
+        *,
+        enable_adaptive_clustering: bool = False,
+    ) -> None:
         self.model_name = resolve_model_reference(model_name)
+        self.enable_adaptive_clustering = enable_adaptive_clustering
         self._vad_model: object | None = None
         self._campplus_model: object | None = None
         self._feature_extractor: object | None = None
@@ -56,10 +62,26 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.min_cluster_size = 4
         self.merge_cosine_threshold = 0.8
         self.spectral_pval = 0.012
+        self.spectral_pval_stable = 0.02
+        self.spectral_pval_unstable = 0.008
         self.ahc_cosine_threshold = 0.4
+        self.adjacent_similarity_strong_break = 0.45
+        self.adjacent_similarity_stable = 0.75
         self.tail_merge_cosine_threshold = 0.72
         self.local_reassign_cosine_threshold = 0.58
         self.local_reassign_margin = 0.02
+        self.chunk_run_reassign_max_s = 3.0
+        self.chunk_run_bridge_margin = -0.02
+        self.chunk_run_reassign_margin = 0.025
+        self.frame_decode_step_s = 0.25
+        self.frame_decode_stickiness = 0.035
+        self.frame_label_vote_boost = 0.22
+        self.frame_vote_margin = 0.03
+        self.frame_single_speaker_vote_ratio = 0.45
+        self.frame_single_speaker_switch_margin = 0.08
+        self.frame_run_reassign_max_s = 1.25
+        self.frame_run_bridge_margin = -0.05
+        self.frame_run_reassign_margin = 0.03
 
     @property
     def availability(self) -> str:
@@ -266,7 +288,11 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         except Exception:
             return None
 
-    def _cluster_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
+    def _cluster_embeddings(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> np.ndarray:
         """使用接近 3D-Speaker CommonClustering 的聚类路径。"""
         if embeddings.size == 0:
             return np.array([], dtype=int)
@@ -275,11 +301,13 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         if embeddings.shape[0] < self.cluster_line:
             labels = self._cluster_embeddings_ahc(embeddings)
         else:
-            labels = self._cluster_embeddings_spectral(embeddings)
+            labels = self._cluster_embeddings_spectral(embeddings, chunk_list)
 
         labels = self._merge_minor_clusters(labels.astype(int), embeddings, min_cluster_size=self.min_cluster_size)
         if self.merge_cosine_threshold is not None:
             labels = self._merge_similar_speakers(labels, embeddings, cosine_threshold=self.merge_cosine_threshold)
+        if chunk_list:
+            labels = self._reassign_chunk_label_runs(chunk_list, labels, embeddings)
         return self._arrange_labels(labels)
 
     def _cluster_embeddings_ahc(self, embeddings: np.ndarray) -> np.ndarray:
@@ -305,18 +333,23 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         )
         return model.fit_predict(distance).astype(int)
 
-    def _cluster_embeddings_spectral(self, embeddings: np.ndarray) -> np.ndarray:
+    def _cluster_embeddings_spectral(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> np.ndarray:
         from sklearn.cluster import KMeans
         from sklearn.metrics.pairwise import cosine_similarity
 
         similarity = cosine_similarity(embeddings, embeddings)
-        pruned = self._prune_affinity(similarity, pval=self.spectral_pval, min_pnum=6)
+        pval = self._resolve_spectral_pval(embeddings, chunk_list)
+        pruned = self._prune_affinity(similarity, pval=pval, min_pnum=6)
         sym_pruned = 0.5 * (pruned + pruned.T)
         laplacian = self._build_laplacian(sym_pruned)
 
         cluster_count = self._resolve_cluster_count(embeddings.shape[0])
         if cluster_count is None:
-            cluster_count = self._estimate_cluster_count_from_laplacian(laplacian, embeddings.shape[0])
+            cluster_count = self._estimate_cluster_count_from_laplacian(laplacian, embeddings.shape[0], embeddings, chunk_list)
 
         cluster_count = max(1, min(cluster_count, embeddings.shape[0]))
         spectral_embeddings = self._compute_spectral_embeddings(laplacian, cluster_count)
@@ -347,8 +380,14 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         laplacian[np.diag_indices_from(laplacian)] = degree
         return laplacian
 
-    def _estimate_cluster_count_from_laplacian(self, laplacian: np.ndarray, sample_count: int) -> int:
-        min_num_spks, max_num_spks = self._spectral_cluster_bounds(sample_count)
+    def _estimate_cluster_count_from_laplacian(
+        self,
+        laplacian: np.ndarray,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int:
+        min_num_spks, max_num_spks = self._spectral_cluster_bounds(sample_count, embeddings, chunk_list)
         max_eigen_count = min(max_num_spks + 1, laplacian.shape[0])
         try:
             eigen_values, _ = np.linalg.eigh(laplacian)
@@ -370,7 +409,12 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             return np.eye(laplacian.shape[0], cluster_count, dtype=np.float32)
         return np.asarray(eigen_vectors[:, :cluster_count], dtype=np.float32)
 
-    def _spectral_cluster_bounds(self, sample_count: int) -> tuple[int, int]:
+    def _spectral_cluster_bounds(
+        self,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> tuple[int, int]:
         if self.num_speakers is not None:
             target = max(1, min(int(self.num_speakers), sample_count))
             return target, target
@@ -378,7 +422,86 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         maximum = int(self.max_speakers) if self.max_speakers is not None else 15
         maximum = max(minimum, maximum)
         maximum = min(maximum, sample_count)
+        adaptive_upper = self._estimate_speaker_upper_bound(sample_count, embeddings, chunk_list)
+        if adaptive_upper is not None:
+            maximum = min(maximum, adaptive_upper)
+            maximum = max(minimum, maximum)
         return minimum, maximum
+
+    def _resolve_spectral_pval(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> float:
+        if not self.enable_adaptive_clustering:
+            return self.spectral_pval
+        median_similarity = self._adjacent_similarity_median(embeddings, chunk_list)
+        if median_similarity is None:
+            return self.spectral_pval
+        if median_similarity >= self.adjacent_similarity_stable:
+            return self.spectral_pval_stable
+        if median_similarity <= self.adjacent_similarity_strong_break:
+            return self.spectral_pval_unstable
+        return self.spectral_pval
+
+    def _estimate_speaker_upper_bound(
+        self,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int | None:
+        if not self.enable_adaptive_clustering:
+            return None
+        if embeddings is None or embeddings.size == 0 or sample_count <= 1:
+            return None
+        strong_breaks = self._count_adjacent_strong_breaks(embeddings, chunk_list)
+        if strong_breaks is None:
+            return None
+        estimated_upper = max(1, min(sample_count, strong_breaks + 1))
+        relaxed_upper = min(sample_count, max(estimated_upper + 1, int(np.ceil(sample_count / 6))))
+        return max(1, relaxed_upper)
+
+    def _adjacent_similarity_median(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> float | None:
+        similarities = self._adjacent_similarities(embeddings, chunk_list)
+        if not similarities:
+            return None
+        return float(np.median(np.asarray(similarities, dtype=np.float32)))
+
+    def _count_adjacent_strong_breaks(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int | None:
+        similarities = self._adjacent_similarities(embeddings, chunk_list)
+        if not similarities:
+            return None
+        return int(sum(1 for score in similarities if score <= self.adjacent_similarity_strong_break))
+
+    def _adjacent_similarities(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> list[float]:
+        if embeddings.shape[0] <= 1:
+            return []
+        similarities: list[float] = []
+        for index in range(1, embeddings.shape[0]):
+            if chunk_list is not None:
+                previous_end = float(chunk_list[index - 1][1])
+                current_start = float(chunk_list[index][0])
+                if current_start - previous_end > 0.8:
+                    continue
+            similarities.append(
+                self._cosine_between(
+                    np.asarray(embeddings[index - 1], dtype=np.float32),
+                    np.asarray(embeddings[index], dtype=np.float32),
+                )
+            )
+        return similarities
 
     def _merge_minor_clusters(self, labels: np.ndarray, embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
         unique_labels = np.unique(labels)
@@ -556,6 +679,76 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 break
         return refined.astype(int)
 
+    def _reassign_chunk_label_runs(
+        self,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+    ) -> np.ndarray:
+        if labels.size < 3 or embeddings.size == 0:
+            return labels.astype(int)
+        if self.num_speakers is not None:
+            return labels.astype(int)
+
+        refined = labels.copy().astype(int)
+        for _ in range(2):
+            centers = self._speaker_centers(refined, embeddings)
+            speaker_durations = self._speaker_durations(chunk_list, refined)
+            updated = refined.copy()
+            changed = False
+            for start_index, end_index in self._contiguous_label_runs(refined):
+                left_label = int(refined[start_index - 1]) if start_index > 0 else None
+                right_label = int(refined[end_index + 1]) if end_index + 1 < refined.shape[0] else None
+                if left_label is None or right_label is None:
+                    continue
+
+                current_label = int(refined[start_index])
+                run_duration = sum(
+                    max(0.0, chunk_list[index][1] - chunk_list[index][0])
+                    for index in range(start_index, end_index + 1)
+                )
+                if run_duration > self.chunk_run_reassign_max_s:
+                    continue
+
+                current_total = float(speaker_durations.get(current_label, 0.0))
+                is_bridge = left_label == right_label and left_label != current_label
+                if not is_bridge and current_total > max(5.0, run_duration * 2.5):
+                    continue
+
+                run_embedding = np.asarray(embeddings[start_index:end_index + 1].mean(axis=0), dtype=np.float32)
+                current_center = centers.get(current_label)
+                if current_center is None:
+                    continue
+                current_score = self._cosine_between(run_embedding, current_center)
+                effective_current_score = current_score
+                if is_bridge and current_total <= max(3.5, run_duration * 1.5):
+                    effective_current_score = min(effective_current_score, 0.0)
+                candidate_labels = []
+                for candidate in (left_label, right_label):
+                    if candidate != current_label and candidate not in candidate_labels:
+                        candidate_labels.append(candidate)
+                best_candidate: int | None = None
+                best_score = effective_current_score
+                margin = self.chunk_run_bridge_margin if is_bridge else self.chunk_run_reassign_margin
+                for candidate_label in candidate_labels:
+                    candidate_center = centers.get(int(candidate_label))
+                    if candidate_center is None:
+                        continue
+                    candidate_score = self._cosine_between(run_embedding, candidate_center)
+                    if candidate_score + margin < effective_current_score:
+                        continue
+                    if best_candidate is None or candidate_score > best_score:
+                        best_candidate = int(candidate_label)
+                        best_score = candidate_score
+                if best_candidate is None:
+                    continue
+                updated[start_index:end_index + 1] = best_candidate
+                changed = True
+            refined = self._arrange_labels(updated)
+            if not changed:
+                break
+        return refined.astype(int)
+
     def _contiguous_label_runs(self, labels: np.ndarray) -> list[tuple[int, int]]:
         runs: list[tuple[int, int]] = []
         if labels.size == 0:
@@ -655,6 +848,362 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             (int(float(seg_start) * 1000), int(float(seg_end) * 1000), int(speaker_id))
             for seg_start, seg_end, speaker_id in merged
         ]
+
+    def _decode_framewise_segments(
+        self,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        vad_segments: list[list[float]],
+    ) -> list[tuple[int, int, int]]:
+        if not chunk_list or labels.size == 0 or embeddings.size == 0 or not vad_segments:
+            return []
+
+        centers = self._speaker_centers(labels, embeddings)
+        if not centers:
+            return []
+
+        decoded_segments: list[list[float | int]] = []
+        step_s = max(0.1, float(self.frame_decode_step_s))
+        for vad_start, vad_end in vad_segments:
+            if vad_end <= vad_start:
+                continue
+            frame_labels = self._decode_vad_frames(
+                vad_start,
+                vad_end,
+                chunk_list,
+                labels,
+                embeddings,
+                centers,
+                step_s,
+            )
+            if not frame_labels:
+                continue
+            current_label = frame_labels[0][2]
+            current_start = frame_labels[0][0]
+            current_end = frame_labels[0][1]
+            for frame_start, frame_end, speaker_id in frame_labels[1:]:
+                if speaker_id == current_label and frame_start <= current_end + 1e-6:
+                    current_end = frame_end
+                    continue
+                decoded_segments.append([current_start, current_end, current_label])
+                current_start, current_end, current_label = frame_start, frame_end, speaker_id
+            decoded_segments.append([current_start, current_end, current_label])
+
+        return self._compress_segments(decoded_segments)
+
+    def _decode_vad_frames(
+        self,
+        vad_start: float,
+        vad_end: float,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+        step_s: float,
+    ) -> list[tuple[float, float, int]]:
+        frame_items: list[tuple[float, float, int]] = []
+        previous_label: int | None = None
+        cursor = vad_start
+        while cursor < vad_end - 1e-6:
+            frame_start = cursor
+            frame_end = min(vad_end, cursor + step_s)
+            overlap_indices = self._chunk_indices_for_window(chunk_list, frame_start, frame_end)
+            if not overlap_indices:
+                cursor = frame_end
+                continue
+            speaker_scores = self._speaker_scores_for_window(
+                overlap_indices,
+                chunk_list,
+                labels,
+                embeddings,
+                centers,
+                frame_start,
+                frame_end,
+            )
+            if not speaker_scores:
+                cursor = frame_end
+                continue
+            ordered = sorted(speaker_scores.items(), key=lambda item: item[1], reverse=True)
+            best_label, best_score = ordered[0]
+            best_vote = self._frame_label_vote(
+                overlap_indices,
+                chunk_list,
+                labels,
+                int(best_label),
+                frame_start,
+                frame_end,
+            )
+            estimated_count = self._estimate_frame_speaker_count(
+                overlap_indices,
+                chunk_list,
+                labels,
+                frame_start,
+                frame_end,
+            )
+            if (
+                previous_label is not None
+                and previous_label in speaker_scores
+                and (
+                    speaker_scores[previous_label] + self.frame_decode_stickiness >= best_score
+                    or self._frame_label_vote(
+                        overlap_indices,
+                        chunk_list,
+                        labels,
+                        int(previous_label),
+                        frame_start,
+                        frame_end,
+                    ) + self.frame_vote_margin >= best_vote
+                )
+            ):
+                best_label = previous_label
+                best_score = speaker_scores[previous_label]
+                best_vote = self._frame_label_vote(
+                    overlap_indices,
+                    chunk_list,
+                    labels,
+                    int(previous_label),
+                    frame_start,
+                    frame_end,
+                )
+            elif (
+                estimated_count <= 1
+                and previous_label is not None
+                and previous_label in speaker_scores
+            ):
+                previous_vote = self._frame_label_vote(
+                    overlap_indices,
+                    chunk_list,
+                    labels,
+                    int(previous_label),
+                    frame_start,
+                    frame_end,
+                )
+                previous_score = speaker_scores[previous_label]
+                if (
+                    int(best_label) != int(previous_label)
+                    and best_vote <= previous_vote + self.frame_single_speaker_switch_margin
+                    and best_score <= previous_score + self.frame_decode_stickiness
+                ):
+                    best_label = previous_label
+                    best_score = previous_score
+            previous_label = int(best_label)
+            frame_items.append((frame_start, frame_end, int(best_label)))
+            cursor = frame_end
+        repaired = self._repair_frame_sequence(frame_items, step_s)
+        return self._reassign_frame_runs(repaired, chunk_list, embeddings, centers)
+
+    def _chunk_indices_for_window(
+        self,
+        chunk_list: list[tuple[float, float]],
+        frame_start: float,
+        frame_end: float,
+    ) -> list[int]:
+        indices: list[int] = []
+        for index, (chunk_start, chunk_end) in enumerate(chunk_list):
+            if chunk_end <= frame_start or chunk_start >= frame_end:
+                continue
+            indices.append(index)
+        return indices
+
+    def _speaker_scores_for_window(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+        frame_start: float,
+        frame_end: float,
+    ) -> dict[int, float]:
+        scores: dict[int, float] = {}
+        label_votes: dict[int, float] = {}
+        for index in overlap_indices:
+            chunk_start, chunk_end = chunk_list[index]
+            overlap = max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+            if overlap <= 0:
+                continue
+            chunk_embedding = embeddings[index]
+            assigned_label = int(labels[index])
+            label_votes[assigned_label] = label_votes.get(assigned_label, 0.0) + overlap
+            for speaker_id, center in centers.items():
+                cosine = self._cosine_between(chunk_embedding, center)
+                if cosine <= 0:
+                    continue
+                scores[int(speaker_id)] = scores.get(int(speaker_id), 0.0) + overlap * cosine
+        for speaker_id, vote in label_votes.items():
+            scores[speaker_id] = scores.get(speaker_id, 0.0) + vote * self.frame_label_vote_boost
+        return scores
+
+    def _frame_label_vote(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        speaker_id: int,
+        frame_start: float,
+        frame_end: float,
+    ) -> float:
+        vote = 0.0
+        for index in overlap_indices:
+            if int(labels[index]) != int(speaker_id):
+                continue
+            chunk_start, chunk_end = chunk_list[index]
+            vote += max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+        return vote
+
+    def _estimate_frame_speaker_count(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        frame_start: float,
+        frame_end: float,
+    ) -> int:
+        if not overlap_indices:
+            return 0
+        votes: dict[int, float] = {}
+        frame_duration = max(1e-6, frame_end - frame_start)
+        for index in overlap_indices:
+            chunk_start, chunk_end = chunk_list[index]
+            overlap = max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+            if overlap <= 0:
+                continue
+            label = int(labels[index])
+            votes[label] = votes.get(label, 0.0) + overlap
+        if not votes:
+            return 0
+        ordered = sorted(votes.values(), reverse=True)
+        if len(ordered) == 1:
+            return 1
+        if ordered[1] / frame_duration >= self.frame_single_speaker_vote_ratio:
+            return 2
+        return 1
+
+    def _repair_frame_sequence(
+        self,
+        frame_items: list[tuple[float, float, int]],
+        step_s: float,
+    ) -> list[tuple[float, float, int]]:
+        if len(frame_items) <= 2:
+            return frame_items
+
+        labels = [int(item[2]) for item in frame_items]
+        max_bridge_frames = max(1, int(round(0.75 / max(step_s, 1e-3))))
+        for _ in range(2):
+            changed = False
+            runs = self._frame_runs(labels)
+            for run_start, run_end in runs:
+                left_label = labels[run_start - 1] if run_start > 0 else None
+                right_label = labels[run_end + 1] if run_end + 1 < len(labels) else None
+                if left_label is None or right_label is None or left_label != right_label:
+                    continue
+                if (run_end - run_start + 1) > max_bridge_frames:
+                    continue
+                if labels[run_start] == left_label:
+                    continue
+                for index in range(run_start, run_end + 1):
+                    labels[index] = left_label
+                changed = True
+            if not changed:
+                break
+
+        repaired = [
+            (frame_start, frame_end, labels[index])
+            for index, (frame_start, frame_end, _) in enumerate(frame_items)
+        ]
+        return repaired
+
+    def _reassign_frame_runs(
+        self,
+        frame_items: list[tuple[float, float, int]],
+        chunk_list: list[tuple[float, float]],
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+    ) -> list[tuple[float, float, int]]:
+        if len(frame_items) < 3 or embeddings.size == 0:
+            return frame_items
+
+        labels = [int(item[2]) for item in frame_items]
+        updated = labels[:]
+        changed = False
+        for run_start, run_end in self._frame_runs(labels):
+            current_label = labels[run_start]
+            left_label = labels[run_start - 1] if run_start > 0 else None
+            right_label = labels[run_end + 1] if run_end + 1 < len(labels) else None
+            if left_label is None or right_label is None:
+                continue
+            candidate_labels = [
+                label
+                for label in (left_label, right_label)
+                if label is not None and label != current_label
+            ]
+            if not candidate_labels:
+                continue
+
+            run_start_s = frame_items[run_start][0]
+            run_end_s = frame_items[run_end][1]
+            run_duration_s = max(0.0, run_end_s - run_start_s)
+            if run_duration_s > self.frame_run_reassign_max_s:
+                continue
+
+            overlap_indices = self._chunk_indices_for_window(chunk_list, run_start_s, run_end_s)
+            if not overlap_indices:
+                continue
+
+            run_embedding = np.asarray(embeddings[overlap_indices].mean(axis=0), dtype=np.float32)
+            current_center = centers.get(int(current_label))
+            if current_center is None:
+                continue
+            current_score = self._cosine_between(run_embedding, current_center)
+            is_bridge = (
+                left_label is not None
+                and right_label is not None
+                and left_label == right_label
+                and left_label != current_label
+            )
+            margin = self.frame_run_bridge_margin if is_bridge else self.frame_run_reassign_margin
+
+            best_candidate: int | None = None
+            best_score = current_score
+            for candidate_label in candidate_labels:
+                candidate_center = centers.get(int(candidate_label))
+                if candidate_center is None:
+                    continue
+                candidate_score = self._cosine_between(run_embedding, candidate_center)
+                if candidate_score + margin < current_score:
+                    continue
+                if best_candidate is None or candidate_score > best_score:
+                    best_candidate = int(candidate_label)
+                    best_score = candidate_score
+
+            if best_candidate is None:
+                continue
+
+            for index in range(run_start, run_end + 1):
+                updated[index] = best_candidate
+            changed = True
+
+        if not changed:
+            return frame_items
+
+        return [
+            (frame_start, frame_end, updated[index])
+            for index, (frame_start, frame_end, _) in enumerate(frame_items)
+        ]
+
+    def _frame_runs(self, labels: list[int]) -> list[tuple[int, int]]:
+        if not labels:
+            return []
+        runs: list[tuple[int, int]] = []
+        start_index = 0
+        for index in range(1, len(labels)):
+            if labels[index] == labels[index - 1]:
+                continue
+            runs.append((start_index, index - 1))
+            start_index = index
+        runs.append((start_index, len(labels) - 1))
+        return runs
 
     def _postprocess(self, chunk_list: list, labels: np.ndarray) -> list[tuple[int, int, int]]:
         """将 chunk 级标签合并为稳定的 speaker 段。"""
@@ -894,13 +1443,16 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             if len(embeddings) == 0:
                 raise RuntimeError("3D-Speaker 未产出有效说话人嵌入。")
 
-            labels = self._cluster_embeddings(embeddings)
+            labels = self._cluster_embeddings(embeddings, chunk_list)
             if len(labels) == 0:
                 raise RuntimeError("3D-Speaker 未产出有效说话人标签。")
             labels = self._reassign_local_label_noise(chunk_list, labels, embeddings)
             labels = self._refine_tail_labels(chunk_list, labels, embeddings)
 
-            ms_segments = self._smooth_segments(self._postprocess(chunk_list, labels))
+            ms_segments = self._decode_framewise_segments(chunk_list, labels, embeddings, vad_segments)
+            if not ms_segments:
+                ms_segments = self._postprocess(chunk_list, labels)
+            ms_segments = self._smooth_segments(ms_segments)
             if not ms_segments:
                 raise RuntimeError("3D-Speaker 说话人后处理失败，未得到稳定分段。")
 

@@ -65,6 +65,8 @@ class FunASRTranscribeAdapter(ASRAdapter):
         self.vad_segment_padding_ms = 150
         self.vad_subsegment_overlap_ms = 250
         self.min_vad_speech_segment_ms = 1200
+        self.short_sentence_merge_gap_ms = 800
+        self.short_sentence_merge_duration_ms = 1200
 
     @property
     def availability(self) -> str:
@@ -678,7 +680,7 @@ class FunASRTranscribeAdapter(ASRAdapter):
                     )
                 )
             if segments:
-                return self._merge_close_sentence_segments(segments)
+                return self._consolidate_sentence_segments(segments)
         # 从 timestamp_ns 提取词级时间戳
         timestamp = payload.get("timestamp_ns") or payload.get("timestamp")
         if isinstance(timestamp, list):
@@ -716,7 +718,9 @@ class FunASRTranscribeAdapter(ASRAdapter):
         cleaned = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", cleaned)
         cleaned = re.sub(r"\s+([，。！？；：、“”‘’,.!?;:])", r"\1", cleaned)
         cleaned = re.sub(r"([，。！？；,.!?;])\1+", r"\1", cleaned)
+        cleaned = self._collapse_cjk_stutter_runs(cleaned)
         cleaned = self._dedupe_adjacent_phrase(cleaned)
+        cleaned = self._dedupe_repeated_prefix_clause(cleaned)
         cleaned = self._dedupe_repeated_tokens(cleaned)
         return cleaned.strip()
 
@@ -729,7 +733,7 @@ class FunASRTranscribeAdapter(ASRAdapter):
             same_speaker = previous.speaker == segment.speaker
             close_gap = 0 <= segment.start_ms - previous.end_ms <= self.vad_merge_gap_ms
             if same_speaker and close_gap:
-                joined_text = self._normalize_transcript_text(f"{previous.text}{segment.text}")
+                joined_text = self._join_sentence_text(previous.text, segment.text)
                 merged[-1] = previous.model_copy(
                     update={
                         "end_ms": max(previous.end_ms, segment.end_ms),
@@ -739,6 +743,85 @@ class FunASRTranscribeAdapter(ASRAdapter):
                 continue
             merged.append(segment)
         return merged
+
+    def _consolidate_sentence_segments(self, segments: list[Segment]) -> list[Segment]:
+        merged = self._merge_close_sentence_segments(segments)
+        if len(merged) <= 1:
+            return merged
+
+        compacted: list[Segment] = [merged[0]]
+        for segment in merged[1:]:
+            previous = compacted[-1]
+            gap_ms = segment.start_ms - previous.end_ms
+            if (
+                previous.speaker == segment.speaker
+                and 0 <= gap_ms <= self.short_sentence_merge_gap_ms
+                and self._should_merge_sentence_followup(previous, segment)
+            ):
+                compacted[-1] = previous.model_copy(
+                    update={
+                        "end_ms": max(previous.end_ms, segment.end_ms),
+                        "text": self._join_sentence_text(previous.text, segment.text),
+                    }
+                )
+                continue
+            compacted.append(segment)
+        return compacted
+
+    def _should_merge_sentence_followup(self, previous: Segment, current: Segment) -> bool:
+        previous_text = self._normalize_transcript_text(previous.text)
+        current_text = self._normalize_transcript_text(current.text)
+        if not previous_text or not current_text:
+            return False
+        if self._is_short_sentence_followup(current_text):
+            return True
+        if self._is_incomplete_sentence(previous_text):
+            return True
+        if (previous.end_ms - previous.start_ms) <= self.short_sentence_merge_duration_ms:
+            return True
+        overlap = self._find_text_overlap(previous_text, current_text, min_overlap=3, max_window=24)
+        return overlap >= 3
+
+    def _join_sentence_text(self, left: str, right: str) -> str:
+        left_clean = self._normalize_transcript_text(left)
+        right_clean = self._normalize_transcript_text(right)
+        if not left_clean:
+            return right_clean
+        if not right_clean:
+            return left_clean
+        overlap = self._find_text_overlap(left_clean, right_clean, min_overlap=3, max_window=32)
+        if overlap:
+            right_clean = right_clean[overlap:]
+        if not right_clean:
+            return left_clean
+        return self._normalize_transcript_text(f"{left_clean}{right_clean}")
+
+    def _is_incomplete_sentence(self, text: str) -> bool:
+        normalized = self._normalize_transcript_text(text)
+        if not normalized:
+            return False
+        return not re.search(r"[。！？!?；;]$", normalized)
+
+    def _is_short_sentence_followup(self, text: str) -> bool:
+        normalized = self._normalize_transcript_text(text)
+        if not normalized:
+            return False
+        if len(normalized) <= 4 and not re.search(r"[。！？!?；;]$", normalized):
+            return True
+        fillers = {
+            "啊",
+            "嗯",
+            "呃",
+            "额",
+            "哦",
+            "哎",
+            "对吧",
+            "是吧",
+            "然后",
+            "就是",
+        }
+        stripped = re.sub(r"[，。！？；,.!?;\s]", "", normalized)
+        return stripped in fillers
 
     def _dedupe_adjacent_phrase(self, text: str) -> str:
         cleaned = text
@@ -772,6 +855,37 @@ class FunASRTranscribeAdapter(ASRAdapter):
             if normalized:
                 previous_normalized = normalized
         return "".join(result)
+
+    def _dedupe_repeated_prefix_clause(self, text: str) -> str:
+        cleaned = text
+        patterns = [
+            re.compile(r"([\u4e00-\u9fff]{2,3})[\u4e00-\u9fff]{0,2}\1(?=[\u4e00-\u9fff])"),
+            re.compile(r"([\u4e00-\u9fff]{2,4})(?:\s*[，。！？；,.!?;]?\s*)\1(?=[\u4e00-\u9fff])"),
+        ]
+        for pattern in patterns:
+            while True:
+                updated = pattern.sub(r"\1", cleaned)
+                if updated == cleaned:
+                    break
+                cleaned = updated
+        for pattern, replacement in (
+            (re.compile(r"通过[^，。！？；]{0,2}通过"), "通过"),
+            (re.compile(r"按照[^，。！？；]{0,2}按照"), "按照"),
+        ):
+            updated = pattern.sub(replacement, cleaned)
+            if updated != cleaned:
+                cleaned = updated
+        return cleaned
+
+    def _collapse_cjk_stutter_runs(self, text: str) -> str:
+        cleaned = text
+        # 只处理会议口语里高频、低风险的口吃前缀字，避免误伤“刚刚开始”“文文档”这类合法词形。
+        cleaned = re.sub(
+            r"([这那有就我你他她它主最层好])[ \t]*\1+(?=[\u4e00-\u9fff])",
+            r"\1",
+            cleaned,
+        )
+        return cleaned
 
 
 def _has_model_artifacts(path: str | Path) -> bool:

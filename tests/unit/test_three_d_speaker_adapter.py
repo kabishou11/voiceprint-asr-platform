@@ -87,6 +87,91 @@ def test_cluster_embeddings_uses_ahc_path_for_short_sequences():
     assert labels[0] != labels[2]
 
 
+def test_resolve_spectral_pval_prefers_stable_value_for_high_adjacent_similarity():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=True)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [0.98, 0.02],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    pval = adapter._resolve_spectral_pval(embeddings)
+
+    assert pval == adapter.spectral_pval_stable
+
+
+def test_estimate_speaker_upper_bound_caps_by_adjacent_breaks():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=True)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.98, 0.02],
+            [0.0, 1.0],
+            [0.02, 0.98],
+            [-1.0, 0.0],
+            [-0.98, 0.02],
+        ],
+        dtype=np.float32,
+    )
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+        (2.25, 3.75),
+        (3.0, 4.5),
+        (3.75, 5.25),
+    ]
+
+    upper = adapter._estimate_speaker_upper_bound(embeddings.shape[0], embeddings, chunk_list)
+
+    assert upper is not None
+    assert upper <= 4
+
+
+def test_resolve_spectral_pval_uses_baseline_when_adaptive_clustering_disabled():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=False)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [0.98, 0.02],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    pval = adapter._resolve_spectral_pval(embeddings)
+
+    assert pval == adapter.spectral_pval
+
+
+def test_estimate_speaker_upper_bound_returns_none_when_adaptive_clustering_disabled():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=False)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.98, 0.02],
+            [0.0, 1.0],
+            [0.02, 0.98],
+        ],
+        dtype=np.float32,
+    )
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+        (2.25, 3.75),
+    ]
+
+    upper = adapter._estimate_speaker_upper_bound(embeddings.shape[0], embeddings, chunk_list)
+
+    assert upper is None
+
+
 def test_cluster_embeddings_merges_minor_clusters_by_cosine_center():
     adapter = ThreeDSpeakerDiarizationAdapter()
     labels = np.array([0, 0, 0, 0, 0, 1], dtype=int)
@@ -225,3 +310,173 @@ def test_reassign_local_label_noise_merges_tiny_global_weak_run_to_single_neighb
     refined = adapter._reassign_local_label_noise(chunk_list, labels, embeddings)
 
     assert np.all(refined == 0)
+
+
+def test_decode_framewise_segments_prefers_temporally_consistent_speaker():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_decode_step_s = 0.5
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.96, 0.04],
+            [0.99, 0.01],
+        ],
+        dtype=np.float32,
+    )
+    vad_segments = [[0.0, 3.0]]
+
+    decoded = adapter._decode_framewise_segments(chunk_list, labels, embeddings, vad_segments)
+
+    assert decoded[0][2] == 0
+    assert all(speaker == 0 for _, _, speaker in decoded)
+
+
+def test_decode_framewise_segments_repairs_single_frame_bridge_after_vote_decode():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_decode_step_s = 0.25
+    frame_items = [
+        (0.0, 0.25, 0),
+        (0.25, 0.5, 0),
+        (0.5, 0.75, 1),
+        (0.75, 1.0, 0),
+        (1.0, 1.25, 0),
+    ]
+
+    repaired = adapter._repair_frame_sequence(frame_items, adapter.frame_decode_step_s)
+
+    assert all(speaker == 0 for _, _, speaker in repaired)
+
+
+def test_estimate_frame_speaker_count_keeps_single_speaker_when_secondary_vote_is_weak():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.0, 0.18),
+    ]
+    labels = np.array([0, 1], dtype=int)
+
+    count = adapter._estimate_frame_speaker_count(
+        [0, 1],
+        chunk_list,
+        labels,
+        0.0,
+        0.5,
+    )
+
+    assert count == 1
+
+
+def test_reassign_frame_runs_absorbs_short_bridge_with_matching_neighbors():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    frame_items = [
+        (0.0, 0.25, 0),
+        (0.25, 0.5, 0),
+        (0.5, 0.75, 1),
+        (0.75, 1.0, 1),
+        (1.0, 1.25, 0),
+        (1.25, 1.5, 0),
+    ]
+    chunk_list = [
+        (0.0, 0.75),
+        (0.5, 1.25),
+        (0.75, 1.5),
+    ]
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.995, 0.005],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    centers = {
+        0: np.array([1.0, 0.0], dtype=np.float32),
+        1: np.array([0.0, 1.0], dtype=np.float32),
+    }
+
+    reassigned = adapter._reassign_frame_runs(frame_items, chunk_list, embeddings, centers)
+
+    assert all(speaker == 0 for _, _, speaker in reassigned)
+
+
+def test_reassign_frame_runs_keeps_long_non_bridge_run():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_run_reassign_max_s = 1.0
+    frame_items = [
+        (0.0, 0.5, 0),
+        (0.5, 1.0, 1),
+        (1.0, 1.5, 1),
+        (1.5, 2.0, 1),
+        (2.0, 2.5, 0),
+    ]
+    chunk_list = [
+        (0.0, 1.0),
+        (0.5, 2.0),
+        (1.5, 2.5),
+    ]
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.1, 0.99],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    centers = {
+        0: np.array([1.0, 0.0], dtype=np.float32),
+        1: np.array([0.0, 1.0], dtype=np.float32),
+    }
+
+    reassigned = adapter._reassign_frame_runs(frame_items, chunk_list, embeddings, centers)
+
+    assert [speaker for _, _, speaker in reassigned] == [0, 1, 1, 1, 0]
+
+
+def test_reassign_chunk_label_runs_absorbs_short_bridge_cluster_run():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    refined = adapter._reassign_chunk_label_runs(chunk_list, labels, embeddings)
+
+    assert np.all(refined == 0)
+
+
+def test_reassign_chunk_label_runs_keeps_stable_middle_speaker_when_embedding_matches():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    refined = adapter._reassign_chunk_label_runs(chunk_list, labels, embeddings)
+
+    assert np.array_equal(refined, labels)

@@ -1,43 +1,252 @@
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
   Divider,
   Grid,
   Stack,
+  Chip,
   Typography,
 } from '@mui/material';
-import { useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { fetchTranscript } from '../../api/client';
-import { formatDateTime, jobTypeLabels } from '../../api/types';
+import { formatDateTime, jobTypeLabels, type Segment, type TranscriptResult } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
 
+const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
+
+type SpeakerMappingStore = Record<string, Record<string, string>>;
+type ExportSpeakerGroup = {
+  speaker: string;
+  displaySpeaker: string;
+  durationMs: number;
+  segments: Segment[];
+} | null;
+
+export function buildJobExportDocument(params: {
+  job: unknown;
+  transcript: TranscriptResult | null | undefined;
+  filteredSegments: Segment[];
+  selectedSpeakerGroup: ExportSpeakerGroup;
+  speakerAliases: Record<string, string>;
+}) {
+  const { job, transcript, filteredSegments, selectedSpeakerGroup, speakerAliases } = params;
+  return {
+    job,
+    transcript: transcript
+      ? {
+          ...transcript,
+          text: selectedSpeakerGroup
+            ? selectedSpeakerGroup.segments.map((segment) => segment.text).filter(Boolean).join(' ')
+            : transcript.text,
+          segments: filteredSegments,
+        }
+      : null,
+    timeline_metadata: transcript?.metadata ?? null,
+    speaker_focus:
+      selectedSpeakerGroup
+        ? {
+            speaker: selectedSpeakerGroup.speaker,
+            display_name: selectedSpeakerGroup.displaySpeaker,
+            duration_ms: selectedSpeakerGroup.durationMs,
+            segment_count: selectedSpeakerGroup.segments.length,
+          }
+        : null,
+    speaker_aliases: speakerAliases,
+    exported_at: new Date().toISOString(),
+  };
+}
+
 export function JobDetailPage() {
+  const navigate = useNavigate();
   const { jobId = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const { data, loading, error, reload } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
+  const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
+
+  useEffect(() => {
+    if (!jobId || typeof window === 'undefined') {
+      setSpeakerAliases({});
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
+      if (!raw) {
+        setSpeakerAliases({});
+        return;
+      }
+      const store = JSON.parse(raw) as SpeakerMappingStore;
+      setSpeakerAliases(store[jobId] ?? {});
+    } catch {
+      setSpeakerAliases({});
+    }
+  }, [jobId, searchParams]);
 
   const segments = data?.transcript?.segments ?? [];
+  const transcriptMetadata = data?.transcript?.metadata ?? null;
+  const displayTimeline =
+    transcriptMetadata?.timelines.find((timeline) => timeline.source === 'display') ?? null;
+  const exclusiveTimeline =
+    transcriptMetadata?.timelines.find((timeline) => timeline.source === 'exclusive') ?? null;
+  const regularTimeline =
+    transcriptMetadata?.timelines.find((timeline) => timeline.source === 'regular') ?? null;
+  const speakerGroups = useMemo(() => {
+    const groups = new Map<string, { speaker: string; segments: typeof segments; durationMs: number; confidenceValues: number[] }>();
+    segments.forEach((segment) => {
+      const speaker = segment.speaker ?? '未标注说话人';
+      const group = groups.get(speaker) ?? {
+        speaker,
+        segments: [],
+        durationMs: 0,
+        confidenceValues: [],
+      };
+      group.segments.push(segment);
+      group.durationMs += Math.max(0, segment.end_ms - segment.start_ms);
+      if (typeof segment.confidence === 'number') {
+        group.confidenceValues.push(segment.confidence);
+      }
+      groups.set(speaker, group);
+    });
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+      avgConfidence: group.confidenceValues.length
+        ? group.confidenceValues.reduce((sum, item) => sum + item, 0) / group.confidenceValues.length
+        : null,
+      displaySpeaker: speakerAliases[group.speaker] || group.speaker,
+    })).sort((left, right) => right.durationMs - left.durationMs);
+  }, [segments, speakerAliases]);
+  const filteredSegments = useMemo(
+    () =>
+      selectedSpeaker === 'ALL'
+        ? segments
+        : segments.filter((segment) => (segment.speaker ?? '未标注说话人') === selectedSpeaker),
+    [segments, selectedSpeaker],
+  );
+  const selectedSpeakerGroup = useMemo(
+    () => speakerGroups.find((group) => group.speaker === selectedSpeaker) ?? null,
+    [speakerGroups, selectedSpeaker],
+  );
+  const timelineSegments = useMemo(() => {
+    const source =
+      selectedSpeaker === 'ALL'
+        ? displayTimeline?.segments ?? filteredSegments
+        : (displayTimeline?.segments ?? filteredSegments).filter(
+            (segment) => (segment.speaker ?? '未标注说话人') === selectedSpeaker,
+          );
+    return source.filter((segment) => segment.end_ms > segment.start_ms);
+  }, [displayTimeline?.segments, filteredSegments, selectedSpeaker]);
+  const timelineStartMs = timelineSegments.length ? timelineSegments[0].start_ms : 0;
+  const timelineEndMs = timelineSegments.length
+    ? timelineSegments[timelineSegments.length - 1].end_ms
+    : timelineStartMs;
+  const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
+
+  const formatDuration = (durationMs: number) => `${(durationMs / 1000).toFixed(1)} 秒`;
+
+  const buildExportPayload = () =>
+    JSON.stringify(
+      buildJobExportDocument({
+        job: data?.job ?? null,
+        transcript: data?.transcript ?? null,
+        filteredSegments,
+        selectedSpeakerGroup,
+        speakerAliases,
+      }),
+      null,
+      2,
+    );
+
+  const buildCopyText = () => {
+    const header = [
+      `任务 ${data?.job?.job_id ?? '—'}`,
+      `文件 ${data?.job?.asset_name ?? '—'}`,
+      `类型 ${data?.job ? jobTypeLabels[data.job.job_type] : '—'}`,
+      `状态 ${data?.job?.status ?? '—'}`,
+    ];
+    const body = speakerGroups.flatMap((group) =>
+      group.segments.map((segment) => {
+        const speaker = speakerAliases[segment.speaker ?? ''] || segment.speaker || '未标注说话人';
+        return `[${segment.start_ms}-${segment.end_ms}] ${speaker}: ${segment.text || '（该片段暂无文本）'}`;
+      }),
+    );
+    return [...header, '', data?.transcript?.text ?? '', '', ...body].join('\n');
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildCopyText());
+      setFeedback('全文结果已复制到剪贴板。');
+    } catch {
+      setFeedback('当前环境不支持剪贴板写入。');
+    }
+  };
+
+  const handleExport = () => {
+    if (typeof window === 'undefined' || !data?.job) {
+      return;
+    }
+    const blob = new Blob([buildExportPayload()], { type: 'application/json;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = window.document.createElement('a');
+    link.href = url;
+    link.download =
+      selectedSpeakerGroup
+        ? `${data.job.job_id}-${selectedSpeakerGroup.speaker}.json`
+        : `${data.job.job_id}.json`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+    setFeedback(selectedSpeakerGroup ? '当前 Speaker 结果已导出为 JSON。' : '任务结果已导出为 JSON。');
+  };
+
+  const handleRetry = () => {
+    if (!data?.job?.asset_name) {
+      setFeedback('当前任务缺少资产名，无法快速重跑。');
+      return;
+    }
+    const params = new URLSearchParams({
+      asset: data.job.asset_name,
+      language: data.transcript?.language ?? 'zh-cn',
+      mode: data.job.job_type === 'multi_speaker_transcription' ? 'multi' : 'single',
+    });
+    navigate(`/?${params.toString()}`);
+  };
 
   return (
     <PageSection
       title="任务详情"
       eyebrow="结果查看"
       eyebrowColor="primary"
-      description="查看任务摘要、转写全文和分段结果。"
+      description="查看任务摘要、speaker 复核结果与后续声纹处理入口。"
       loading={loading}
       error={error}
       actions={
-        <Button variant="outlined" onClick={reload}>
-          刷新结果
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Button variant="outlined" onClick={reload}>
+            刷新结果
+          </Button>
+          <Button variant="outlined" onClick={handleCopy} disabled={!data?.job}>
+            复制全文
+          </Button>
+          <Button variant="outlined" onClick={handleExport} disabled={!data?.job}>
+            {selectedSpeakerGroup ? '导出当前 Speaker JSON' : '导出 JSON'}
+          </Button>
+          <Button variant="contained" onClick={handleRetry} disabled={!data?.job}>
+            快速重跑
+          </Button>
+        </Stack>
       }
     >
       {data?.job ? (
         <Stack spacing={3}>
+          {feedback ? <Alert severity="success" onClose={() => setFeedback(null)}>{feedback}</Alert> : null}
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
               <Card>
@@ -87,48 +296,248 @@ export function JobDetailPage() {
                 </CardContent>
               </Card>
             </Grid>
-            <Grid size={{ xs: 12, lg: 9 }}>
+            <Grid size={{ xs: 6, lg: 3 }}>
               <Card>
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">
-                    更新时间
+                    对齐时间轴
                   </Typography>
                   <Typography variant="h6" sx={{ mt: 1 }}>
-                    {formatDateTime(data.job.updated_at)}
+                    {transcriptMetadata?.alignment_source === 'exclusive' ? 'Exclusive' : 'Regular'}
                   </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 9 }}>
+              <Card>
+                <CardContent>
+                  <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        更新时间
+                      </Typography>
+                      <Typography variant="h6" sx={{ mt: 1 }}>
+                        {formatDateTime(data.job.updated_at)}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`语言 ${data.transcript?.language ?? '未标注'}`}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`Speaker ${speakerGroups.length}`}
+                      />
+                      {exclusiveTimeline ? (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`exclusive ${exclusiveTimeline.segments.length} 段`}
+                        />
+                      ) : null}
+                      {displayTimeline ? (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`display ${displayTimeline.segments.length} 段`}
+                        />
+                      ) : null}
+                      {regularTimeline ? (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`regular ${regularTimeline.segments.length} 段`}
+                        />
+                      ) : null}
+                    </Stack>
+                  </Stack>
                 </CardContent>
               </Card>
             </Grid>
           </Grid>
 
           <Grid container spacing={3}>
-            <Grid size={{ xs: 12, lg: 5 }}>
+            <Grid size={{ xs: 12, xl: 3 }}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack spacing={2}>
-                    <Typography variant="h6">全文结果</Typography>
-                    <Typography color="text.secondary" sx={{ lineHeight: 1.9 }}>
-                      {data.transcript?.text ?? '暂无转写结果'}
-                    </Typography>
-                    {data.job.error_message ? (
-                      <Alert severity="error">{data.job.error_message}</Alert>
+                    <Typography variant="h6">Speaker 复核</Typography>
+                    {speakerGroups.length ? (
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Chip
+                          label={`全部 ${segments.length} 段`}
+                          color={selectedSpeaker === 'ALL' ? 'primary' : 'default'}
+                          onClick={() => setSelectedSpeaker('ALL')}
+                        />
+                        {speakerGroups.map((group) => (
+                          <Chip
+                            key={group.speaker}
+                            label={`${group.displaySpeaker} · ${group.segments.length} 段`}
+                            color={selectedSpeaker === group.speaker ? 'primary' : 'default'}
+                            onClick={() => setSelectedSpeaker(group.speaker)}
+                          />
+                        ))}
+                      </Stack>
                     ) : null}
+                    {speakerGroups.length ? (
+                      speakerGroups.map((group) => (
+                        <Card key={group.speaker} variant="outlined" sx={{ borderRadius: 4 }}>
+                          <CardContent>
+                            <Stack spacing={1.25}>
+                              <Stack direction="row" justifyContent="space-between" spacing={1}>
+                                <Typography fontWeight={700}>{group.displaySpeaker}</Typography>
+                                <Chip size="small" label={`${group.segments.length} 段`} />
+                              </Stack>
+                              {group.displaySpeaker !== group.speaker ? (
+                                <Typography variant="body2" color="text.secondary">
+                                  原标签 {group.speaker}
+                                </Typography>
+                              ) : null}
+                              <Typography variant="body2" color="text.secondary">
+                                总时长 {formatDuration(group.durationMs)}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                平均置信度 {group.avgConfidence !== null ? group.avgConfidence.toFixed(2) : '—'}
+                              </Typography>
+                              <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
+                                {group.segments.slice(0, 2).map((segment) => segment.text).join(' / ') || '暂无文本'}
+                              </Typography>
+                              {data.job.asset_name ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() =>
+                                    navigate(
+                                      `/voiceprints?probe=${encodeURIComponent(data.job.asset_name ?? '')}&speaker=${encodeURIComponent(group.speaker)}&jobId=${encodeURIComponent(jobId)}`,
+                                    )
+                                  }
+                                >
+                                  对这个 Speaker 做声纹处理
+                                </Button>
+                              ) : null}
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <Alert severity="info">当前还没有可复核的 speaker 聚合结果。</Alert>
+                    )}
                   </Stack>
                 </CardContent>
               </Card>
             </Grid>
-            <Grid size={{ xs: 12, lg: 7 }}>
+            <Grid size={{ xs: 12, xl: 4 }}>
+              <Card sx={{ height: '100%' }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Typography variant="h6">
+                      {selectedSpeakerGroup ? `${selectedSpeakerGroup.displaySpeaker} 聚焦视图` : '全文结果'}
+                    </Typography>
+                    {selectedSpeakerGroup ? (
+                      <Alert severity="info">
+                        当前仅聚焦 {selectedSpeakerGroup.displaySpeaker}。
+                        总时长 {formatDuration(selectedSpeakerGroup.durationMs)}，共 {selectedSpeakerGroup.segments.length} 段。
+                      </Alert>
+                    ) : null}
+                    <Typography color="text.secondary" sx={{ lineHeight: 1.9 }}>
+                      {selectedSpeakerGroup
+                        ? selectedSpeakerGroup.segments.map((segment) => segment.text).filter(Boolean).join(' ')
+                        : data.transcript?.text ?? '暂无转写结果'}
+                    </Typography>
+                    {data.job.error_message ? (
+                      <Alert severity="error">{data.job.error_message}</Alert>
+                    ) : null}
+                    <Divider />
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle2">Speaker 时间线</Typography>
+                      {timelineSegments.length ? (
+                        <Stack spacing={1.25}>
+                          <Box
+                            sx={{
+                              position: 'relative',
+                              height: 18,
+                              borderRadius: 999,
+                              overflow: 'hidden',
+                              bgcolor: 'grey.200',
+                            }}
+                            data-testid="speaker-timeline-overview"
+                          >
+                            {timelineSegments.map((segment, index) => {
+                              const left = ((segment.start_ms - timelineStartMs) / timelineDurationMs) * 100;
+                              const width = Math.max(
+                                ((segment.end_ms - segment.start_ms) / timelineDurationMs) * 100,
+                                3,
+                              );
+                              const isFocused =
+                                selectedSpeaker !== 'ALL' && (segment.speaker ?? '未标注说话人') === selectedSpeaker;
+                              return (
+                                <Box
+                                  key={`${segment.start_ms}-${segment.end_ms}-${index}`}
+                                  data-testid="speaker-timeline-segment"
+                                  sx={{
+                                    position: 'absolute',
+                                    left: `${left}%`,
+                                    width: `${width}%`,
+                                    top: 0,
+                                    bottom: 0,
+                                    bgcolor: isFocused ? 'primary.main' : 'secondary.main',
+                                    opacity: isFocused || selectedSpeaker === 'ALL' ? 0.9 : 0.55,
+                                  }}
+                                />
+                              );
+                            })}
+                          </Box>
+                          <Stack spacing={0.75}>
+                            {timelineSegments.map((segment, index) => {
+                              const speakerKey = segment.speaker ?? '未标注说话人';
+                              return (
+                                <Stack
+                                  key={`${speakerKey}-${segment.start_ms}-${index}`}
+                                  direction="row"
+                                  justifyContent="space-between"
+                                  spacing={2}
+                                  data-testid="speaker-timeline-row"
+                                >
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {speakerAliases[segment.speaker ?? ''] || speakerKey}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {segment.start_ms}ms - {segment.end_ms}ms
+                                  </Typography>
+                                </Stack>
+                              );
+                            })}
+                          </Stack>
+                        </Stack>
+                      ) : (
+                        <Alert severity="info">当前筛选条件下没有可展示的时间线。</Alert>
+                      )}
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, xl: 5 }}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack spacing={2}>
                     <Typography variant="h6">分段结果</Typography>
-                    {segments.length ? (
+                    {filteredSegments.length ? (
                       <Stack spacing={1.5}>
-                        {segments.map((segment, index) => (
+                        {filteredSegments.map((segment, index) => (
                           <Card
                             key={`${segment.start_ms}-${index}`}
                             variant="outlined"
-                            sx={{ borderRadius: 4 }}
+                            sx={{
+                              borderRadius: 4,
+                              borderColor:
+                                selectedSpeaker !== 'ALL' && segment.speaker === selectedSpeaker
+                                  ? 'primary.main'
+                                  : undefined,
+                            }}
                           >
                             <CardContent>
                               <Stack spacing={1}>
@@ -136,9 +545,14 @@ export function JobDetailPage() {
                                   <Typography variant="body2" color="text.secondary">
                                     {segment.start_ms}ms - {segment.end_ms}ms
                                   </Typography>
-                                  <Typography variant="body2" fontWeight={700}>
-                                    {segment.speaker ?? '未标注说话人'}
-                                  </Typography>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    {typeof segment.confidence === 'number' ? (
+                                      <Chip size="small" variant="outlined" label={`置信度 ${segment.confidence.toFixed(2)}`} />
+                                    ) : null}
+                                    <Typography variant="body2" fontWeight={700}>
+                                      {speakerAliases[segment.speaker ?? ''] || segment.speaker || '未标注说话人'}
+                                    </Typography>
+                                  </Stack>
                                 </Stack>
                                 <Divider />
                                 <Typography>{segment.text || '（该片段暂无文本）'}</Typography>
@@ -148,7 +562,7 @@ export function JobDetailPage() {
                         ))}
                       </Stack>
                     ) : (
-                      <Alert severity="info">当前任务还没有可展示的分段结果。</Alert>
+                      <Alert severity="info">当前筛选条件下没有可展示的分段结果。</Alert>
                     )}
                   </Stack>
                 </CardContent>

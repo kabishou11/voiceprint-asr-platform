@@ -6,157 +6,247 @@
 
 <h1 align="center">智能语音平台</h1>
 
-<p align="center" style="color: #64748b; font-size: 15px; margin-top: -4px;">
+<p align="center">
   多人转写 · 说话人分离 · 声纹核验
 </p>
 
----
+面向会议记录、客服质检与身份核验场景的智能语音平台，主链路为：
 
-面向会议记录、客服质检与身份核验场景的智能语音平台，一站式覆盖：
+- `FunASR`：高精度 ASR
+- `3D-Speaker + FSMN-VAD`：说话人分离、声纹验证与识别
+- `pyannote`：预留增强链路，当前默认关闭
 
-| 核心能力 | 说明 |
-|---------|------|
-| **语音识别** | 将音频转为文字，支持中文普通话及多语言 |
-| **说话人分离** | 自动识别音频中的不同说话人，带说话人标签输出转写结果 |
-| **声纹识别** | 1:1 验证与 1:N 识别，精准核验说话人身份 |
+当前项目已经收紧为：
 
-## 技术栈
+- 所有模型都必须放在仓库根目录 `models/`
+- 高精度任务强制要求 `CUDA GPU`
+- 没有可用 `CUDA` 时，ASR / 多人分离 / 声纹任务会直接拒绝执行
+- 样本跑数、benchmark、可读稿统一写入 `storage/experiments/`
 
-- Python 3.13 / uv
-- FastAPI（API 服务）
-- React + TypeScript + MUI 7（前端工作台）
-- FunASR（语音识别）
-- 3D-Speaker（说话人分离 · 声纹）
-- pyannote-audio（实验性 diarization）
+## 一页复现
 
-## 目录
+下面这条路径是当前仓库在另一台 Windows + NVIDIA 机器上的推荐复现方式。  
+目标是只看这一页就能拉起。
 
-- `apps/api` — API 服务
-- `apps/worker` — 任务执行与模型推理
-- `apps/web` — 前端工作台
-- `packages/python/model_adapters` — 模型适配层
-- `packages/python/domain` — 领域模型与统一 schema
-- `infra/compose` — 本地联调基础设施
-- `migrations` — 数据库迁移骨架
-- `tests` — 集成与冒烟测试
-- `models` — 本地模型目录（如 FunASR）
+### 1. 系统前提
 
-## 本地开发
+已验证组合：
 
-### 1. 安装依赖
+- Windows 10/11
+- Python `3.13.x`
+- Node.js `20+`
+- `uv`
+- NVIDIA 驱动正常，`torch.cuda.is_available() == True`
 
-```bash
-uv sync
-cd apps/web && npm install
+建议额外安装：
+
+- `ffmpeg`
+  作用：稳定解码 `.mp3/.m4a/.mp4`
+
+如果你只是想跑最小高精度链路，`ffmpeg` 不是硬性前提，但没有它时，压缩音频解码能力会变差。
+
+### 2. 克隆项目并创建环境
+
+```powershell
+git clone <your-repo-url>
+cd voiceprint-asr-platform
+uv sync --extra asr-funasr --extra speaker-3ds
 ```
 
-如需真实 FunASR 推理，额外安装：
+激活虚拟环境：
 
-```bash
-uv pip install --no-deps funasr==1.3.1
-uv pip install torch torchaudio transformers modelscope
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-### 2. 准备本地模型
+### 3. 安装 CUDA 版 PyTorch
 
-默认配置会优先读取仓库内的 `models/Fun-ASR-Nano-2512`：
+这个项目当前本地已验证可用的安装命令是：
 
-```bash
-git lfs clone https://www.modelscope.cn/FunAudioLLM/Fun-ASR-Nano-2512.git models/Fun-ASR-Nano-2512
+```powershell
+python -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 ```
 
-也可以通过 `.env` 中的 `FUNASR_MODEL` 指向其他本地目录或远端模型名。
+如果你已经安装过 CPU 版 `torch`，建议强制重装：
 
-### 3. 启动 API
-
-```bash
-uv run uvicorn apps.api.app.main:app --reload
+```powershell
+python -m pip install --force-reinstall torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 ```
 
-### 4. 启动 Worker
+### 4. 验证 GPU 运行时
 
-```bash
+```powershell
+python -c "import torch; print('torch=', torch.__version__); print('cuda_runtime=', torch.version.cuda); print('cuda_available=', torch.cuda.is_available()); print('device_count=', torch.cuda.device_count()); print('device_name=', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-cuda')"
+```
+
+期望至少满足：
+
+- `torch= 2.6.0+cu124`
+- `cuda_available= True`
+- 能打印出你的显卡名
+
+如果这里不通过，后面的高精度任务都不会进入真实推理。
+
+### 5. 安装前端依赖
+
+```powershell
+cd apps/web
+npm install
+cd ..\..
+```
+
+### 6. 准备环境变量
+
+```powershell
+Copy-Item .env.example .env
+```
+
+默认配置已经指向本地模型目录：
+
+- `models/Fun-ASR-Nano-2512`
+- `models/FSMN-VAD`
+- `models/3D-Speaker/campplus`
+- `models/pyannote/speaker-diarization-community-1`
+
+当前默认：
+
+- `ENABLE_PYANNOTE=false`
+- `ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING=false`
+
+因为 `pyannote` 官方离线包需要 Hugging Face gated 权限，未补齐完整权重前不要打开。
+`3D-Speaker` 的自适应聚类当前仍属于实验能力，只有在你明确做实验对比时才建议打开；当前默认主链路仍以已验证更稳的基线参数为主。
+
+### 7. 准备本地模型目录
+
+所有模型都必须放在仓库根目录 `models/` 下。
+
+当前代码默认读取：
+
+```text
+models/
+  Fun-ASR-Nano-2512/
+  FSMN-VAD/
+  3D-Speaker/
+    campplus/
+  pyannote/
+    speaker-diarization-community-1/
+```
+
+当前本地真实状态：
+
+- `models/Fun-ASR-Nano-2512`：已接入，可用于真实 ASR
+- `models/FSMN-VAD`：已接入，可用于真实 VAD
+- `models/3D-Speaker/campplus`：已接入，可用于真实 diarization / voiceprint
+- `models/pyannote/speaker-diarization-community-1`：默认仍不完整，不参与主链路
+
+更多说明见：
+
+- [models/README.md](F:/1work/音频识别/voiceprint-asr-platform/models/README.md)
+
+### 8. 启动服务
+
+开三个终端。
+
+终端 1，启动 API：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+终端 2，启动 Worker：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 uv run python -m apps.worker.app.main
 ```
 
-### 5. 启动前端
+终端 3，启动前端：
 
-```bash
-cd apps/web && npm run dev
+```powershell
+cd apps/web
+npm run dev
 ```
 
-### 6. 运行测试
+### 9. 最小验证
 
-后端：
+先跑后端健康与模型状态测试：
 
-```bash
-uv run pytest tests/integration/test_health.py
+```powershell
+uv run pytest tests/integration/test_health.py -q
 ```
 
-前端：
+再跑前端测试：
 
-```bash
-cd apps/web && npm run test
+```powershell
+cd apps/web
+npm run test
 ```
 
-### 7. 容器联调
+如果你只想快速验证多人链路，可以直接用样本脚本：
 
-```bash
-cd infra/compose && docker compose up --build
+```powershell
+.\.venv\Scripts\python.exe scripts\run_multi_speaker_sample.py storage\experiments\standard_recording_1\standard_recording_1_15min.wav storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_verify.json --output-text storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_verify.txt --title "标准录音 1（前15分钟）"
 ```
 
-## 核心功能说明
+## 项目目录
 
-### 语音识别（ASR）
+- `apps/api`：API 服务
+- `apps/worker`：任务执行与模型推理
+- `apps/web`：前端工作台
+- `packages/python/model_adapters`：模型适配层
+- `packages/python/domain`：统一 schema 与领域模型
+- `models`：本地模型目录
+- `storage/uploads`：上传音频资产
+- `storage/experiments`：样本跑数、benchmark、可读稿
+- `tests`：单测与集成测试
 
-将音频文件转成文字，采用 FunASR 高精度模型，支持中文普通话实时转写。
+## 当前真实运行约束
 
-上传音频后可直接发起单人转写任务，适合录音转写、字幕生成等场景。
+### GPU 约束
 
-### 说话人分离（Diarization）
+系统现在不是“尽量用 GPU”，而是“高精度任务必须走 GPU”：
 
-自动识别音频中的不同说话人，为每段话标注说话人编号，适合会议录音多人记录。
+- `FunASR`：无 `CUDA` 直接拒绝
+- `3D-Speaker diarization`：无 `CUDA` 直接拒绝
+- `3D-Speaker voiceprint`：无 `CUDA` 直接拒绝
 
-首页已把说话人分离设为**默认主路径**，上传音频后无需额外配置即可获得带说话人标签的转写结果。
+### 模型约束
 
-### 声纹识别（Voiceprint）
+运行时不接受默认远端模型名，必须是本地路径。
 
-提供三大声纹能力：
+### pyannote 状态
 
-- **声纹注册**：将目标说话人的音频样本注册为身份档案
-- **1:1 验证**：给定一段音频和一个档案，判断是否为同一人（核验）
-- **1:N 识别**：给定一段音频，在声纹库中找出最相似的候选人（识别）
+`pyannote` 当前不是主链路依赖。原因不是代码没接，而是：
 
-> 声纹注册属于**按需启用**的可选能力。默认转写和说话人分离流程不依赖声纹库，无需预先注册即可使用。
+- 官方离线权重是 gated repo
+- 本地没有完整授权包时，不会进入真实推理
 
-## 真实上传流程
+所以当前默认主链路是：
 
-系统采用"先上传音频，再发起业务处理"的两步式流程。
+- `FunASR + 3D-Speaker + FSMN-VAD`
 
-### 上传音频资产
+## 真实业务接口
+
+### 上传音频
 
 ```http
 POST /api/v1/assets/upload
 Content-Type: multipart/form-data
 ```
 
-表单字段：`file` — 音频文件
+表单字段：
 
-支持格式：`.wav` `.m4a` `.mp3` `.flac`
+- `file`
 
-成功返回：
+支持：
 
-```json
-{
-  "asset_name": "c797e67c8531b7cf.wav",
-  "original_filename": "声纹-女1.wav",
-  "size": 636940
-}
-```
+- `.wav`
+- `.mp3`
+- `.m4a`
+- `.flac`
 
-上传后的文件保存到：`storage/uploads/<asset_name>`
-
-### 上传后转写（默认说话人分离）
+### 发起转写
 
 ```http
 POST /api/v1/transcriptions
@@ -170,7 +260,7 @@ Content-Type: application/json
 }
 ```
 
-### 上传后声纹注册
+### 声纹注册
 
 ```http
 POST /api/v1/voiceprints/profiles/{profile_id}/enroll
@@ -183,7 +273,7 @@ Content-Type: application/json
 }
 ```
 
-### 上传后声纹验证
+### 声纹验证
 
 ```http
 POST /api/v1/voiceprints/verify
@@ -198,7 +288,7 @@ Content-Type: application/json
 }
 ```
 
-### 上传后声纹识别
+### 声纹识别
 
 ```http
 POST /api/v1/voiceprints/identify
@@ -212,34 +302,54 @@ Content-Type: application/json
 }
 ```
 
-## 测试音频样本
+## 样本产物目录约定
 
-当 `storage/uploads/` 中不存在同名文件时，服务与 worker 会自动回退到 `tests/` 目录查找。
+样本转写、benchmark、可读稿统一输出到：
 
-推荐样本：
+- `storage/experiments/<sample_name>/`
 
-| 文件 | 用途 |
-|------|------|
-| `tests/罗大佑 - 光阴的故事(片头曲).wav` | ASR 单人转写 |
-| `tests/丹山路.m4a` | ASR / 多说话人转写联调 |
-| `tests/声纹-女1.wav` | 声纹注册底库样本 |
-| `tests/5分钟.wav` | 声纹验证 / 识别 probe 样本 |
+例如：
 
-## 当前进展
+- `storage/experiments/standard_recording_1/standard_recording_1_funasr.json`
+- `storage/experiments/standard_recording_1/standard_recording_1_multispeaker_v11.json`
+- `storage/experiments/standard_recording_1/standard_recording_1_multispeaker_readable_v11.txt`
 
-已完成：
+根目录只保留工程文件，不再放样本产物。
 
-- API、Worker、Web 工程骨架
-- 模型注册中心与适配器协议
-- 转写、任务、声纹接口完整链路
-- 产品化前端工作台（品牌标识 · 任务统计 · 快速发起）
-- 最小前端 / 后端测试骨架
-- API / Worker / Web Dockerfile
-- Compose 联调配置
-- 本地 FunASR 模型目录接入
-- 测试音频样本回退链路
-- 真实上传音频接口与两步式业务流
-- 默认说话人分离 + 声纹按需启用的产品路径
-- 公共组件体系（BrandLogo · StatCard · AudioUploadField · PageSection）
+## 常见问题
 
-后续将继续接入更完整的持久化、数据库迁移与 CI。
+### 1. 机器有显卡，但任务还是报 CUDA 不可用
+
+先跑：
+
+```powershell
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+```
+
+如果这里是 CPU 版 `torch` 或 `False`，项目一定不会进入高精度推理。
+
+### 2. `.mp3/.m4a` 无法解码
+
+优先安装 `ffmpeg`。  
+如果环境里没有可用解码后端，先把音频转成 `16k wav` 再跑。
+
+### 3. `pyannote` 为什么默认不可用
+
+因为本地没有完整的 gated 离线权重。  
+这不是代码开关问题，而是模型授权和权重文件问题。
+
+## 当前主链路总结
+
+当前已经稳定可复现的高精度主链路是：
+
+- `FunASR`：GPU ASR
+- `FSMN-VAD`：本地 VAD
+- `3D-Speaker CAM++`：GPU diarization / voiceprint
+- `exclusive alignment`：无重叠对齐时间轴
+- `storage/experiments`：统一样本产物目录
+
+如果你在另一台电脑上严格按本 README 执行，核心目标应该是：
+
+1. `torch.cuda.is_available() == True`
+2. `uv run pytest tests/integration/test_health.py -q` 通过
+3. 能成功跑出 `storage/experiments/...` 下的多人转写结果
