@@ -184,6 +184,38 @@ def test_extract_segments_merges_close_sentence_info_fragments() -> None:
     assert segments[0].end_ms == 2100
 
 
+def test_extract_segments_absorbs_short_followup_fragment_into_previous_sentence() -> None:
+    adapter = FunASRTranscribeAdapter(vad_enabled=True)
+    payload = {
+        "sentence_info": [
+            {"text": "前面主体已经说完。", "start": 0, "end": 1800},
+            {"text": "对吧", "start": 1900, "end": 2400},
+            {"text": "后面还有一段。", "start": 4200, "end": 6000},
+        ]
+    }
+
+    segments = adapter._extract_segments(payload, "前面主体已经说完。对吧后面还有一段。")
+
+    assert len(segments) == 2
+    assert segments[0].text == "前面主体已经说完。对吧"
+    assert segments[0].end_ms == 2400
+
+
+def test_extract_segments_merges_incomplete_sentence_prefix_with_following_sentence() -> None:
+    adapter = FunASRTranscribeAdapter(vad_enabled=True)
+    payload = {
+        "sentence_info": [
+            {"text": "没有应用加工逻", "start": 0, "end": 1200},
+            {"text": "辑的时候，这个场景是可以做到的。", "start": 1300, "end": 3200},
+        ]
+    }
+
+    segments = adapter._extract_segments(payload, "没有应用加工逻辑的时候，这个场景是可以做到的。")
+
+    assert len(segments) == 1
+    assert segments[0].text == "没有应用加工逻辑的时候，这个场景是可以做到的。"
+
+
 def test_merge_close_vad_segments_merges_small_gap_and_preserves_large_gap() -> None:
     adapter = FunASRTranscribeAdapter(vad_enabled=True)
     adapter.vad_merge_gap_ms = 400

@@ -62,6 +62,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.local_reassign_margin = 0.02
         self.frame_decode_step_s = 0.25
         self.frame_decode_stickiness = 0.035
+        self.frame_label_vote_boost = 0.22
+        self.frame_vote_margin = 0.03
 
     @property
     def availability(self) -> str:
@@ -713,7 +715,6 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
     ) -> list[tuple[float, float, int]]:
         frame_items: list[tuple[float, float, int]] = []
         previous_label: int | None = None
-        previous_score = -1.0
         cursor = vad_start
         while cursor < vad_end - 1e-6:
             frame_start = cursor
@@ -736,20 +737,35 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 continue
             ordered = sorted(speaker_scores.items(), key=lambda item: item[1], reverse=True)
             best_label, best_score = ordered[0]
+            best_vote = self._frame_label_vote(
+                overlap_indices,
+                chunk_list,
+                labels,
+                int(best_label),
+                frame_start,
+                frame_end,
+            )
             if (
                 previous_label is not None
                 and previous_label in speaker_scores
-                and speaker_scores[previous_label] + self.frame_decode_stickiness >= best_score
+                and (
+                    speaker_scores[previous_label] + self.frame_decode_stickiness >= best_score
+                    or self._frame_label_vote(
+                        overlap_indices,
+                        chunk_list,
+                        labels,
+                        int(previous_label),
+                        frame_start,
+                        frame_end,
+                    ) + self.frame_vote_margin >= best_vote
+                )
             ):
                 best_label = previous_label
                 best_score = speaker_scores[previous_label]
-            if previous_label is None and previous_score < 0:
-                previous_score = best_score
             previous_label = int(best_label)
-            previous_score = best_score
             frame_items.append((frame_start, frame_end, int(best_label)))
             cursor = frame_end
-        return frame_items
+        return self._repair_frame_sequence(frame_items, step_s)
 
     def _chunk_indices_for_window(
         self,
@@ -775,19 +791,87 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         frame_end: float,
     ) -> dict[int, float]:
         scores: dict[int, float] = {}
+        label_votes: dict[int, float] = {}
         for index in overlap_indices:
             chunk_start, chunk_end = chunk_list[index]
             overlap = max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
             if overlap <= 0:
                 continue
             chunk_embedding = embeddings[index]
+            assigned_label = int(labels[index])
+            label_votes[assigned_label] = label_votes.get(assigned_label, 0.0) + overlap
             for speaker_id, center in centers.items():
                 cosine = self._cosine_between(chunk_embedding, center)
                 if cosine <= 0:
                     continue
-                boost = 0.06 if int(labels[index]) == int(speaker_id) else 0.0
-                scores[int(speaker_id)] = scores.get(int(speaker_id), 0.0) + overlap * (cosine + boost)
+                scores[int(speaker_id)] = scores.get(int(speaker_id), 0.0) + overlap * cosine
+        for speaker_id, vote in label_votes.items():
+            scores[speaker_id] = scores.get(speaker_id, 0.0) + vote * self.frame_label_vote_boost
         return scores
+
+    def _frame_label_vote(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        speaker_id: int,
+        frame_start: float,
+        frame_end: float,
+    ) -> float:
+        vote = 0.0
+        for index in overlap_indices:
+            if int(labels[index]) != int(speaker_id):
+                continue
+            chunk_start, chunk_end = chunk_list[index]
+            vote += max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+        return vote
+
+    def _repair_frame_sequence(
+        self,
+        frame_items: list[tuple[float, float, int]],
+        step_s: float,
+    ) -> list[tuple[float, float, int]]:
+        if len(frame_items) <= 2:
+            return frame_items
+
+        labels = [int(item[2]) for item in frame_items]
+        max_bridge_frames = max(1, int(round(0.75 / max(step_s, 1e-3))))
+        for _ in range(2):
+            changed = False
+            runs = self._frame_runs(labels)
+            for run_start, run_end in runs:
+                left_label = labels[run_start - 1] if run_start > 0 else None
+                right_label = labels[run_end + 1] if run_end + 1 < len(labels) else None
+                if left_label is None or right_label is None or left_label != right_label:
+                    continue
+                if (run_end - run_start + 1) > max_bridge_frames:
+                    continue
+                if labels[run_start] == left_label:
+                    continue
+                for index in range(run_start, run_end + 1):
+                    labels[index] = left_label
+                changed = True
+            if not changed:
+                break
+
+        repaired = [
+            (frame_start, frame_end, labels[index])
+            for index, (frame_start, frame_end, _) in enumerate(frame_items)
+        ]
+        return repaired
+
+    def _frame_runs(self, labels: list[int]) -> list[tuple[int, int]]:
+        if not labels:
+            return []
+        runs: list[tuple[int, int]] = []
+        start_index = 0
+        for index in range(1, len(labels)):
+            if labels[index] == labels[index - 1]:
+                continue
+            runs.append((start_index, index - 1))
+            start_index = index
+        runs.append((start_index, len(labels) - 1))
+        return runs
 
     def _postprocess(self, chunk_list: list, labels: np.ndarray) -> list[tuple[int, int, int]]:
         """将 chunk 级标签合并为稳定的 speaker 段。"""

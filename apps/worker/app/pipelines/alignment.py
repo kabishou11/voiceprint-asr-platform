@@ -247,7 +247,8 @@ def merge_short_segments(
     merged.append(current)
     smoothed = _merge_tiny_alternating_segments(merged, min_duration_ms=min_duration_ms)
     split_segments = _split_long_segments(smoothed, max_duration_ms=max_merged_duration_ms)
-    repaired = _repair_adjacent_same_speaker_boundaries(split_segments)
+    compacted = _merge_tiny_same_speaker_followups(split_segments)
+    repaired = _repair_adjacent_same_speaker_boundaries(compacted)
     return [segment for segment in repaired if _cleanup_segment_text(segment.text)]
 
 
@@ -345,6 +346,46 @@ def _split_long_segments(segments: list[Segment], max_duration_ms: int) -> list[
             split_segments[-1] = split_segments[-1].model_copy(update={"end_ms": segment.end_ms})
         result.extend(split_segments)
     return result
+
+
+def _merge_tiny_same_speaker_followups(
+    segments: list[Segment],
+    max_gap_ms: int = 2000,
+    max_tiny_duration_ms: int = 900,
+    max_tiny_text_len: int = 4,
+) -> list[Segment]:
+    if len(segments) <= 1:
+        return segments
+
+    merged: list[Segment] = [segments[0]]
+    for segment in segments[1:]:
+        previous = merged[-1]
+        gap_ms = segment.start_ms - previous.end_ms
+        segment_text = _cleanup_segment_text(segment.text)
+        segment_duration_ms = segment.end_ms - segment.start_ms
+        is_short_fragment = segment_duration_ms <= max_tiny_duration_ms
+        is_short_unpunctuated_tail = (
+            len(segment_text) <= max_tiny_text_len
+            and not re.search(r"[。！？!?；;]$", segment_text)
+        )
+        if (
+            previous.speaker == segment.speaker
+            and 0 <= gap_ms <= max_gap_ms
+            and (
+                is_short_fragment
+                or is_short_unpunctuated_tail
+                or _is_filler_segment(segment_text)
+            )
+        ):
+            merged[-1] = previous.model_copy(
+                update={
+                    "end_ms": max(previous.end_ms, segment.end_ms),
+                    "text": _join_text(previous.text, segment.text),
+                }
+            )
+            continue
+        merged.append(segment)
+    return merged
 
 
 def _repair_adjacent_same_speaker_boundaries(segments: list[Segment]) -> list[Segment]:

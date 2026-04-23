@@ -250,3 +250,19 @@ def test_decode_framewise_segments_prefers_temporally_consistent_speaker():
 
     assert decoded[0][2] == 0
     assert all(speaker == 0 for _, _, speaker in decoded)
+
+
+def test_decode_framewise_segments_repairs_single_frame_bridge_after_vote_decode():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_decode_step_s = 0.25
+    frame_items = [
+        (0.0, 0.25, 0),
+        (0.25, 0.5, 0),
+        (0.5, 0.75, 1),
+        (0.75, 1.0, 0),
+        (1.0, 1.25, 0),
+    ]
+
+    repaired = adapter._repair_frame_sequence(frame_items, adapter.frame_decode_step_s)
+
+    assert all(speaker == 0 for _, _, speaker in repaired)

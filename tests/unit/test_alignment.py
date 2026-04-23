@@ -170,3 +170,19 @@ def test_merge_short_segments_drops_empty_segments_after_boundary_cleanup() -> N
 
     assert len(result) == 2
     assert all(segment.text for segment in result)
+
+
+def test_merge_short_segments_absorbs_tiny_same_speaker_followup_fragment() -> None:
+    result = merge_short_segments(
+        [
+            Segment(start_ms=0, end_ms=9000, text="前面主体已经说完。", speaker="SPEAKER_00"),
+            Segment(start_ms=9100, end_ms=9700, text="对吧", speaker="SPEAKER_00"),
+            Segment(start_ms=12000, end_ms=18000, text="后面是另一个阶段。", speaker="SPEAKER_01"),
+        ],
+        max_merged_duration_ms=10000,
+    )
+
+    assert len(result) == 2
+    assert result[0].speaker == "SPEAKER_00"
+    assert "前面主体已经说完" in result[0].text
+    assert "对吧" in result[0].text
