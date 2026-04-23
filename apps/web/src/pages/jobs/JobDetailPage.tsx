@@ -451,10 +451,31 @@ export function JobDetailPage() {
                                 总时长 {formatDuration(group.durationMs)} · 平均置信度{' '}
                                 {group.avgConfidence !== null ? group.avgConfidence.toFixed(2) : '—'}
                               </Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.75 }}>
-                                {group.segments.slice(0, 2).map((segment) => segment.text).join(' / ') ||
-                                  '暂无文本'}
-                              </Typography>
+                              <Box
+                                sx={{
+                                  px: 0.1,
+                                  py: 0.25,
+                                  borderRadius: 2.5,
+                                }}
+                              >
+                                <MeasuredPretextBlock
+                                  text={
+                                    group.segments
+                                      .slice(0, 2)
+                                      .map((segment) => segment.text)
+                                      .join(' / ') || '暂无文本'
+                                  }
+                                  font='400 14px "PingFang SC"'
+                                  lineHeight={25}
+                                  typographyProps={{
+                                    variant: 'body2',
+                                    color: 'text.secondary',
+                                    sx: {
+                                      lineHeight: 1.75,
+                                    },
+                                  }}
+                                />
+                              </Box>
                               {data.job.asset_name ? (
                                 <Button
                                   size="small"
@@ -655,9 +676,16 @@ export function JobDetailPage() {
                                 </Stack>
                               </Stack>
                               <Divider />
-                              <Typography sx={{ textWrap: 'pretty' }}>
-                                {segment.text || '（该片段暂无文本）'}
-                              </Typography>
+                              <MeasuredPretextBlock
+                                text={segment.text || '（该片段暂无文本）'}
+                                font='400 15px "PingFang SC"'
+                                lineHeight={28}
+                                typographyProps={{
+                                  sx: {
+                                    textWrap: 'pretty',
+                                  },
+                                }}
+                              />
                             </Stack>
                           </Box>
                         ))}
