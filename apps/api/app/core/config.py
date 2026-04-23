@@ -24,14 +24,18 @@ class Settings(BaseSettings):
     s3_bucket: str = Field(default="voiceprint-assets", alias="S3_BUCKET")
     funasr_model: str = Field(default="models/Fun-ASR-Nano-2512", alias="FUNASR_MODEL")
     three_d_speaker_model: str = Field(
-        default="iic/speech_campplus_sv_zh_en_16k-common_advanced",
+        default="models/3D-Speaker/campplus",
         alias="THREE_D_SPEAKER_MODEL",
     )
     pyannote_model: str = Field(
-        default="pyannote/speaker-diarization-community-1",
+        default="models/pyannote/speaker-diarization-community-1",
         alias="PYANNOTE_MODEL",
     )
     enable_pyannote: bool = Field(default=False, alias="ENABLE_PYANNOTE")
+    enable_3d_speaker_adaptive_clustering: bool = Field(
+        default=False,
+        alias="ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING",
+    )
 
 
 @lru_cache(maxsize=1)

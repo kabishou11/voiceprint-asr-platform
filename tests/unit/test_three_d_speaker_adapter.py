@@ -87,6 +87,91 @@ def test_cluster_embeddings_uses_ahc_path_for_short_sequences():
     assert labels[0] != labels[2]
 
 
+def test_resolve_spectral_pval_prefers_stable_value_for_high_adjacent_similarity():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=True)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [0.98, 0.02],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    pval = adapter._resolve_spectral_pval(embeddings)
+
+    assert pval == adapter.spectral_pval_stable
+
+
+def test_estimate_speaker_upper_bound_caps_by_adjacent_breaks():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=True)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.98, 0.02],
+            [0.0, 1.0],
+            [0.02, 0.98],
+            [-1.0, 0.0],
+            [-0.98, 0.02],
+        ],
+        dtype=np.float32,
+    )
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+        (2.25, 3.75),
+        (3.0, 4.5),
+        (3.75, 5.25),
+    ]
+
+    upper = adapter._estimate_speaker_upper_bound(embeddings.shape[0], embeddings, chunk_list)
+
+    assert upper is not None
+    assert upper <= 4
+
+
+def test_resolve_spectral_pval_uses_baseline_when_adaptive_clustering_disabled():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=False)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [0.98, 0.02],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    pval = adapter._resolve_spectral_pval(embeddings)
+
+    assert pval == adapter.spectral_pval
+
+
+def test_estimate_speaker_upper_bound_returns_none_when_adaptive_clustering_disabled():
+    adapter = ThreeDSpeakerDiarizationAdapter(enable_adaptive_clustering=False)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.98, 0.02],
+            [0.0, 1.0],
+            [0.02, 0.98],
+        ],
+        dtype=np.float32,
+    )
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+        (2.25, 3.75),
+    ]
+
+    upper = adapter._estimate_speaker_upper_bound(embeddings.shape[0], embeddings, chunk_list)
+
+    assert upper is None
+
+
 def test_cluster_embeddings_merges_minor_clusters_by_cosine_center():
     adapter = ThreeDSpeakerDiarizationAdapter()
     labels = np.array([0, 0, 0, 0, 0, 1], dtype=int)

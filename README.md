@@ -111,8 +111,10 @@ Copy-Item .env.example .env
 当前默认：
 
 - `ENABLE_PYANNOTE=false`
+- `ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING=false`
 
 因为 `pyannote` 官方离线包需要 Hugging Face gated 权限，未补齐完整权重前不要打开。
+`3D-Speaker` 的自适应聚类当前仍属于实验能力，只有在你明确做实验对比时才建议打开；当前默认主链路仍以已验证更稳的基线参数为主。
 
 ### 7. 准备本地模型目录
 

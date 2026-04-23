@@ -44,6 +44,15 @@ class ModelRegistry:
     def get(self, key: str) -> RegistryEntry:
         return self._entries[key]
 
+    def require_available(self, key: str) -> RegistryEntry:
+        entry = self.get(key)
+        if entry.availability != "available":
+            raise RuntimeError(
+                f"模型 {entry.display_name} ({entry.key}) 当前不可用。系统已强制要求 CUDA GPU 驱动的本地高精度推理，"
+                "未满足条件时不会退回 CPU。"
+            )
+        return entry
+
     def has(self, key: str, task: str | None = None) -> bool:
         entry = self._entries.get(key)
         return entry is not None and (task is None or entry.task == task)
@@ -76,6 +85,7 @@ def build_default_registry(
     three_d_speaker_model: str,
     pyannote_model: str,
     enable_pyannote: bool = False,
+    enable_3d_speaker_adaptive_clustering: bool = False,
 ) -> ModelRegistry:
     from model_adapters.funasr_adapter import FunASRTranscribeAdapter
     from model_adapters.pyannote_adapter import PyannoteDiarizationAdapter
@@ -97,7 +107,10 @@ def build_default_registry(
         experimental=asr_adapter.experimental,
     )
 
-    diarization_adapter = ThreeDSpeakerDiarizationAdapter(model_name=three_d_speaker_model)
+    diarization_adapter = ThreeDSpeakerDiarizationAdapter(
+        model_name=three_d_speaker_model,
+        enable_adaptive_clustering=enable_3d_speaker_adaptive_clustering,
+    )
     registry.register(
         diarization_adapter.key,
         "diarization",

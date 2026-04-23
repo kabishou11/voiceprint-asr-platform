@@ -14,4 +14,5 @@ def get_model_registry() -> ModelRegistry:
         three_d_speaker_model=settings.three_d_speaker_model,
         pyannote_model=settings.pyannote_model,
         enable_pyannote=settings.enable_pyannote,
+        enable_3d_speaker_adaptive_clustering=settings.enable_3d_speaker_adaptive_clustering,
     )

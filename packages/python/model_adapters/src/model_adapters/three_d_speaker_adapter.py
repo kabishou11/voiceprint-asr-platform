@@ -40,8 +40,14 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
     display_name = "3D-Speaker Diarization"
     provider = "3dspeaker"
 
-    def __init__(self, model_name: str = "models/3D-Speaker/campplus") -> None:
+    def __init__(
+        self,
+        model_name: str = "models/3D-Speaker/campplus",
+        *,
+        enable_adaptive_clustering: bool = False,
+    ) -> None:
         self.model_name = resolve_model_reference(model_name)
+        self.enable_adaptive_clustering = enable_adaptive_clustering
         self._vad_model: object | None = None
         self._campplus_model: object | None = None
         self._feature_extractor: object | None = None
@@ -56,7 +62,11 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.min_cluster_size = 4
         self.merge_cosine_threshold = 0.8
         self.spectral_pval = 0.012
+        self.spectral_pval_stable = 0.02
+        self.spectral_pval_unstable = 0.008
         self.ahc_cosine_threshold = 0.4
+        self.adjacent_similarity_strong_break = 0.45
+        self.adjacent_similarity_stable = 0.75
         self.tail_merge_cosine_threshold = 0.72
         self.local_reassign_cosine_threshold = 0.58
         self.local_reassign_margin = 0.02
@@ -291,7 +301,7 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         if embeddings.shape[0] < self.cluster_line:
             labels = self._cluster_embeddings_ahc(embeddings)
         else:
-            labels = self._cluster_embeddings_spectral(embeddings)
+            labels = self._cluster_embeddings_spectral(embeddings, chunk_list)
 
         labels = self._merge_minor_clusters(labels.astype(int), embeddings, min_cluster_size=self.min_cluster_size)
         if self.merge_cosine_threshold is not None:
@@ -323,18 +333,23 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         )
         return model.fit_predict(distance).astype(int)
 
-    def _cluster_embeddings_spectral(self, embeddings: np.ndarray) -> np.ndarray:
+    def _cluster_embeddings_spectral(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> np.ndarray:
         from sklearn.cluster import KMeans
         from sklearn.metrics.pairwise import cosine_similarity
 
         similarity = cosine_similarity(embeddings, embeddings)
-        pruned = self._prune_affinity(similarity, pval=self.spectral_pval, min_pnum=6)
+        pval = self._resolve_spectral_pval(embeddings, chunk_list)
+        pruned = self._prune_affinity(similarity, pval=pval, min_pnum=6)
         sym_pruned = 0.5 * (pruned + pruned.T)
         laplacian = self._build_laplacian(sym_pruned)
 
         cluster_count = self._resolve_cluster_count(embeddings.shape[0])
         if cluster_count is None:
-            cluster_count = self._estimate_cluster_count_from_laplacian(laplacian, embeddings.shape[0])
+            cluster_count = self._estimate_cluster_count_from_laplacian(laplacian, embeddings.shape[0], embeddings, chunk_list)
 
         cluster_count = max(1, min(cluster_count, embeddings.shape[0]))
         spectral_embeddings = self._compute_spectral_embeddings(laplacian, cluster_count)
@@ -365,8 +380,14 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         laplacian[np.diag_indices_from(laplacian)] = degree
         return laplacian
 
-    def _estimate_cluster_count_from_laplacian(self, laplacian: np.ndarray, sample_count: int) -> int:
-        min_num_spks, max_num_spks = self._spectral_cluster_bounds(sample_count)
+    def _estimate_cluster_count_from_laplacian(
+        self,
+        laplacian: np.ndarray,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int:
+        min_num_spks, max_num_spks = self._spectral_cluster_bounds(sample_count, embeddings, chunk_list)
         max_eigen_count = min(max_num_spks + 1, laplacian.shape[0])
         try:
             eigen_values, _ = np.linalg.eigh(laplacian)
@@ -388,7 +409,12 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             return np.eye(laplacian.shape[0], cluster_count, dtype=np.float32)
         return np.asarray(eigen_vectors[:, :cluster_count], dtype=np.float32)
 
-    def _spectral_cluster_bounds(self, sample_count: int) -> tuple[int, int]:
+    def _spectral_cluster_bounds(
+        self,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> tuple[int, int]:
         if self.num_speakers is not None:
             target = max(1, min(int(self.num_speakers), sample_count))
             return target, target
@@ -396,7 +422,86 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         maximum = int(self.max_speakers) if self.max_speakers is not None else 15
         maximum = max(minimum, maximum)
         maximum = min(maximum, sample_count)
+        adaptive_upper = self._estimate_speaker_upper_bound(sample_count, embeddings, chunk_list)
+        if adaptive_upper is not None:
+            maximum = min(maximum, adaptive_upper)
+            maximum = max(minimum, maximum)
         return minimum, maximum
+
+    def _resolve_spectral_pval(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> float:
+        if not self.enable_adaptive_clustering:
+            return self.spectral_pval
+        median_similarity = self._adjacent_similarity_median(embeddings, chunk_list)
+        if median_similarity is None:
+            return self.spectral_pval
+        if median_similarity >= self.adjacent_similarity_stable:
+            return self.spectral_pval_stable
+        if median_similarity <= self.adjacent_similarity_strong_break:
+            return self.spectral_pval_unstable
+        return self.spectral_pval
+
+    def _estimate_speaker_upper_bound(
+        self,
+        sample_count: int,
+        embeddings: np.ndarray | None = None,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int | None:
+        if not self.enable_adaptive_clustering:
+            return None
+        if embeddings is None or embeddings.size == 0 or sample_count <= 1:
+            return None
+        strong_breaks = self._count_adjacent_strong_breaks(embeddings, chunk_list)
+        if strong_breaks is None:
+            return None
+        estimated_upper = max(1, min(sample_count, strong_breaks + 1))
+        relaxed_upper = min(sample_count, max(estimated_upper + 1, int(np.ceil(sample_count / 6))))
+        return max(1, relaxed_upper)
+
+    def _adjacent_similarity_median(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> float | None:
+        similarities = self._adjacent_similarities(embeddings, chunk_list)
+        if not similarities:
+            return None
+        return float(np.median(np.asarray(similarities, dtype=np.float32)))
+
+    def _count_adjacent_strong_breaks(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> int | None:
+        similarities = self._adjacent_similarities(embeddings, chunk_list)
+        if not similarities:
+            return None
+        return int(sum(1 for score in similarities if score <= self.adjacent_similarity_strong_break))
+
+    def _adjacent_similarities(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> list[float]:
+        if embeddings.shape[0] <= 1:
+            return []
+        similarities: list[float] = []
+        for index in range(1, embeddings.shape[0]):
+            if chunk_list is not None:
+                previous_end = float(chunk_list[index - 1][1])
+                current_start = float(chunk_list[index][0])
+                if current_start - previous_end > 0.8:
+                    continue
+            similarities.append(
+                self._cosine_between(
+                    np.asarray(embeddings[index - 1], dtype=np.float32),
+                    np.asarray(embeddings[index], dtype=np.float32),
+                )
+            )
+        return similarities
 
     def _merge_minor_clusters(self, labels: np.ndarray, embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
         unique_labels = np.unique(labels)
