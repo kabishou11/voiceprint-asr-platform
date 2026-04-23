@@ -266,3 +266,22 @@ def test_decode_framewise_segments_repairs_single_frame_bridge_after_vote_decode
     repaired = adapter._repair_frame_sequence(frame_items, adapter.frame_decode_step_s)
 
     assert all(speaker == 0 for _, _, speaker in repaired)
+
+
+def test_estimate_frame_speaker_count_keeps_single_speaker_when_secondary_vote_is_weak():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.0, 0.18),
+    ]
+    labels = np.array([0, 1], dtype=int)
+
+    count = adapter._estimate_frame_speaker_count(
+        [0, 1],
+        chunk_list,
+        labels,
+        0.0,
+        0.5,
+    )
+
+    assert count == 1

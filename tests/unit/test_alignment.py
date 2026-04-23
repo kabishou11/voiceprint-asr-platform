@@ -1,5 +1,6 @@
 from apps.worker.app.pipelines.alignment import (
     align_transcript_with_speakers,
+    build_display_speaker_timeline,
     build_exclusive_speaker_timeline,
     merge_short_segments,
 )
@@ -186,3 +187,18 @@ def test_merge_short_segments_absorbs_tiny_same_speaker_followup_fragment() -> N
     assert result[0].speaker == "SPEAKER_00"
     assert "前面主体已经说完" in result[0].text
     assert "对吧" in result[0].text
+
+
+def test_build_display_speaker_timeline_merges_short_bridge_between_same_speakers() -> None:
+    display = build_display_speaker_timeline(
+        [
+            Segment(start_ms=0, end_ms=3000, text="第一段", speaker="SPEAKER_00"),
+            Segment(start_ms=3000, end_ms=3400, text="嗯", speaker="SPEAKER_01"),
+            Segment(start_ms=3400, end_ms=6200, text="第二段", speaker="SPEAKER_00"),
+        ]
+    )
+
+    assert len(display) == 1
+    assert display[0].speaker == "SPEAKER_00"
+    assert display[0].start_ms == 0
+    assert display[0].end_ms == 6200

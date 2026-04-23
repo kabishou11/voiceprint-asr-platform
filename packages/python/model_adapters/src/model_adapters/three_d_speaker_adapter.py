@@ -64,6 +64,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.frame_decode_stickiness = 0.035
         self.frame_label_vote_boost = 0.22
         self.frame_vote_margin = 0.03
+        self.frame_single_speaker_vote_ratio = 0.45
+        self.frame_single_speaker_switch_margin = 0.08
 
     @property
     def availability(self) -> str:
@@ -745,6 +747,13 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 frame_start,
                 frame_end,
             )
+            estimated_count = self._estimate_frame_speaker_count(
+                overlap_indices,
+                chunk_list,
+                labels,
+                frame_start,
+                frame_end,
+            )
             if (
                 previous_label is not None
                 and previous_label in speaker_scores
@@ -762,6 +771,35 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             ):
                 best_label = previous_label
                 best_score = speaker_scores[previous_label]
+                best_vote = self._frame_label_vote(
+                    overlap_indices,
+                    chunk_list,
+                    labels,
+                    int(previous_label),
+                    frame_start,
+                    frame_end,
+                )
+            elif (
+                estimated_count <= 1
+                and previous_label is not None
+                and previous_label in speaker_scores
+            ):
+                previous_vote = self._frame_label_vote(
+                    overlap_indices,
+                    chunk_list,
+                    labels,
+                    int(previous_label),
+                    frame_start,
+                    frame_end,
+                )
+                previous_score = speaker_scores[previous_label]
+                if (
+                    int(best_label) != int(previous_label)
+                    and best_vote <= previous_vote + self.frame_single_speaker_switch_margin
+                    and best_score <= previous_score + self.frame_decode_stickiness
+                ):
+                    best_label = previous_label
+                    best_score = previous_score
             previous_label = int(best_label)
             frame_items.append((frame_start, frame_end, int(best_label)))
             cursor = frame_end
@@ -825,6 +863,34 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             chunk_start, chunk_end = chunk_list[index]
             vote += max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
         return vote
+
+    def _estimate_frame_speaker_count(
+        self,
+        overlap_indices: list[int],
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        frame_start: float,
+        frame_end: float,
+    ) -> int:
+        if not overlap_indices:
+            return 0
+        votes: dict[int, float] = {}
+        frame_duration = max(1e-6, frame_end - frame_start)
+        for index in overlap_indices:
+            chunk_start, chunk_end = chunk_list[index]
+            overlap = max(0.0, min(chunk_end, frame_end) - max(chunk_start, frame_start))
+            if overlap <= 0:
+                continue
+            label = int(labels[index])
+            votes[label] = votes.get(label, 0.0) + overlap
+        if not votes:
+            return 0
+        ordered = sorted(votes.values(), reverse=True)
+        if len(ordered) == 1:
+            return 1
+        if ordered[1] / frame_duration >= self.frame_single_speaker_vote_ratio:
+            return 2
+        return 1
 
     def _repair_frame_sequence(
         self,

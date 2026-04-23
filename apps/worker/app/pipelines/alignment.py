@@ -110,6 +110,86 @@ def build_exclusive_speaker_timeline(diarization_segments: list[Segment]) -> lis
     return [segment for segment in exclusive if segment.end_ms > segment.start_ms]
 
 
+def build_display_speaker_timeline(
+    aligned_segments: list[Segment],
+    fallback_segments: list[Segment] | None = None,
+    *,
+    max_gap_ms: int = 500,
+    min_duration_ms: int = 1000,
+) -> list[Segment]:
+    """构建面向展示的稳定 speaker 时间线。
+
+    display timeline 只服务任务页和可读导出：
+    - 优先使用已经对齐到文本的 segments，保留更真实的说话切换感知
+    - 对极短段和短间隙做保守压缩
+    - 不反向修改 regular / exclusive 原始时间轴
+    """
+    source = [
+        segment.model_copy(update={"text": ""})
+        for segment in (aligned_segments or fallback_segments or [])
+        if segment.end_ms > segment.start_ms
+    ]
+    if not source:
+        return []
+
+    ordered = sorted(source, key=lambda item: (item.start_ms, item.end_ms, item.speaker or ""))
+    merged: list[Segment] = [ordered[0]]
+    for segment in ordered[1:]:
+        previous = merged[-1]
+        gap_ms = segment.start_ms - previous.end_ms
+        if (
+            previous.speaker == segment.speaker
+            and 0 <= gap_ms <= max_gap_ms
+        ):
+            merged[-1] = previous.model_copy(
+                update={
+                    "end_ms": max(previous.end_ms, segment.end_ms),
+                    "confidence": _max_confidence(previous.confidence, segment.confidence),
+                }
+            )
+            continue
+        merged.append(segment)
+
+    collapsed: list[Segment] = [merged[0]]
+    index = 1
+    while index < len(merged):
+        current = merged[index]
+        duration_ms = current.end_ms - current.start_ms
+        previous = collapsed[-1]
+        next_segment = merged[index + 1] if index + 1 < len(merged) else None
+        if (
+            duration_ms <= min_duration_ms
+            and previous.speaker is not None
+            and next_segment is not None
+            and previous.speaker == next_segment.speaker
+        ):
+            collapsed[-1] = previous.model_copy(
+                update={
+                    "end_ms": next_segment.end_ms,
+                    "confidence": _max_confidence(previous.confidence, next_segment.confidence),
+                }
+            )
+            index += 2
+            continue
+        if (
+            duration_ms <= min_duration_ms
+            and previous.speaker == current.speaker
+            and current.start_ms - previous.end_ms <= max_gap_ms
+        ):
+            collapsed[-1] = previous.model_copy(
+                update={
+                    "end_ms": max(previous.end_ms, current.end_ms),
+                    "confidence": _max_confidence(previous.confidence, current.confidence),
+                }
+            )
+            index += 1
+            continue
+        collapsed.append(current)
+        index += 1
+
+    return [segment for segment in collapsed if segment.end_ms > segment.start_ms]
+
+
 def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> list[Segment]:
     seg_start, seg_end = seg.start_ms, seg.end_ms
     if seg_end <= seg_start:
