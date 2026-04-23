@@ -60,6 +60,9 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.tail_merge_cosine_threshold = 0.72
         self.local_reassign_cosine_threshold = 0.58
         self.local_reassign_margin = 0.02
+        self.chunk_run_reassign_max_s = 3.0
+        self.chunk_run_bridge_margin = -0.02
+        self.chunk_run_reassign_margin = 0.025
         self.frame_decode_step_s = 0.25
         self.frame_decode_stickiness = 0.035
         self.frame_label_vote_boost = 0.22
@@ -275,7 +278,11 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         except Exception:
             return None
 
-    def _cluster_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
+    def _cluster_embeddings(
+        self,
+        embeddings: np.ndarray,
+        chunk_list: list[tuple[float, float]] | None = None,
+    ) -> np.ndarray:
         """使用接近 3D-Speaker CommonClustering 的聚类路径。"""
         if embeddings.size == 0:
             return np.array([], dtype=int)
@@ -289,6 +296,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         labels = self._merge_minor_clusters(labels.astype(int), embeddings, min_cluster_size=self.min_cluster_size)
         if self.merge_cosine_threshold is not None:
             labels = self._merge_similar_speakers(labels, embeddings, cosine_threshold=self.merge_cosine_threshold)
+        if chunk_list:
+            labels = self._reassign_chunk_label_runs(chunk_list, labels, embeddings)
         return self._arrange_labels(labels)
 
     def _cluster_embeddings_ahc(self, embeddings: np.ndarray) -> np.ndarray:
@@ -559,6 +568,76 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 if candidate_score + margin < current_score:
                     continue
                 updated[start_index:end_index + 1] = candidate_label
+                changed = True
+            refined = self._arrange_labels(updated)
+            if not changed:
+                break
+        return refined.astype(int)
+
+    def _reassign_chunk_label_runs(
+        self,
+        chunk_list: list[tuple[float, float]],
+        labels: np.ndarray,
+        embeddings: np.ndarray,
+    ) -> np.ndarray:
+        if labels.size < 3 or embeddings.size == 0:
+            return labels.astype(int)
+        if self.num_speakers is not None:
+            return labels.astype(int)
+
+        refined = labels.copy().astype(int)
+        for _ in range(2):
+            centers = self._speaker_centers(refined, embeddings)
+            speaker_durations = self._speaker_durations(chunk_list, refined)
+            updated = refined.copy()
+            changed = False
+            for start_index, end_index in self._contiguous_label_runs(refined):
+                left_label = int(refined[start_index - 1]) if start_index > 0 else None
+                right_label = int(refined[end_index + 1]) if end_index + 1 < refined.shape[0] else None
+                if left_label is None or right_label is None:
+                    continue
+
+                current_label = int(refined[start_index])
+                run_duration = sum(
+                    max(0.0, chunk_list[index][1] - chunk_list[index][0])
+                    for index in range(start_index, end_index + 1)
+                )
+                if run_duration > self.chunk_run_reassign_max_s:
+                    continue
+
+                current_total = float(speaker_durations.get(current_label, 0.0))
+                is_bridge = left_label == right_label and left_label != current_label
+                if not is_bridge and current_total > max(5.0, run_duration * 2.5):
+                    continue
+
+                run_embedding = np.asarray(embeddings[start_index:end_index + 1].mean(axis=0), dtype=np.float32)
+                current_center = centers.get(current_label)
+                if current_center is None:
+                    continue
+                current_score = self._cosine_between(run_embedding, current_center)
+                effective_current_score = current_score
+                if is_bridge and current_total <= max(3.5, run_duration * 1.5):
+                    effective_current_score = min(effective_current_score, 0.0)
+                candidate_labels = []
+                for candidate in (left_label, right_label):
+                    if candidate != current_label and candidate not in candidate_labels:
+                        candidate_labels.append(candidate)
+                best_candidate: int | None = None
+                best_score = effective_current_score
+                margin = self.chunk_run_bridge_margin if is_bridge else self.chunk_run_reassign_margin
+                for candidate_label in candidate_labels:
+                    candidate_center = centers.get(int(candidate_label))
+                    if candidate_center is None:
+                        continue
+                    candidate_score = self._cosine_between(run_embedding, candidate_center)
+                    if candidate_score + margin < effective_current_score:
+                        continue
+                    if best_candidate is None or candidate_score > best_score:
+                        best_candidate = int(candidate_label)
+                        best_score = candidate_score
+                if best_candidate is None:
+                    continue
+                updated[start_index:end_index + 1] = best_candidate
                 changed = True
             refined = self._arrange_labels(updated)
             if not changed:
@@ -1259,7 +1338,7 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             if len(embeddings) == 0:
                 raise RuntimeError("3D-Speaker 未产出有效说话人嵌入。")
 
-            labels = self._cluster_embeddings(embeddings)
+            labels = self._cluster_embeddings(embeddings, chunk_list)
             if len(labels) == 0:
                 raise RuntimeError("3D-Speaker 未产出有效说话人标签。")
             labels = self._reassign_local_label_noise(chunk_list, labels, embeddings)

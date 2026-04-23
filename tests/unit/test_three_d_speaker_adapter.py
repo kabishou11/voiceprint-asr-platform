@@ -351,3 +351,47 @@ def test_reassign_frame_runs_keeps_long_non_bridge_run():
     reassigned = adapter._reassign_frame_runs(frame_items, chunk_list, embeddings, centers)
 
     assert [speaker for _, _, speaker in reassigned] == [0, 1, 1, 1, 0]
+
+
+def test_reassign_chunk_label_runs_absorbs_short_bridge_cluster_run():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.99, 0.01],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    refined = adapter._reassign_chunk_label_runs(chunk_list, labels, embeddings)
+
+    assert np.all(refined == 0)
+
+
+def test_reassign_chunk_label_runs_keeps_stable_middle_speaker_when_embedding_matches():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    chunk_list = [
+        (0.0, 1.5),
+        (0.75, 2.25),
+        (1.5, 3.0),
+    ]
+    labels = np.array([0, 1, 0], dtype=int)
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    refined = adapter._reassign_chunk_label_runs(chunk_list, labels, embeddings)
+
+    assert np.array_equal(refined, labels)
