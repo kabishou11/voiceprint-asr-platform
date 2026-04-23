@@ -150,6 +150,19 @@ def test_normalize_transcript_text_preserves_common_valid_reduplication_words() 
     assert "天天都会发生" in normalized
 
 
+def test_normalize_transcript_text_dedupes_repeated_prefix_clause() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    normalized = adapter._normalize_transcript_text(
+        "通过它的通过他的平台里面的抽取 按照同样按照数据原数据的这种逻辑来去"
+    )
+
+    assert "通过它的通过他" not in normalized
+    assert "按照同样按照" not in normalized
+    assert "平台里面的抽取" in normalized
+    assert "逻辑来去" in normalized
+
+
 def test_funasr_adapter_defaults_vad_model_to_local_models_directory() -> None:
     adapter = FunASRTranscribeAdapter(vad_enabled=True)
 

@@ -720,6 +720,7 @@ class FunASRTranscribeAdapter(ASRAdapter):
         cleaned = re.sub(r"([，。！？；,.!?;])\1+", r"\1", cleaned)
         cleaned = self._collapse_cjk_stutter_runs(cleaned)
         cleaned = self._dedupe_adjacent_phrase(cleaned)
+        cleaned = self._dedupe_repeated_prefix_clause(cleaned)
         cleaned = self._dedupe_repeated_tokens(cleaned)
         return cleaned.strip()
 
@@ -854,6 +855,27 @@ class FunASRTranscribeAdapter(ASRAdapter):
             if normalized:
                 previous_normalized = normalized
         return "".join(result)
+
+    def _dedupe_repeated_prefix_clause(self, text: str) -> str:
+        cleaned = text
+        patterns = [
+            re.compile(r"([\u4e00-\u9fff]{2,3})[\u4e00-\u9fff]{0,2}\1(?=[\u4e00-\u9fff])"),
+            re.compile(r"([\u4e00-\u9fff]{2,4})(?:\s*[，。！？；,.!?;]?\s*)\1(?=[\u4e00-\u9fff])"),
+        ]
+        for pattern in patterns:
+            while True:
+                updated = pattern.sub(r"\1", cleaned)
+                if updated == cleaned:
+                    break
+                cleaned = updated
+        for pattern, replacement in (
+            (re.compile(r"通过[^，。！？；]{0,2}通过"), "通过"),
+            (re.compile(r"按照[^，。！？；]{0,2}按照"), "按照"),
+        ):
+            updated = pattern.sub(replacement, cleaned)
+            if updated != cleaned:
+                cleaned = updated
+        return cleaned
 
     def _collapse_cjk_stutter_runs(self, text: str) -> str:
         cleaned = text
