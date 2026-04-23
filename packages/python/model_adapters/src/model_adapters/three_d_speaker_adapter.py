@@ -66,6 +66,9 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         self.frame_vote_margin = 0.03
         self.frame_single_speaker_vote_ratio = 0.45
         self.frame_single_speaker_switch_margin = 0.08
+        self.frame_run_reassign_max_s = 1.25
+        self.frame_run_bridge_margin = -0.05
+        self.frame_run_reassign_margin = 0.03
 
     @property
     def availability(self) -> str:
@@ -803,7 +806,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             previous_label = int(best_label)
             frame_items.append((frame_start, frame_end, int(best_label)))
             cursor = frame_end
-        return self._repair_frame_sequence(frame_items, step_s)
+        repaired = self._repair_frame_sequence(frame_items, step_s)
+        return self._reassign_frame_runs(repaired, chunk_list, embeddings, centers)
 
     def _chunk_indices_for_window(
         self,
@@ -925,6 +929,84 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             for index, (frame_start, frame_end, _) in enumerate(frame_items)
         ]
         return repaired
+
+    def _reassign_frame_runs(
+        self,
+        frame_items: list[tuple[float, float, int]],
+        chunk_list: list[tuple[float, float]],
+        embeddings: np.ndarray,
+        centers: dict[int, np.ndarray],
+    ) -> list[tuple[float, float, int]]:
+        if len(frame_items) < 3 or embeddings.size == 0:
+            return frame_items
+
+        labels = [int(item[2]) for item in frame_items]
+        updated = labels[:]
+        changed = False
+        for run_start, run_end in self._frame_runs(labels):
+            current_label = labels[run_start]
+            left_label = labels[run_start - 1] if run_start > 0 else None
+            right_label = labels[run_end + 1] if run_end + 1 < len(labels) else None
+            if left_label is None or right_label is None:
+                continue
+            candidate_labels = [
+                label
+                for label in (left_label, right_label)
+                if label is not None and label != current_label
+            ]
+            if not candidate_labels:
+                continue
+
+            run_start_s = frame_items[run_start][0]
+            run_end_s = frame_items[run_end][1]
+            run_duration_s = max(0.0, run_end_s - run_start_s)
+            if run_duration_s > self.frame_run_reassign_max_s:
+                continue
+
+            overlap_indices = self._chunk_indices_for_window(chunk_list, run_start_s, run_end_s)
+            if not overlap_indices:
+                continue
+
+            run_embedding = np.asarray(embeddings[overlap_indices].mean(axis=0), dtype=np.float32)
+            current_center = centers.get(int(current_label))
+            if current_center is None:
+                continue
+            current_score = self._cosine_between(run_embedding, current_center)
+            is_bridge = (
+                left_label is not None
+                and right_label is not None
+                and left_label == right_label
+                and left_label != current_label
+            )
+            margin = self.frame_run_bridge_margin if is_bridge else self.frame_run_reassign_margin
+
+            best_candidate: int | None = None
+            best_score = current_score
+            for candidate_label in candidate_labels:
+                candidate_center = centers.get(int(candidate_label))
+                if candidate_center is None:
+                    continue
+                candidate_score = self._cosine_between(run_embedding, candidate_center)
+                if candidate_score + margin < current_score:
+                    continue
+                if best_candidate is None or candidate_score > best_score:
+                    best_candidate = int(candidate_label)
+                    best_score = candidate_score
+
+            if best_candidate is None:
+                continue
+
+            for index in range(run_start, run_end + 1):
+                updated[index] = best_candidate
+            changed = True
+
+        if not changed:
+            return frame_items
+
+        return [
+            (frame_start, frame_end, updated[index])
+            for index, (frame_start, frame_end, _) in enumerate(frame_items)
+        ]
 
     def _frame_runs(self, labels: list[int]) -> list[tuple[int, int]]:
         if not labels:

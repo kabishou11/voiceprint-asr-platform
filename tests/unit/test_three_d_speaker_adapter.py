@@ -285,3 +285,69 @@ def test_estimate_frame_speaker_count_keeps_single_speaker_when_secondary_vote_i
     )
 
     assert count == 1
+
+
+def test_reassign_frame_runs_absorbs_short_bridge_with_matching_neighbors():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    frame_items = [
+        (0.0, 0.25, 0),
+        (0.25, 0.5, 0),
+        (0.5, 0.75, 1),
+        (0.75, 1.0, 1),
+        (1.0, 1.25, 0),
+        (1.25, 1.5, 0),
+    ]
+    chunk_list = [
+        (0.0, 0.75),
+        (0.5, 1.25),
+        (0.75, 1.5),
+    ]
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.995, 0.005],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    centers = {
+        0: np.array([1.0, 0.0], dtype=np.float32),
+        1: np.array([0.0, 1.0], dtype=np.float32),
+    }
+
+    reassigned = adapter._reassign_frame_runs(frame_items, chunk_list, embeddings, centers)
+
+    assert all(speaker == 0 for _, _, speaker in reassigned)
+
+
+def test_reassign_frame_runs_keeps_long_non_bridge_run():
+    adapter = ThreeDSpeakerDiarizationAdapter()
+    adapter.frame_run_reassign_max_s = 1.0
+    frame_items = [
+        (0.0, 0.5, 0),
+        (0.5, 1.0, 1),
+        (1.0, 1.5, 1),
+        (1.5, 2.0, 1),
+        (2.0, 2.5, 0),
+    ]
+    chunk_list = [
+        (0.0, 1.0),
+        (0.5, 2.0),
+        (1.5, 2.5),
+    ]
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.1, 0.99],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    centers = {
+        0: np.array([1.0, 0.0], dtype=np.float32),
+        1: np.array([0.0, 1.0], dtype=np.float32),
+    }
+
+    reassigned = adapter._reassign_frame_runs(frame_items, chunk_list, embeddings, centers)
+
+    assert [speaker for _, _, speaker in reassigned] == [0, 1, 1, 1, 0]
