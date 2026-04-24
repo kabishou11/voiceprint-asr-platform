@@ -147,7 +147,7 @@ class JobService:
             db.commit()
 
         # 检查是否启用异步模式
-        async_available = is_async_available()
+        async_available = is_async_available(refresh=True)
 
         if async_available:
             # 异步模式：推送到 Celery 队列

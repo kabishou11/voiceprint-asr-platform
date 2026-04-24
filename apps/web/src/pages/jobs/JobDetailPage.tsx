@@ -7,6 +7,7 @@ import {
   Chip,
   Divider,
   Grid,
+  LinearProgress,
   Stack,
   Typography,
 } from '@mui/material';
@@ -22,6 +23,7 @@ import { BalancedPretextText, MeasuredPretextBlock } from '../../components/Pret
 import { StatusChip } from '../../components/StatusChip';
 
 const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
+const POLL_INTERVAL_MS = 3000;
 
 type SpeakerMappingStore = Record<string, Record<string, string>>;
 type ExportSpeakerGroup = {
@@ -106,10 +108,37 @@ export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const { data, loading, error, reload } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
+  const { data, loading, error, reload, setData } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
+  const isProcessing =
+    data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
+  const isFailed = data?.job?.status === 'failed';
+
+  useEffect(() => {
+    if (!jobId || !isProcessing) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setInterval(() => {
+      void fetchTranscript(jobId)
+        .then((result) => {
+          if (active) {
+            setData(result);
+          }
+        })
+        .catch(() => {
+          // 保持当前页面状态，用户仍可手动刷新查看具体错误。
+        });
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isProcessing, jobId, setData]);
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -295,6 +324,41 @@ export function JobDetailPage() {
             </Alert>
           ) : null}
 
+          {isProcessing ? (
+            <Card>
+              <CardContent>
+                <Stack spacing={2}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    spacing={1.5}
+                  >
+                    <Stack spacing={0.4}>
+                      <Typography variant="h6">{data.job.asset_name ?? data.job.job_id}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {jobTypeLabels[data.job.job_type]} · 自动刷新 {POLL_INTERVAL_MS / 1000}s
+                      </Typography>
+                    </Stack>
+                    <StatusChip status={data.job.status} />
+                  </Stack>
+                  <LinearProgress />
+                  <Typography variant="body2" color="text.secondary">
+                    任务正在后端执行，完成后会自动展示全文、时间戳、Speaker 时间线和分段结果。
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isFailed ? (
+            <Alert severity="error">
+              {data.job.error_message || '任务执行失败，请检查模型、GPU、音频格式或重新发起任务。'}
+            </Alert>
+          ) : null}
+
+          {!isProcessing ? (
+          <>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, xl: 8 }}>
               <Card>
@@ -687,6 +751,8 @@ export function JobDetailPage() {
               </Card>
             </Grid>
           </Grid>
+          </>
+          ) : null}
         </Stack>
       ) : (
         <Alert severity="info">请输入有效任务 ID。</Alert>

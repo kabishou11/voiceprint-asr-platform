@@ -28,6 +28,7 @@ import { BrandLogo } from './BrandLogo';
 const expandedDrawerWidth = 248;
 const collapsedDrawerWidth = 92;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'voiceprint-sidebar-collapsed';
+const STATUS_POLL_INTERVAL_MS = 5000;
 
 const navItems = [
   { label: '工作台', to: '/', icon: <HomeRounded fontSize="small" /> },
@@ -77,6 +78,13 @@ export function AppLayout() {
     }
     window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
   }, [collapsed]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      jobsState.reload();
+    }, STATUS_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [jobsState.reload]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', color: 'text.primary' }}>
