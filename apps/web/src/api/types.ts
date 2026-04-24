@@ -124,8 +124,16 @@ export interface MeetingMinutesResponse {
   title: string;
   summary: string;
   key_points: string[];
+  topics: string[];
+  decisions: string[];
   action_items: string[];
+  risks: string[];
+  keywords: string[];
   speaker_stats: SpeakerMinuteStats[];
+  markdown: string;
+  mode?: 'local' | 'llm';
+  model?: string | null;
+  reasoning?: string | null;
 }
 
 export interface ModelInfo {
@@ -185,6 +193,9 @@ export interface HealthResponse {
   broker_available: boolean;
   worker_available: boolean;
   async_available: boolean;
+  execution_mode?: 'async' | 'sync';
+  broker_error?: string | null;
+  worker_error?: string | null;
 }
 
 export interface UploadAssetResponse {

@@ -24,6 +24,7 @@ def test_health_endpoint_returns_ok() -> None:
     assert 'broker_available' in response.json()
     assert 'worker_available' in response.json()
     assert 'async_available' in response.json()
+    assert response.json()['execution_mode'] in {'async', 'sync'}
 
 
 def test_models_endpoint_marks_empty_local_model_directories_unavailable() -> None:
@@ -108,7 +109,12 @@ def test_meeting_minutes_endpoint_generates_from_finished_job() -> None:
     assert payload['job_id'] == succeeded['job_id']
     assert payload['summary']
     assert isinstance(payload['key_points'], list)
+    assert isinstance(payload['topics'], list)
+    assert isinstance(payload['decisions'], list)
+    assert isinstance(payload['risks'], list)
+    assert isinstance(payload['keywords'], list)
     assert isinstance(payload['speaker_stats'], list)
+    assert payload['markdown'].startswith('#')
 
 
 def test_jobs_endpoint_supports_delete() -> None:

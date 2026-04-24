@@ -15,11 +15,10 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchMeetingMinutes, fetchTranscript } from '../../api/client';
+import { fetchTranscript } from '../../api/client';
 import {
   formatDateTime,
   jobTypeLabels,
-  type MeetingMinutesResponse,
   type Segment,
   type TranscriptResult,
 } from '../../api/types';
@@ -38,6 +37,7 @@ type ExportSpeakerGroup = {
   durationMs: number;
   segments: Segment[];
 } | null;
+type SegmentWithDisplay = Segment & { speakerKey: string; displaySpeaker: string };
 
 export function buildJobExportDocument(params: {
   job: unknown;
@@ -110,6 +110,10 @@ function InfoMetric({
   );
 }
 
+function getSegmentSpeakerKey(segment: Segment, index: number) {
+  return segment.speaker?.trim() || `__unlabeled_${index}`;
+}
+
 export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
@@ -118,12 +122,9 @@ export function JobDetailPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
-  const [minutes, setMinutes] = useState<MeetingMinutesResponse | null>(null);
-  const [minutesError, setMinutesError] = useState<string | null>(null);
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
-  const isSucceeded = data?.job?.status === 'succeeded';
 
   useEffect(() => {
     if (!jobId || !isProcessing) {
@@ -150,33 +151,6 @@ export function JobDetailPage() {
   }, [isProcessing, jobId, setData]);
 
   useEffect(() => {
-    if (!jobId || !isSucceeded) {
-      setMinutes(null);
-      setMinutesError(null);
-      return;
-    }
-
-    let active = true;
-    void fetchMeetingMinutes(jobId)
-      .then((result) => {
-        if (active) {
-          setMinutes(result);
-          setMinutesError(null);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (active) {
-          setMinutes(null);
-          setMinutesError(reason instanceof Error ? reason.message : '会议纪要生成失败');
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isSucceeded, jobId]);
-
-  useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
       setSpeakerAliases({});
       return;
@@ -195,6 +169,22 @@ export function JobDetailPage() {
   }, [jobId, searchParams]);
 
   const segments = data?.transcript?.segments ?? [];
+  const displaySegments = useMemo<SegmentWithDisplay[]>(() => {
+    const speakerNames = new Map<string, string>();
+    let nextSpeakerIndex = 1;
+    return segments.map((segment, index) => {
+      const speakerKey = getSegmentSpeakerKey(segment, index);
+      if (!speakerNames.has(speakerKey)) {
+        speakerNames.set(speakerKey, `Speaker ${nextSpeakerIndex}`);
+        nextSpeakerIndex += 1;
+      }
+      return {
+        ...segment,
+        speakerKey,
+        displaySpeaker: speakerAliases[speakerKey] || speakerAliases[segment.speaker ?? ''] || speakerNames.get(speakerKey)!,
+      };
+    });
+  }, [segments, speakerAliases]);
   const transcriptMetadata = data?.transcript?.metadata ?? null;
   const displayTimeline =
     transcriptMetadata?.timelines.find((timeline) => timeline.source === 'display') ?? null;
@@ -206,12 +196,11 @@ export function JobDetailPage() {
   const speakerGroups = useMemo(() => {
     const groups = new Map<
       string,
-      { speaker: string; segments: typeof segments; durationMs: number; confidenceValues: number[] }
+      { speaker: string; segments: SegmentWithDisplay[]; durationMs: number; confidenceValues: number[] }
     >();
-    segments.forEach((segment) => {
-      const speaker = segment.speaker ?? '未标注说话人';
-      const group = groups.get(speaker) ?? {
-        speaker,
+    displaySegments.forEach((segment) => {
+      const group = groups.get(segment.speakerKey) ?? {
+        speaker: segment.speakerKey,
         segments: [],
         durationMs: 0,
         confidenceValues: [],
@@ -221,7 +210,7 @@ export function JobDetailPage() {
       if (typeof segment.confidence === 'number') {
         group.confidenceValues.push(segment.confidence);
       }
-      groups.set(speaker, group);
+      groups.set(segment.speakerKey, group);
     });
     return Array.from(groups.values())
       .map((group) => ({
@@ -230,17 +219,18 @@ export function JobDetailPage() {
           ? group.confidenceValues.reduce((sum, item) => sum + item, 0) /
             group.confidenceValues.length
           : null,
-        displaySpeaker: speakerAliases[group.speaker] || group.speaker,
+        displaySpeaker: group.segments[0]?.displaySpeaker ?? group.speaker,
+        rawSpeaker: group.segments[0]?.speaker ?? null,
       }))
       .sort((left, right) => right.durationMs - left.durationMs);
-  }, [segments, speakerAliases]);
+  }, [displaySegments]);
 
   const filteredSegments = useMemo(
     () =>
       selectedSpeaker === 'ALL'
-        ? segments
-        : segments.filter((segment) => (segment.speaker ?? '未标注说话人') === selectedSpeaker),
-    [segments, selectedSpeaker],
+        ? displaySegments
+        : displaySegments.filter((segment) => segment.speakerKey === selectedSpeaker),
+    [displaySegments, selectedSpeaker],
   );
   const selectedSpeakerGroup = useMemo(
     () => speakerGroups.find((group) => group.speaker === selectedSpeaker) ?? null,
@@ -249,12 +239,10 @@ export function JobDetailPage() {
   const timelineSegments = useMemo(() => {
     const source =
       selectedSpeaker === 'ALL'
-        ? displayTimeline?.segments ?? filteredSegments
-        : (displayTimeline?.segments ?? filteredSegments).filter(
-            (segment) => (segment.speaker ?? '未标注说话人') === selectedSpeaker,
-          );
+        ? filteredSegments
+        : filteredSegments.filter((segment) => segment.speakerKey === selectedSpeaker);
     return source.filter((segment) => segment.end_ms > segment.start_ms);
-  }, [displayTimeline?.segments, filteredSegments, selectedSpeaker]);
+  }, [filteredSegments, selectedSpeaker]);
   const timelineStartMs = timelineSegments.length ? timelineSegments[0].start_ms : 0;
   const timelineEndMs = timelineSegments.length
     ? timelineSegments[timelineSegments.length - 1].end_ms
@@ -285,7 +273,7 @@ export function JobDetailPage() {
     ];
     const body = speakerGroups.flatMap((group) =>
       group.segments.map((segment) => {
-        const speaker = speakerAliases[segment.speaker ?? ''] || segment.speaker || '未标注说话人';
+        const speaker = segment.displaySpeaker;
         return `[${segment.start_ms}-${segment.end_ms}] ${speaker}: ${segment.text || '（该片段暂无文本）'}`;
       }),
     );
@@ -346,6 +334,9 @@ export function JobDetailPage() {
           <Button variant="outlined" onClick={handleExport} disabled={!data?.job}>
             {selectedSpeakerGroup ? '导出当前 Speaker JSON' : '导出 JSON'}
           </Button>
+          <Button variant="outlined" onClick={() => navigate(`/minutes/${jobId}`)} disabled={!data?.job}>
+            会议纪要
+          </Button>
           <Button variant="contained" onClick={handleRetry} disabled={!data?.job}>
             快速重跑
           </Button>
@@ -395,67 +386,6 @@ export function JobDetailPage() {
 
           {!isProcessing ? (
           <>
-          {minutes ? (
-            <Card>
-              <CardContent>
-                <Grid container spacing={2.5}>
-                  <Grid size={{ xs: 12, lg: 5 }}>
-                    <Stack spacing={1.4}>
-                      <Typography variant="h6">会议纪要</Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          lineHeight: 1.9,
-                          textWrap: 'pretty',
-                          color: 'text.primary',
-                        }}
-                      >
-                        {minutes.summary}
-                      </Typography>
-                    </Stack>
-                  </Grid>
-                  <Grid size={{ xs: 12, lg: 4 }}>
-                    <Stack spacing={1.1}>
-                      <Typography variant="subtitle1">要点</Typography>
-                      {minutes.key_points.length ? (
-                        minutes.key_points.slice(0, 5).map((point, index) => (
-                          <Typography key={`${point}-${index}`} variant="body2" color="text.secondary">
-                            {index + 1}. {point}
-                          </Typography>
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          暂无可提取要点。
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Grid>
-                  <Grid size={{ xs: 12, lg: 3 }}>
-                    <Stack spacing={1.1}>
-                      <Typography variant="subtitle1">行动项</Typography>
-                      {minutes.action_items.length ? (
-                        minutes.action_items.slice(0, 5).map((item, index) => (
-                          <Chip
-                            key={`${item}-${index}`}
-                            label={item}
-                            variant="outlined"
-                            sx={{ justifyContent: 'flex-start', height: 'auto', py: 0.7, '& .MuiChip-label': { whiteSpace: 'normal' } }}
-                          />
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          未检测到明确行动项。
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          ) : minutesError ? (
-            <Alert severity="warning">{minutesError}</Alert>
-          ) : null}
-
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, xl: 8 }}>
               <Card>
@@ -594,9 +524,9 @@ export function JobDetailPage() {
                                 <Typography fontWeight={700}>{group.displaySpeaker}</Typography>
                                 <Chip size="small" label={`${group.segments.length} 段`} />
                               </Stack>
-                              {group.displaySpeaker !== group.speaker ? (
+                              {group.rawSpeaker && group.displaySpeaker !== group.rawSpeaker ? (
                                 <Typography variant="body2" color="text.secondary">
-                                  原标签 {group.speaker}
+                                  原标签 {group.rawSpeaker}
                                 </Typography>
                               ) : null}
                               <Typography variant="body2" color="text.secondary">
@@ -637,7 +567,7 @@ export function JobDetailPage() {
                                     navigate(
                                       `/voiceprints?probe=${encodeURIComponent(
                                         data.job.asset_name ?? '',
-                                      )}&speaker=${encodeURIComponent(group.speaker)}&jobId=${encodeURIComponent(jobId)}`,
+                                      )}&speaker=${encodeURIComponent(group.rawSpeaker || group.speaker)}&jobId=${encodeURIComponent(jobId)}`,
                                     )
                                   }
                                 >
@@ -728,9 +658,7 @@ export function JobDetailPage() {
                               ((segment.end_ms - segment.start_ms) / timelineDurationMs) * 100,
                               3,
                             );
-                            const isFocused =
-                              selectedSpeaker !== 'ALL' &&
-                              (segment.speaker ?? '未标注说话人') === selectedSpeaker;
+                            const isFocused = selectedSpeaker !== 'ALL' && segment.speakerKey === selectedSpeaker;
                             return (
                               <Box
                                 key={`${segment.start_ms}-${segment.end_ms}-${index}`}
@@ -750,10 +678,9 @@ export function JobDetailPage() {
                         </Box>
                         <Stack spacing={0.9}>
                           {timelineSegments.map((segment, index) => {
-                            const speakerKey = segment.speaker ?? '未标注说话人';
                             return (
                               <Box
-                                key={`${speakerKey}-${segment.start_ms}-${index}`}
+                                key={`${segment.speakerKey}-${segment.start_ms}-${index}`}
                                 sx={{
                                   p: 1.15,
                                   borderRadius: 3.5,
@@ -765,7 +692,7 @@ export function JobDetailPage() {
                               >
                                 <Stack direction="row" justifyContent="space-between" spacing={2}>
                                   <Typography variant="body2" fontWeight={600}>
-                                    {speakerAliases[segment.speaker ?? ''] || speakerKey}
+                                    {segment.displaySpeaker}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary">
                                     {segment.start_ms}ms - {segment.end_ms}ms
@@ -800,7 +727,7 @@ export function JobDetailPage() {
                               bgcolor: alpha('#ffffff', 0.72),
                               border: '1px solid',
                               borderColor:
-                                selectedSpeaker !== 'ALL' && segment.speaker === selectedSpeaker
+                                selectedSpeaker !== 'ALL' && segment.speakerKey === selectedSpeaker
                                   ? alpha('#2f6fed', 0.18)
                                   : alpha('#1c2431', 0.06),
                             }}
@@ -819,9 +746,7 @@ export function JobDetailPage() {
                                     />
                                   ) : null}
                                   <Typography variant="body2" fontWeight={700}>
-                                    {speakerAliases[segment.speaker ?? ''] ||
-                                      segment.speaker ||
-                                      '未标注说话人'}
+                                    {segment.displaySpeaker}
                                   </Typography>
                                 </Stack>
                               </Stack>

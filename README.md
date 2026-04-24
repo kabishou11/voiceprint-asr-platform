@@ -118,9 +118,25 @@ Copy-Item .env.example .env
 
 - `ENABLE_PYANNOTE=false`
 - `ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING=false`
+- `MINUTES_LLM_MODEL=MiniMax-M2.7`
 
 因为 `pyannote` 官方离线包需要 Hugging Face gated 权限，未补齐完整权重前不要打开。
 `3D-Speaker` 的自适应聚类当前仍属于实验能力，只有在你明确做实验对比时才建议打开；当前默认主链路仍以已验证更稳的基线参数为主。
+
+会议纪要是独立功能页，不会混入原文转写页。它支持两种模式：
+
+- 本地规则纪要：无需外部 key，用于兜底预览。
+- AI 会议纪要：走 OpenAI-compatible Chat Completions 接口，默认模型 `MiniMax-M2.7`。
+
+如需启用 AI 会议纪要，在 `.env` 中配置：
+
+```env
+MINUTES_LLM_API_KEY=你的_key
+MINUTES_LLM_BASE_URL=https://api.minimax.chat/v1
+MINUTES_LLM_MODEL=MiniMax-M2.7
+MINUTES_LLM_REASONING_SPLIT=true
+MINUTES_LLM_TIMEOUT_SECONDS=90
+```
 
 ### 7. 准备本地模型目录
 

@@ -11,7 +11,13 @@ from ..schemas import (
 )
 from ...core.config import get_settings
 from ...services.model_registry import ModelRegistryService
-from apps.worker.app.celery_app import broker_available, is_async_available, worker_available
+from apps.worker.app.celery_app import (
+    broker_available,
+    broker_error,
+    is_async_available,
+    worker_available,
+    worker_error,
+)
 
 router = APIRouter(tags=["system"])
 registry = ModelRegistryService()
@@ -20,12 +26,18 @@ registry = ModelRegistryService()
 @router.get("/health")
 def health():
     settings = get_settings()
+    broker_ready = broker_available(refresh=True)
+    worker_ready = worker_available(refresh=True)
+    async_ready = broker_ready and worker_ready and is_async_available(refresh=True)
     return HealthResponse(
         status="ok",
         app_name=settings.app_name,
-        broker_available=broker_available(refresh=True),
-        worker_available=worker_available(refresh=True),
-        async_available=is_async_available(refresh=True),
+        broker_available=broker_ready,
+        worker_available=worker_ready,
+        async_available=async_ready,
+        execution_mode="async" if async_ready else "sync",
+        broker_error=broker_error(),
+        worker_error=worker_error(),
     )
 
 
