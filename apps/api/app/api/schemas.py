@@ -58,6 +58,21 @@ class TranscriptResponse(BaseModel):
     transcript: TranscriptResult | None = None
 
 
+class SpeakerMinuteStatsResponse(BaseModel):
+    speaker: str
+    segment_count: int
+    duration_ms: int
+
+
+class MeetingMinutesResponse(BaseModel):
+    job_id: str
+    title: str
+    summary: str
+    key_points: list[str]
+    action_items: list[str]
+    speaker_stats: list[SpeakerMinuteStatsResponse]
+
+
 class UploadAssetResponse(BaseModel):
     asset_name: str
     original_filename: str
@@ -125,6 +140,7 @@ class ModelInfoWithStatus(BaseModel):
     display_name: str
     task: str
     provider: str
+    availability: ModelAvailability
     status: ModelStatus
     gpu_memory_mb: int | None = None
     load_progress: float | None = None

@@ -7,9 +7,11 @@ import { buildJobExportDocument, JobDetailPage } from './JobDetailPage';
 import { appTheme } from '../../theme/appTheme';
 
 const fetchTranscript = vi.fn();
+const fetchMeetingMinutes = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchTranscript: (...args: unknown[]) => fetchTranscript(...args),
+  fetchMeetingMinutes: (...args: unknown[]) => fetchMeetingMinutes(...args),
 }));
 
 function LocationProbe() {
@@ -65,6 +67,14 @@ describe('JobDetailPage', () => {
         ],
       },
     });
+    fetchMeetingMinutes.mockResolvedValue({
+      job_id: 'job-1',
+      title: 'meeting.wav',
+      summary: 'SPEAKER_00: 我们开始开会。',
+      key_points: ['SPEAKER_00: 我们开始开会。'],
+      action_items: ['SPEAKER_00: 我们开始开会。'],
+      speaker_stats: [{ speaker: 'SPEAKER_00', segment_count: 1, duration_ms: 6000 }],
+    });
   });
 
   afterEach(() => {
@@ -79,6 +89,7 @@ describe('JobDetailPage', () => {
     });
 
     expect(screen.getByText('Speaker 2')).toBeInTheDocument();
+    expect(await screen.findByText('会议纪要')).toBeInTheDocument();
     const buttons = await screen.findAllByRole('button', { name: '对这个 Speaker 做声纹处理' });
     fireEvent.click(buttons[0]);
 

@@ -6,6 +6,7 @@ import type {
   EnrollVoiceprintResponse,
   IdentifyVoiceprintResponse,
   JobListResponse,
+  MeetingMinutesResponse,
   ModelListWithGPUResponse,
   ModelLoadResponse,
   ModelUnloadResponse,
@@ -57,6 +58,10 @@ export function fetchHealth(): Promise<HealthResponse> {
 
 export function fetchTranscript(jobId: string): Promise<TranscriptResponse> {
   return request<TranscriptResponse>(`/transcriptions/${jobId}`);
+}
+
+export function fetchMeetingMinutes(jobId: string): Promise<MeetingMinutesResponse> {
+  return request<MeetingMinutesResponse>(`/transcriptions/${jobId}/minutes`);
 }
 
 export function uploadAudio(file: File): Promise<UploadAssetResponse> {

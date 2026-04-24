@@ -15,8 +15,14 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchTranscript } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type Segment, type TranscriptResult } from '../../api/types';
+import { fetchMeetingMinutes, fetchTranscript } from '../../api/client';
+import {
+  formatDateTime,
+  jobTypeLabels,
+  type MeetingMinutesResponse,
+  type Segment,
+  type TranscriptResult,
+} from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
@@ -112,9 +118,12 @@ export function JobDetailPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
+  const [minutes, setMinutes] = useState<MeetingMinutesResponse | null>(null);
+  const [minutesError, setMinutesError] = useState<string | null>(null);
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
+  const isSucceeded = data?.job?.status === 'succeeded';
 
   useEffect(() => {
     if (!jobId || !isProcessing) {
@@ -139,6 +148,33 @@ export function JobDetailPage() {
       window.clearInterval(timer);
     };
   }, [isProcessing, jobId, setData]);
+
+  useEffect(() => {
+    if (!jobId || !isSucceeded) {
+      setMinutes(null);
+      setMinutesError(null);
+      return;
+    }
+
+    let active = true;
+    void fetchMeetingMinutes(jobId)
+      .then((result) => {
+        if (active) {
+          setMinutes(result);
+          setMinutesError(null);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setMinutes(null);
+          setMinutesError(reason instanceof Error ? reason.message : '会议纪要生成失败');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isSucceeded, jobId]);
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -359,6 +395,67 @@ export function JobDetailPage() {
 
           {!isProcessing ? (
           <>
+          {minutes ? (
+            <Card>
+              <CardContent>
+                <Grid container spacing={2.5}>
+                  <Grid size={{ xs: 12, lg: 5 }}>
+                    <Stack spacing={1.4}>
+                      <Typography variant="h6">会议纪要</Typography>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          lineHeight: 1.9,
+                          textWrap: 'pretty',
+                          color: 'text.primary',
+                        }}
+                      >
+                        {minutes.summary}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, lg: 4 }}>
+                    <Stack spacing={1.1}>
+                      <Typography variant="subtitle1">要点</Typography>
+                      {minutes.key_points.length ? (
+                        minutes.key_points.slice(0, 5).map((point, index) => (
+                          <Typography key={`${point}-${index}`} variant="body2" color="text.secondary">
+                            {index + 1}. {point}
+                          </Typography>
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可提取要点。
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, lg: 3 }}>
+                    <Stack spacing={1.1}>
+                      <Typography variant="subtitle1">行动项</Typography>
+                      {minutes.action_items.length ? (
+                        minutes.action_items.slice(0, 5).map((item, index) => (
+                          <Chip
+                            key={`${item}-${index}`}
+                            label={item}
+                            variant="outlined"
+                            sx={{ justifyContent: 'flex-start', height: 'auto', py: 0.7, '& .MuiChip-label': { whiteSpace: 'normal' } }}
+                          />
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          未检测到明确行动项。
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          ) : minutesError ? (
+            <Alert severity="warning">{minutesError}</Alert>
+          ) : null}
+
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, xl: 8 }}>
               <Card>
