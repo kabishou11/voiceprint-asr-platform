@@ -84,9 +84,10 @@ export function AppLayout() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       jobsState.reload();
+      modelsState.reload();
     }, STATUS_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [jobsState.reload]);
+  }, [jobsState.reload, modelsState.reload]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', color: 'text.primary' }}>
@@ -216,7 +217,7 @@ export function AppLayout() {
           py: { xs: 2.5, md: 3.5 },
         }}
       >
-        <Box sx={{ maxWidth: 1280, mx: 'auto' }}>
+        <Box sx={{ maxWidth: 1480, mx: 'auto' }}>
           <Outlet />
         </Box>
       </Box>

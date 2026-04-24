@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Any
 import httpx
 from domain.schemas.transcript import JobDetail, Segment
 
+from . import job_db
 from ..core.config import get_settings
 
 
@@ -69,6 +71,97 @@ _STOPWORDS = {
 }
 
 
+def meeting_minutes_supported(job: JobDetail) -> bool:
+    return job.job_type in job_db.TRANSCRIPTION_JOB_TYPES
+
+
+def serialize_minutes(minutes: MeetingMinutes) -> str:
+    return json.dumps(
+        {
+            "title": minutes.title,
+            "summary": minutes.summary,
+            "key_points": minutes.key_points,
+            "topics": minutes.topics,
+            "decisions": minutes.decisions,
+            "action_items": minutes.action_items,
+            "risks": minutes.risks,
+            "keywords": minutes.keywords,
+            "speaker_stats": [
+                {
+                    "speaker": item.speaker,
+                    "segment_count": item.segment_count,
+                    "duration_ms": item.duration_ms,
+                }
+                for item in minutes.speaker_stats
+            ],
+            "markdown": minutes.markdown,
+            "mode": minutes.mode,
+            "model": minutes.model,
+            "reasoning": minutes.reasoning,
+        },
+        ensure_ascii=False,
+    )
+
+
+def deserialize_minutes(payload: str) -> MeetingMinutes:
+    data = json.loads(payload)
+    return MeetingMinutes(
+        title=str(data["title"]),
+        summary=str(data["summary"]),
+        key_points=[str(item) for item in data.get("key_points") or []],
+        topics=[str(item) for item in data.get("topics") or []],
+        decisions=[str(item) for item in data.get("decisions") or []],
+        action_items=[str(item) for item in data.get("action_items") or []],
+        risks=[str(item) for item in data.get("risks") or []],
+        keywords=[str(item) for item in data.get("keywords") or []],
+        speaker_stats=[
+            SpeakerMinuteStats(
+                speaker=str(item["speaker"]),
+                segment_count=int(item["segment_count"]),
+                duration_ms=int(item["duration_ms"]),
+            )
+            for item in data.get("speaker_stats") or []
+        ],
+        markdown=str(data["markdown"]),
+        mode=str(data["mode"]),
+        model=str(data["model"]) if data.get("model") is not None else None,
+        reasoning=str(data["reasoning"]) if data.get("reasoning") is not None else None,
+    )
+
+
+def get_stored_minutes(job_id: str) -> MeetingMinutes | None:
+    with job_db.session() as db:
+        record = db.get(job_db.MinutesRecord, job_id)
+        if record is None:
+            return None
+        return deserialize_minutes(record.payload)
+
+
+def store_minutes(job_id: str, minutes: MeetingMinutes) -> MeetingMinutes:
+    payload = serialize_minutes(minutes)
+    with job_db.session() as db:
+        record = db.get(job_db.MinutesRecord, job_id)
+        if record is None:
+            record = job_db.MinutesRecord(
+                job_id=job_id,
+                payload=payload,
+                mode=minutes.mode,
+                model=minutes.model,
+            )
+            db.add(record)
+        else:
+            record.payload = payload
+            record.mode = minutes.mode
+            record.model = minutes.model
+        db.commit()
+    return minutes
+
+
+def generate_and_store_minutes(job: JobDetail, use_llm: bool) -> MeetingMinutes:
+    minutes = build_llm_meeting_minutes(job) if use_llm else build_meeting_minutes(job)
+    return store_minutes(job.job_id, minutes)
+
+
 def _split_sentences(text: str) -> list[str]:
     sentences = [item.strip() for item in _SENTENCE_SPLIT_PATTERN.split(text) if item.strip()]
     return [sentence for sentence in sentences if len(sentence) >= 2]
@@ -85,12 +178,12 @@ def _segment_sentence(segment: Segment) -> str:
 def _rank_sentences(sentences: list[str]) -> list[str]:
     tokens = Counter()
     for sentence in sentences:
-        for token in re.findall(r"[\w\u4e00-\u9fff]{2,}", sentence.lower()):
+        for token in re.findall(r"[\w一-鿿]{2,}", sentence.lower()):
             if token not in _STOPWORDS:
                 tokens[token] += 1
 
     def score(sentence: str) -> tuple[int, int]:
-        words = re.findall(r"[\w\u4e00-\u9fff]{2,}", sentence.lower())
+        words = re.findall(r"[\w一-鿿]{2,}", sentence.lower())
         lexical_score = sum(tokens[word] for word in words)
         return lexical_score, min(len(sentence), 120)
 
@@ -100,7 +193,7 @@ def _rank_sentences(sentences: list[str]) -> list[str]:
 def _extract_keywords(sentences: list[str], limit: int = 12) -> list[str]:
     tokens = Counter()
     for sentence in sentences:
-        for token in re.findall(r"[\w\u4e00-\u9fff]{2,}", sentence.lower()):
+        for token in re.findall(r"[\w一-鿿]{2,}", sentence.lower()):
             if token not in _STOPWORDS and not token.startswith("speaker_"):
                 tokens[token] += 1
     return [token for token, _ in tokens.most_common(limit)]
@@ -166,8 +259,8 @@ def _transcript_payload(job: JobDetail) -> str:
         return ""
     if job.result.segments:
         lines = []
-        for index, segment in enumerate(job.result.segments, start=1):
-            speaker = segment.speaker or f"Speaker {index}"
+        for segment in job.result.segments:
+            speaker = segment.speaker or "未标注说话人"
             lines.append(
                 f"[{segment.start_ms}-{segment.end_ms}ms] {speaker}: {segment.text}"
             )
@@ -176,8 +269,6 @@ def _transcript_payload(job: JobDetail) -> str:
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
-    import json
-
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
@@ -236,7 +327,7 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
         json={
             "model": settings.minutes_llm_model,
             "messages": _build_llm_prompt(job),
-            "extra_body": {"reasoning_split": settings.minutes_llm_reasoning_split},
+            "reasoning_split": settings.minutes_llm_reasoning_split,
             "stream": False,
             "temperature": 0.2,
         },

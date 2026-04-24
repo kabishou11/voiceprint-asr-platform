@@ -232,16 +232,16 @@ def enroll_voiceprint(
     """
     _init_wrapper()
 
-    # 如果启用了 Celery，尝试异步执行
     if is_async_available() and _enroll_task is not None:
-        try:
-            _enroll_task.apply_async(args=[job_id, asset_name, profile_id, model_key])
-            logger.info(f"声纹注册任务 {job_id} 已提交到队列")
-            return {"status": "queued", "job_id": job_id}
-        except Exception as e:
-            logger.warning(f"异步提交失败，回退到同步执行: {e}")
+        _enroll_task.apply_async(args=[job_id, asset_name, profile_id, model_key])
+        logger.info(f"声纹注册任务 {job_id} 已提交到队列")
+        return {
+            "profile_id": profile_id,
+            "asset_name": asset_name,
+            "status": "queued",
+            "mode": "async",
+        }
 
-    # 同步执行（回退）
     logger.info(f"声纹注册任务 {job_id} 同步执行")
     return _enroll_voiceprint_sync(job_id=job_id, asset_name=asset_name, profile_id=profile_id, model_key=model_key)
 
@@ -267,16 +267,16 @@ def verify_voiceprint(
     """
     _init_wrapper()
 
-    # 如果启用了 Celery，尝试异步执行
     if is_async_available() and _verify_task is not None:
-        try:
-            _verify_task.apply_async(args=[job_id, asset_name, profile_id, threshold, model_key])
-            logger.info(f"声纹验证任务 {job_id} 已提交到队列")
-            return VoiceprintVerificationResult(verified=False, score=0.0, threshold=threshold)
-        except Exception as e:
-            logger.warning(f"异步提交失败，回退到同步执行: {e}")
+        _verify_task.apply_async(args=[job_id, asset_name, profile_id, threshold, model_key])
+        logger.info(f"声纹验证任务 {job_id} 已提交到队列")
+        return VoiceprintVerificationResult(
+            profile_id=profile_id,
+            score=0.0,
+            threshold=threshold,
+            matched=False,
+        )
 
-    # 同步执行（回退）
     logger.info(f"声纹验证任务 {job_id} 同步执行")
     return _verify_voiceprint_sync(
         job_id=job_id, asset_name=asset_name, profile_id=profile_id, threshold=threshold, model_key=model_key
@@ -302,15 +302,10 @@ def identify_voiceprint(
     """
     _init_wrapper()
 
-    # 如果启用了 Celery，尝试异步执行
     if is_async_available() and _identify_task is not None:
-        try:
-            _identify_task.apply_async(args=[job_id, asset_name, top_k, model_key])
-            logger.info(f"声纹识别任务 {job_id} 已提交到队列")
-            return VoiceprintIdentificationResult(matches=[])
-        except Exception as e:
-            logger.warning(f"异步提交失败，回退到同步执行: {e}")
+        _identify_task.apply_async(args=[job_id, asset_name, top_k, model_key])
+        logger.info(f"声纹识别任务 {job_id} 已提交到队列")
+        return VoiceprintIdentificationResult(candidates=[], matched=False)
 
-    # 同步执行（回退）
     logger.info(f"声纹识别任务 {job_id} 同步执行")
     return _identify_voiceprint_sync(job_id=job_id, asset_name=asset_name, top_k=top_k, model_key=model_key)

@@ -10,6 +10,7 @@ interface PageSectionProps {
   loading?: boolean;
   error?: string | null;
   actions?: ReactNode;
+  compact?: boolean;
   children: ReactNode;
 }
 
@@ -21,28 +22,29 @@ export function PageSection({
   loading,
   error,
   actions,
+  compact = false,
   children,
 }: PageSectionProps) {
   return (
-    <Stack spacing={2.2}>
+    <Stack spacing={compact ? 1.6 : 2.2}>
       <Box
         sx={{
-          p: { xs: 2.1, md: 2.6 },
-          borderRadius: 5,
+          p: compact ? { xs: 1.4, md: 1.7 } : { xs: 2.1, md: 2.6 },
+          borderRadius: compact ? 3.5 : 5,
           background:
             'linear-gradient(180deg, rgba(255,253,249,0.94) 0%, rgba(255,251,245,0.82) 100%)',
           border: '1px solid',
           borderColor: alpha('#1c2431', 0.06),
-          boxShadow: '0 14px 34px rgba(15,23,42,0.035)',
+          boxShadow: compact ? '0 8px 20px rgba(15,23,42,0.024)' : '0 14px 34px rgba(15,23,42,0.035)',
         }}
       >
         <Stack
           direction={{ xs: 'column', md: 'row' }}
-          spacing={2}
+          spacing={compact ? 1.4 : 2}
           alignItems={{ xs: 'flex-start', md: 'center' }}
           justifyContent="space-between"
         >
-          <Stack spacing={0.45}>
+          <Stack spacing={compact ? 0.3 : 0.45}>
             {eyebrow ? (
               <Chip
                 size="small"
@@ -58,7 +60,11 @@ export function PageSection({
             ) : null}
             <Typography
               variant="h4"
-              sx={{ maxWidth: 760, fontSize: { xs: '1.8rem', md: '2rem' }, lineHeight: 1.08 }}
+              sx={{
+                maxWidth: 760,
+                fontSize: compact ? { xs: '1.45rem', md: '1.7rem' } : { xs: '1.8rem', md: '2rem' },
+                lineHeight: compact ? 1.12 : 1.08,
+              }}
             >
               {title}
             </Typography>
@@ -68,8 +74,8 @@ export function PageSection({
                 sx={{
                   maxWidth: 760,
                   textWrap: 'pretty',
-                  fontSize: '0.95rem',
-                  lineHeight: 1.62,
+                  fontSize: compact ? '0.9rem' : '0.95rem',
+                  lineHeight: compact ? 1.5 : 1.62,
                 }}
               >
                 {description}
@@ -81,7 +87,7 @@ export function PageSection({
       </Box>
       {loading ? <LinearProgress sx={{ borderRadius: 999, height: 6 }} /> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
-      <Stack spacing={2.2}>{children}</Stack>
+      <Stack spacing={compact ? 1.8 : 2.2}>{children}</Stack>
     </Stack>
   );
 }
