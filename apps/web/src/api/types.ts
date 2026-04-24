@@ -131,6 +131,9 @@ export interface MeetingMinutesResponse {
   keywords: string[];
   speaker_stats: SpeakerMinuteStats[];
   markdown: string;
+  mode?: 'local' | 'llm';
+  model?: string | null;
+  reasoning?: string | null;
 }
 
 export interface ModelInfo {

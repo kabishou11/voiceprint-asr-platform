@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException
 
+from ...services.job_service import job_service
+from ...services.meeting_minutes import build_llm_meeting_minutes, build_meeting_minutes
 from ..schemas import (
     CreateTranscriptionRequest,
     CreateTranscriptionResponse,
     MeetingMinutesResponse,
     TranscriptResponse,
 )
-from ...services.job_service import job_service
-from ...services.meeting_minutes import build_meeting_minutes
 
 router = APIRouter(prefix="/transcriptions", tags=["transcriptions"])
 
@@ -78,4 +78,45 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
             for item in minutes.speaker_stats
         ],
         markdown=minutes.markdown,
+        mode=minutes.mode,
+        model=minutes.model,
+        reasoning=minutes.reasoning,
+    )
+
+
+@router.post("/{job_id}/minutes", response_model=MeetingMinutesResponse)
+def generate_meeting_minutes(job_id: str, use_llm: bool = True) -> MeetingMinutesResponse:
+    job = job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        minutes = build_llm_meeting_minutes(job) if use_llm else build_meeting_minutes(job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"会议纪要模型调用失败: {exc}") from exc
+    return MeetingMinutesResponse(
+        job_id=job.job_id,
+        title=minutes.title,
+        summary=minutes.summary,
+        key_points=minutes.key_points,
+        topics=minutes.topics,
+        decisions=minutes.decisions,
+        action_items=minutes.action_items,
+        risks=minutes.risks,
+        keywords=minutes.keywords,
+        speaker_stats=[
+            {
+                "speaker": item.speaker,
+                "segment_count": item.segment_count,
+                "duration_ms": item.duration_ms,
+            }
+            for item in minutes.speaker_stats
+        ],
+        markdown=minutes.markdown,
+        mode=minutes.mode,
+        model=minutes.model,
+        reasoning=minutes.reasoning,
     )

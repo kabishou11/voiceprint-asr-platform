@@ -15,11 +15,10 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchMeetingMinutes, fetchTranscript } from '../../api/client';
+import { fetchTranscript } from '../../api/client';
 import {
   formatDateTime,
   jobTypeLabels,
-  type MeetingMinutesResponse,
   type Segment,
   type TranscriptResult,
 } from '../../api/types';
@@ -111,37 +110,6 @@ function InfoMetric({
   );
 }
 
-function MinutesList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <Stack spacing={1}>
-      <Typography variant="subtitle1">{title}</Typography>
-      {items.length ? (
-        items.slice(0, 6).map((item, index) => (
-          <Box
-            key={`${title}-${item}-${index}`}
-            sx={{
-              px: 1.2,
-              py: 1,
-              borderRadius: 3,
-              bgcolor: alpha('#ffffff', 0.64),
-              border: '1px solid',
-              borderColor: alpha('#1c2431', 0.06),
-            }}
-          >
-            <Typography variant="body2" color="text.secondary" sx={{ textWrap: 'pretty' }}>
-              {index + 1}. {item}
-            </Typography>
-          </Box>
-        ))
-      ) : (
-        <Typography variant="body2" color="text.secondary">
-          暂无
-        </Typography>
-      )}
-    </Stack>
-  );
-}
-
 function getSegmentSpeakerKey(segment: Segment, index: number) {
   return segment.speaker?.trim() || `__unlabeled_${index}`;
 }
@@ -154,12 +122,9 @@ export function JobDetailPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
-  const [minutes, setMinutes] = useState<MeetingMinutesResponse | null>(null);
-  const [minutesError, setMinutesError] = useState<string | null>(null);
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
-  const isSucceeded = data?.job?.status === 'succeeded';
 
   useEffect(() => {
     if (!jobId || !isProcessing) {
@@ -184,33 +149,6 @@ export function JobDetailPage() {
       window.clearInterval(timer);
     };
   }, [isProcessing, jobId, setData]);
-
-  useEffect(() => {
-    if (!jobId || !isSucceeded) {
-      setMinutes(null);
-      setMinutesError(null);
-      return;
-    }
-
-    let active = true;
-    void fetchMeetingMinutes(jobId)
-      .then((result) => {
-        if (active) {
-          setMinutes(result);
-          setMinutesError(null);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (active) {
-          setMinutes(null);
-          setMinutesError(reason instanceof Error ? reason.message : '会议纪要生成失败');
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isSucceeded, jobId]);
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -351,18 +289,6 @@ export function JobDetailPage() {
     }
   };
 
-  const handleCopyMinutes = async () => {
-    if (!minutes) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(minutes.markdown);
-      setFeedback('会议纪要已复制到剪贴板。');
-    } catch {
-      setFeedback('当前环境不支持剪贴板写入。');
-    }
-  };
-
   const handleExport = () => {
     if (typeof window === 'undefined' || !data?.job) {
       return;
@@ -408,8 +334,8 @@ export function JobDetailPage() {
           <Button variant="outlined" onClick={handleExport} disabled={!data?.job}>
             {selectedSpeakerGroup ? '导出当前 Speaker JSON' : '导出 JSON'}
           </Button>
-          <Button variant="outlined" onClick={handleCopyMinutes} disabled={!minutes}>
-            复制纪要
+          <Button variant="outlined" onClick={() => navigate(`/minutes/${jobId}`)} disabled={!data?.job}>
+            会议纪要
           </Button>
           <Button variant="contained" onClick={handleRetry} disabled={!data?.job}>
             快速重跑
@@ -460,67 +386,6 @@ export function JobDetailPage() {
 
           {!isProcessing ? (
           <>
-          {minutes ? (
-            <Card>
-              <CardContent>
-                <Stack spacing={2.4}>
-                  <Stack
-                    direction={{ xs: 'column', md: 'row' }}
-                    justifyContent="space-between"
-                    alignItems={{ xs: 'flex-start', md: 'center' }}
-                    spacing={1.5}
-                  >
-                    <Stack spacing={1.4}>
-                      <Typography variant="h6">会议纪要</Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          lineHeight: 1.9,
-                          textWrap: 'pretty',
-                          color: 'text.primary',
-                          maxWidth: 780,
-                        }}
-                      >
-                        {minutes.summary}
-                      </Typography>
-                    </Stack>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {minutes.keywords.slice(0, 8).map((keyword) => (
-                        <Chip key={keyword} size="small" label={keyword} variant="outlined" />
-                      ))}
-                    </Stack>
-                  </Stack>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, lg: 3 }}>
-                      <MinutesList title="核心要点" items={minutes.key_points} />
-                    </Grid>
-                    <Grid size={{ xs: 12, lg: 3 }}>
-                      <MinutesList title="决策" items={minutes.decisions} />
-                    </Grid>
-                    <Grid size={{ xs: 12, lg: 3 }}>
-                      <MinutesList title="行动项" items={minutes.action_items} />
-                    </Grid>
-                    <Grid size={{ xs: 12, lg: 3 }}>
-                      <MinutesList title="风险与阻塞" items={minutes.risks} />
-                    </Grid>
-                  </Grid>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    {minutes.speaker_stats.slice(0, 6).map((speaker) => (
-                      <Chip
-                        key={speaker.speaker}
-                        label={`${speaker.speaker} · ${speaker.segment_count} 段 · ${(speaker.duration_ms / 1000).toFixed(1)} 秒`}
-                        color="default"
-                        variant="outlined"
-                      />
-                    ))}
-                  </Stack>
-                </Stack>
-              </CardContent>
-            </Card>
-          ) : minutesError ? (
-            <Alert severity="warning">{minutesError}</Alert>
-          ) : null}
-
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, xl: 8 }}>
               <Card>

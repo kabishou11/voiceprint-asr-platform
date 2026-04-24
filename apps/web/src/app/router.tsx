@@ -3,6 +3,8 @@ import { createBrowserRouter } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { JobDetailPage } from '../pages/jobs/JobDetailPage';
 import { JobListPage } from '../pages/jobs/JobListPage';
+import { MeetingMinutesIndexPage } from '../pages/minutes/MeetingMinutesIndexPage';
+import { MeetingMinutesPage } from '../pages/minutes/MeetingMinutesPage';
 import { ModelManagementPage } from '../pages/system/ModelManagementPage';
 import { TaskQueuePage } from '../pages/tasks/TaskQueuePage';
 import { TranscriptionWorkbenchPage } from '../pages/transcription/TranscriptionWorkbenchPage';
@@ -24,6 +26,14 @@ export const router = createBrowserRouter([
       {
         path: 'jobs/:jobId',
         element: <JobDetailPage />,
+      },
+      {
+        path: 'minutes',
+        element: <MeetingMinutesIndexPage />,
+      },
+      {
+        path: 'minutes/:jobId',
+        element: <MeetingMinutesPage />,
       },
       {
         path: 'voiceprints',

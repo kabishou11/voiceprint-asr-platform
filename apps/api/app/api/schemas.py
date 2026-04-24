@@ -79,6 +79,9 @@ class MeetingMinutesResponse(BaseModel):
     keywords: list[str]
     speaker_stats: list[SpeakerMinuteStatsResponse]
     markdown: str
+    mode: Literal["local", "llm"] = "local"
+    model: str | None = None
+    reasoning: str | None = None
 
 
 class UploadAssetResponse(BaseModel):

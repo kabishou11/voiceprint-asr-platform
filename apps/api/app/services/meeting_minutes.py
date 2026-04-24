@@ -3,8 +3,12 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import Any
 
+import httpx
 from domain.schemas.transcript import JobDetail, Segment
+
+from ..core.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,9 @@ class MeetingMinutes:
     keywords: list[str]
     speaker_stats: list[SpeakerMinuteStats]
     markdown: str
+    mode: str
+    model: str | None = None
+    reasoning: str | None = None
 
 
 _SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[。！？!?])\s*|[\n\r]+")
@@ -100,7 +107,11 @@ def _extract_keywords(sentences: list[str], limit: int = 12) -> list[str]:
 
 
 def _select_by_keywords(sentences: list[str], keywords: tuple[str, ...], limit: int) -> list[str]:
-    return [sentence for sentence in sentences if any(keyword in sentence for keyword in keywords)][:limit]
+    return [
+        sentence
+        for sentence in sentences
+        if any(keyword in sentence for keyword in keywords)
+    ][:limit]
 
 
 def _build_markdown(
@@ -148,6 +159,134 @@ def _build_markdown(
         *speaker_lines,
     ]
     return "\n".join(lines)
+
+
+def _transcript_payload(job: JobDetail) -> str:
+    if job.result is None:
+        return ""
+    if job.result.segments:
+        lines = []
+        for index, segment in enumerate(job.result.segments, start=1):
+            speaker = segment.speaker or f"Speaker {index}"
+            lines.append(
+                f"[{segment.start_ms}-{segment.end_ms}ms] {speaker}: {segment.text}"
+            )
+        return "\n".join(lines)
+    return job.result.text
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    import json
+
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", stripped, re.S)
+        parsed = json.loads(match.group(0)) if match else {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _as_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _build_llm_prompt(job: JobDetail) -> list[dict[str, str]]:
+    transcript = _transcript_payload(job)
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是专业会议纪要助手。只输出 JSON，不要输出 Markdown fence。"
+                "字段必须包含 summary,key_points,topics,decisions,action_items,risks,keywords。"
+                "每个数组字段最多 8 条，中文表达，保留 Speaker 信息但不要编造事实。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"任务标题：{job.asset_name or job.job_id}\n"
+                "请基于以下带时间戳转写生成会议纪要：\n\n"
+                f"{transcript[:24000]}"
+            ),
+        },
+    ]
+
+
+def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
+    settings = get_settings()
+    if not settings.minutes_llm_api_key:
+        raise RuntimeError("未配置 MINUTES_LLM_API_KEY，无法调用会议纪要模型")
+
+    baseline = build_meeting_minutes(job)
+    url = settings.minutes_llm_base_url.rstrip("/") + "/chat/completions"
+    response = httpx.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {settings.minutes_llm_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": settings.minutes_llm_model,
+            "messages": _build_llm_prompt(job),
+            "extra_body": {"reasoning_split": settings.minutes_llm_reasoning_split},
+            "stream": False,
+            "temperature": 0.2,
+        },
+        timeout=settings.minutes_llm_timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    choice = (payload.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    content = str(message.get("content") or "")
+    reasoning = ""
+    for detail in message.get("reasoning_details") or []:
+        if isinstance(detail, dict) and "text" in detail:
+            reasoning += str(detail["text"])
+
+    parsed = _parse_json_object(content)
+    title = job.asset_name or f"会议纪要 {job.job_id}"
+    summary = str(parsed.get("summary") or baseline.summary)
+    key_points = _as_list(parsed.get("key_points")) or baseline.key_points
+    topics = _as_list(parsed.get("topics")) or baseline.topics
+    decisions = _as_list(parsed.get("decisions")) or baseline.decisions
+    action_items = _as_list(parsed.get("action_items")) or baseline.action_items
+    risks = _as_list(parsed.get("risks")) or baseline.risks
+    keywords = _as_list(parsed.get("keywords")) or baseline.keywords
+
+    return MeetingMinutes(
+        title=title,
+        summary=summary,
+        key_points=key_points,
+        topics=topics,
+        decisions=decisions,
+        action_items=action_items,
+        risks=risks,
+        keywords=keywords,
+        speaker_stats=baseline.speaker_stats,
+        markdown=_build_markdown(
+            title=title,
+            summary=summary,
+            key_points=key_points,
+            topics=topics,
+            decisions=decisions,
+            action_items=action_items,
+            risks=risks,
+            keywords=keywords,
+            speaker_stats=baseline.speaker_stats,
+        ),
+        mode="llm",
+        model=settings.minutes_llm_model,
+        reasoning=reasoning or None,
+    )
 
 
 def build_meeting_minutes(job: JobDetail) -> MeetingMinutes:
@@ -213,4 +352,5 @@ def build_meeting_minutes(job: JobDetail) -> MeetingMinutes:
             keywords=keywords,
             speaker_stats=speaker_stats,
         ),
+        mode="local",
     )

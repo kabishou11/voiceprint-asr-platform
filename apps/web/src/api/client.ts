@@ -64,6 +64,12 @@ export function fetchMeetingMinutes(jobId: string): Promise<MeetingMinutesRespon
   return request<MeetingMinutesResponse>(`/transcriptions/${jobId}/minutes`);
 }
 
+export function generateMeetingMinutes(jobId: string, useLlm = true): Promise<MeetingMinutesResponse> {
+  return request<MeetingMinutesResponse>(`/transcriptions/${jobId}/minutes?use_llm=${String(useLlm)}`, {
+    method: 'POST',
+  });
+}
+
 export function uploadAudio(file: File): Promise<UploadAssetResponse> {
   const formData = new FormData();
   formData.append('file', file);

@@ -27,6 +27,7 @@ function renderPage() {
         <Routes>
           <Route path="/" element={<LocationProbe />} />
           <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+          <Route path="/minutes/:jobId" element={<LocationProbe />} />
           <Route path="/voiceprints" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
@@ -94,7 +95,7 @@ describe('JobDetailPage', () => {
     });
 
     expect(screen.getAllByText('Speaker 2').length).toBeGreaterThan(0);
-    expect(await screen.findByText('会议纪要')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '会议纪要' })).toBeInTheDocument();
     const buttons = await screen.findAllByRole('button', { name: '对这个 Speaker 做声纹处理' });
     fireEvent.click(buttons[0]);
 
