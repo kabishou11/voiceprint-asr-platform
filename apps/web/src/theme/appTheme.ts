@@ -34,7 +34,7 @@ const baseTheme = createTheme({
     divider: alpha('#1c2431', 0.09),
   },
   shape: {
-    borderRadius: 20,
+    borderRadius: 18,
   },
   typography: {
     fontFamily:
@@ -77,11 +77,11 @@ const baseTheme = createTheme({
     },
     body1: {
       fontSize: '0.98rem',
-      lineHeight: 1.66,
+      lineHeight: 1.62,
     },
     body2: {
       fontSize: '0.9rem',
-      lineHeight: 1.58,
+      lineHeight: 1.52,
     },
     button: {
       fontWeight: 600,
@@ -133,9 +133,9 @@ export const appTheme = createTheme(baseTheme, {
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 28,
-          border: `1px solid ${alpha('#1c2431', 0.08)}`,
-          boxShadow: '0 18px 54px rgba(28,36,49,0.045)',
+          borderRadius: 22,
+          border: `1px solid ${alpha('#1c2431', 0.075)}`,
+          boxShadow: '0 12px 32px rgba(28,36,49,0.034)',
           backgroundImage: 'none',
           backgroundColor: alpha('#fffdf9', 0.95),
         },
@@ -147,9 +147,9 @@ export const appTheme = createTheme(baseTheme, {
       },
       styleOverrides: {
         root: {
-          borderRadius: 16,
-          paddingInline: 16,
-          minHeight: 40,
+          borderRadius: 14,
+          paddingInline: 15,
+          minHeight: 38,
           boxShadow: 'none',
         },
       },
@@ -165,7 +165,7 @@ export const appTheme = createTheme(baseTheme, {
     MuiAccordion: {
       styleOverrides: {
         root: {
-          borderRadius: 24,
+          borderRadius: 22,
           overflow: 'hidden',
           '&:before': {
             display: 'none',
@@ -181,9 +181,9 @@ export const appTheme = createTheme(baseTheme, {
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
+          borderRadius: 14,
           backgroundColor: alpha('#ffffff', 0.82),
-          minHeight: 48,
+          minHeight: 46,
           '& fieldset': {
             borderColor: alpha('#1c2431', 0.1),
           },

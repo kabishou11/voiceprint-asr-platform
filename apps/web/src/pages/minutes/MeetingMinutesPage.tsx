@@ -22,31 +22,38 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { fetchMeetingMinutes, fetchTranscript, generateMeetingMinutes } from '../../api/client';
 import type { MeetingMinutesResponse } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
+import { MarkdownArticle } from '../../components/MarkdownArticle';
 import { PageSection } from '../../components/PageSection';
+import { StatCard } from '../../components/StatCard';
+
+const PANEL_MAX_HEIGHT = 520;
 
 function MinutesColumn({ title, items }: { title: string; items: string[] }) {
   return (
-    <Card sx={{ height: '100%' }}>
+    <Card>
       <CardContent>
-        <Stack spacing={1.3}>
+        <Stack spacing={1.2}>
           <Typography variant="h6">{title}</Typography>
           {items.length ? (
-            items.map((item, index) => (
-              <Box
-                key={`${title}-${item}-${index}`}
-                sx={{
-                  p: 1.25,
-                  borderRadius: 3,
-                  bgcolor: alpha('#ffffff', 0.68),
-                  border: '1px solid',
-                  borderColor: alpha('#1c2431', 0.06),
-                }}
-              >
-                <Typography variant="body2" sx={{ textWrap: 'pretty' }}>
-                  {index + 1}. {item}
-                </Typography>
-              </Box>
-            ))
+            <Stack spacing={0.9}>
+              {items.map((item, index) => (
+                <Box
+                  key={`${title}-${item}-${index}`}
+                  sx={{
+                    px: 1.2,
+                    py: 1.05,
+                    borderRadius: 3,
+                    bgcolor: alpha('#ffffff', 0.7),
+                    border: '1px solid',
+                    borderColor: alpha('#1c2431', 0.06),
+                  }}
+                >
+                  <Typography variant="body2" sx={{ textWrap: 'pretty', lineHeight: 1.6 }}>
+                    {index + 1}. {item}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
           ) : (
             <Typography variant="body2" color="text.secondary">
               暂无明确内容。
@@ -93,10 +100,18 @@ export function MeetingMinutesPage() {
   const stats = useMemo(() => {
     const segmentCount = transcript?.segments.length ?? 0;
     const speakerCount = new Set(
-      (transcript?.segments ?? []).map((segment, index) => segment.speaker || `Speaker ${index + 1}`),
+      (transcript?.segments ?? []).map((segment) => segment.speaker || '未标注说话人'),
     ).size;
     return { segmentCount, speakerCount };
   }, [transcript?.segments]);
+  const totalDurationMs = useMemo(
+    () => (minutes?.speaker_stats ?? []).reduce((sum, item) => sum + item.duration_ms, 0),
+    [minutes?.speaker_stats],
+  );
+  const totalSegments = useMemo(
+    () => (minutes?.speaker_stats ?? []).reduce((sum, item) => sum + item.segment_count, 0),
+    [minutes?.speaker_stats],
+  );
 
   const handleGenerate = async (useLlm: boolean) => {
     setGenerating(true);
@@ -135,7 +150,9 @@ export function MeetingMinutesPage() {
 
   return (
     <PageSection
-      title="会议纪要"
+      compact
+      title={job?.asset_name || minutes?.title || '会议纪要'}
+      description="会议纪要是独立产物，不会污染原文转写视图。"
       loading={transcriptState.loading}
       error={transcriptState.error}
       actions={
@@ -152,137 +169,166 @@ export function MeetingMinutesPage() {
         </Stack>
       }
     >
-      <Stack spacing={2.4}>
+      <Stack spacing={2.2}>
         {generating ? <LinearProgress /> : null}
         {feedback ? <Alert severity="success" onClose={() => setFeedback(null)}>{feedback}</Alert> : null}
         {minutesError ? <Alert severity="warning">{minutesError}</Alert> : null}
 
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
-                <Stack spacing={0.8}>
-                  <Typography variant="h3" sx={{ fontSize: { xs: '1.8rem', md: '2.4rem' } }}>
-                    {job?.asset_name || minutes?.title || jobId}
-                  </Typography>
-                  <Typography color="text.secondary">
-                    会议纪要是独立产物，不会污染原文转写视图。
-                  </Typography>
-                </Stack>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
-                  <Chip label={minutes?.mode === 'llm' ? `AI: ${minutes.model ?? 'LLM'}` : '本地规则'} color={minutes?.mode === 'llm' ? 'primary' : 'default'} />
-                  <Chip label={`${stats.speakerCount} speakers`} variant="outlined" />
-                  <Chip label={`${stats.segmentCount} 段`} variant="outlined" />
-                </Stack>
-              </Stack>
-              <Divider />
-              <Typography variant="body1" sx={{ fontSize: '1.05rem', lineHeight: 1.9, textWrap: 'pretty' }}>
-                {minutes?.summary || '点击“AI 生成”调用 MiniMax-M2.7，或点击“本地生成”使用规则引擎生成纪要。'}
-              </Typography>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                {(minutes?.keywords ?? []).slice(0, 12).map((keyword) => (
-                  <Chip key={keyword} size="small" label={keyword} variant="outlined" />
-                ))}
-              </Stack>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Button variant="outlined" startIcon={<ContentCopyRounded />} onClick={handleCopy} disabled={!minutes}>
-                  复制 Markdown
-                </Button>
-                <Button variant="outlined" startIcon={<DownloadRounded />} onClick={handleDownload} disabled={!minutes}>
-                  下载 .md
-                </Button>
-              </Stack>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Chip label={minutes?.mode === 'llm' ? `模型生成 · ${minutes.model ?? 'LLM'}` : '本地规则'} color={minutes?.mode === 'llm' ? 'primary' : 'default'} />
+          <Chip label={`${stats.speakerCount} 位说话人`} variant="outlined" />
+          <Chip label={`${stats.segmentCount} 段`} variant="outlined" />
+        </Stack>
+
+        <Grid container spacing={1.5}>
+          <Grid size={{ xs: 6, md: 3 }}>
+            <StatCard label="转录分段" value={stats.segmentCount} />
+          </Grid>
+          <Grid size={{ xs: 6, md: 3 }}>
+            <StatCard label="说话人数" value={stats.speakerCount} color="warning" />
+          </Grid>
+          <Grid size={{ xs: 6, md: 3 }}>
+            <StatCard label="纪要模式" value={minutes?.mode === 'llm' ? '模型' : '本地'} color="success" />
+          </Grid>
+          <Grid size={{ xs: 6, md: 3 }}>
+            <StatCard label="总时长" value={`${(totalDurationMs / 1000).toFixed(1)} 秒`} />
+          </Grid>
+        </Grid>
+
+        <Grid container spacing={2.2}>
+          <Grid size={{ xs: 12, lg: 8 }}>
+            <Stack spacing={2.2}>
+              <Card>
+                <CardContent>
+                  <Stack spacing={1.6}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
+                      <Stack spacing={0.4}>
+                        <Typography variant="h6">摘要</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          优先展示本次会议的主结论与关键背景。
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Button variant="outlined" startIcon={<ContentCopyRounded />} onClick={handleCopy} disabled={!minutes}>
+                          复制 Markdown
+                        </Button>
+                        <Button variant="outlined" startIcon={<DownloadRounded />} onClick={handleDownload} disabled={!minutes}>
+                          下载 .md
+                        </Button>
+                      </Stack>
+                    </Stack>
+                    <Divider />
+                    <Typography variant="body1" sx={{ fontSize: '1rem', lineHeight: 1.72, textWrap: 'pretty' }}>
+                      {minutes?.summary || '点击“AI 生成”调用 MiniMax-M2.7，或点击“本地生成”使用规则引擎生成纪要。'}
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {(minutes?.keywords ?? [])
+                        .filter((keyword, index, list) => keyword.trim().length > 1 && list.indexOf(keyword) === index)
+                        .slice(0, 8)
+                        .map((keyword) => (
+                          <Chip key={keyword} size="small" label={keyword} variant="outlined" />
+                        ))}
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              {minutes ? (
+                <Grid container spacing={2.2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <MinutesColumn title="核心要点" items={minutes.key_points} />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <MinutesColumn title="议题" items={minutes.topics} />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <MinutesColumn title="决策" items={minutes.decisions} />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <MinutesColumn title="行动项" items={minutes.action_items} />
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <MinutesColumn title="风险与阻塞" items={minutes.risks} />
+                  </Grid>
+                </Grid>
+              ) : null}
             </Stack>
-          </CardContent>
-        </Card>
+          </Grid>
 
-        {minutes ? (
-          <>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, lg: 3 }}>
-                <MinutesColumn title="核心要点" items={minutes.key_points} />
-              </Grid>
-              <Grid size={{ xs: 12, lg: 3 }}>
-                <MinutesColumn title="决策" items={minutes.decisions} />
-              </Grid>
-              <Grid size={{ xs: 12, lg: 3 }}>
-                <MinutesColumn title="行动项" items={minutes.action_items} />
-              </Grid>
-              <Grid size={{ xs: 12, lg: 3 }}>
-                <MinutesColumn title="风险与阻塞" items={minutes.risks} />
-              </Grid>
-            </Grid>
+          <Grid size={{ xs: 12, lg: 4 }}>
+            <Stack spacing={2.2} sx={{ position: { lg: 'sticky' }, top: { lg: 24 } }}>
+              <Card>
+                <CardContent>
+                  <Stack spacing={1.3}>
+                    <Typography variant="h6">说话人贡献</Typography>
+                    {minutes?.speaker_stats?.length ? (
+                      <Box sx={{ maxHeight: 320, overflow: 'auto' }}>
+                        <Stack spacing={1}>
+                          {minutes.speaker_stats.map((speaker) => {
+                            const value = totalDurationMs > 0
+                              ? (speaker.duration_ms / totalDurationMs) * 100
+                              : totalSegments > 0
+                                ? (speaker.segment_count / totalSegments) * 100
+                                : 0;
+                            return (
+                              <Box key={speaker.speaker} sx={{ px: 1.1, py: 1, borderRadius: 3, bgcolor: alpha('#ffffff', 0.7), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
+                                <Stack spacing={0.65}>
+                                  <Stack direction="row" justifyContent="space-between" spacing={1.5}>
+                                    <Typography fontWeight={700}>{speaker.speaker}</Typography>
+                                    <Typography color="text.secondary" variant="body2">
+                                      {speaker.segment_count} 段 · {(speaker.duration_ms / 1000).toFixed(1)} 秒
+                                    </Typography>
+                                  </Stack>
+                                  <LinearProgress variant="determinate" value={Math.min(100, value)} sx={{ borderRadius: 99 }} />
+                                </Stack>
+                              </Box>
+                            );
+                          })}
+                        </Stack>
+                      </Box>
+                    ) : (
+                      <Alert severity="info">暂无可展示的说话人统计。</Alert>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
 
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, lg: 4 }}>
-                <MinutesColumn title="议题" items={minutes.topics} />
-              </Grid>
-              <Grid size={{ xs: 12, lg: 4 }}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Stack spacing={1.3}>
-                      <Typography variant="h6">Speaker 贡献</Typography>
-                      {minutes.speaker_stats.map((speaker) => (
-                        <Box key={speaker.speaker}>
-                          <Stack direction="row" justifyContent="space-between" spacing={2}>
-                            <Typography fontWeight={700}>{speaker.speaker}</Typography>
-                            <Typography color="text.secondary">
-                              {speaker.segment_count} 段 · {(speaker.duration_ms / 1000).toFixed(1)} 秒
-                            </Typography>
-                          </Stack>
-                          <LinearProgress
-                            variant="determinate"
-                            value={Math.min(100, speaker.segment_count * 12)}
-                            sx={{ mt: 0.8, borderRadius: 99 }}
-                          />
-                        </Box>
-                      ))}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 12, lg: 4 }}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Stack spacing={1.3}>
-                      <Typography variant="h6">模型思考</Typography>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}
-                      >
-                        {minutes.reasoning || '当前纪要未返回 reasoning_details。'}
-                      </Typography>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
+              <Card>
+                <CardContent>
+                  <Stack spacing={1.3}>
+                    <Typography variant="h6">Markdown 预览</Typography>
+                    <Box
+                      sx={{
+                        p: 1.4,
+                        borderRadius: 3,
+                        bgcolor: alpha('#1c2431', 0.03),
+                        maxHeight: 420,
+                        overflow: 'auto',
+                      }}
+                    >
+                      <MarkdownArticle content={minutes?.markdown || '暂无纪要内容。'} />
+                    </Box>
+                  </Stack>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent>
-                <Stack spacing={1.3}>
-                  <Typography variant="h6">Markdown 预览</Typography>
-                  <Box
-                    component="pre"
-                    sx={{
-                      m: 0,
-                      p: 2,
-                      borderRadius: 4,
-                      bgcolor: alpha('#1c2431', 0.04),
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: '"JetBrains Mono", "Consolas", monospace',
-                      fontSize: '0.88rem',
-                      lineHeight: 1.75,
-                    }}
-                  >
-                    {minutes.markdown}
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
-          </>
-        ) : null}
+              <Card>
+                <CardContent>
+                  <Stack spacing={1.3}>
+                    <Typography variant="h6">模型思考</Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto', lineHeight: 1.62 }}
+                    >
+                      {minutes?.reasoning || '当前纪要未返回 reasoning_details。'}
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Stack>
+          </Grid>
+        </Grid>
       </Stack>
     </PageSection>
   );

@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import DateTime, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from domain.schemas.transcript import JobDetail, JobSummary, TranscriptResult
+
+TRANSCRIPTION_JOB_TYPES = {"transcription", "multi_speaker_transcription"}
 
 
 class Base(DeclarativeBase):
@@ -20,7 +22,7 @@ class JobRecord(Base):
     job_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     asset_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    result: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON serialized
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -36,8 +38,11 @@ class JobRecord(Base):
 
     def to_job_detail(self) -> JobDetail:
         result_obj: TranscriptResult | None = None
-        if self.result:
-            result_obj = TranscriptResult.model_validate_json(self.result)
+        if self.result and self.job_type in TRANSCRIPTION_JOB_TYPES:
+            try:
+                result_obj = TranscriptResult.model_validate_json(self.result)
+            except Exception:
+                result_obj = None
         return JobDetail(
             job_id=self.job_id,
             job_type=self.job_type,  # type: ignore[arg-type]
@@ -60,8 +65,22 @@ class JobRecord(Base):
         )
 
 
+class MinutesRecord(Base):
+    __tablename__ = "meeting_minutes"
+
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("jobs.job_id"), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 def _storage_path() -> Path:
-    """返回 storage 目录的绝对路径（与 storage/uploads 同级）"""
     return Path(__file__).resolve().parents[4] / "storage"
 
 
@@ -74,10 +93,8 @@ def get_engine():
     if _engine is None:
         db_path = _storage_path() / "jobs.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        # SQLite URL with check_same_thread=False for FastAPI lifespan safety
         from sqlalchemy import create_engine
         _engine = create_engine(f"sqlite:///{db_path.as_posix()}", connect_args={"check_same_thread": False})
-        # Auto-create tables on first access
         Base.metadata.create_all(_engine)
     return _engine
 

@@ -9,6 +9,12 @@ export type ModelTask = 'transcription' | 'diarization' | 'voiceprint';
 export type ModelAvailability = 'available' | 'optional' | 'unavailable';
 export type ModelStatus = 'unloaded' | 'loading' | 'loaded' | 'load_failed';
 
+export const TRANSCRIPTION_JOB_TYPES: JobType[] = ['transcription', 'multi_speaker_transcription'];
+
+export function isTranscriptionJobType(jobType: JobType): boolean {
+  return TRANSCRIPTION_JOB_TYPES.includes(jobType);
+}
+
 export const jobStatusLabels: Record<JobStatus, string> = {
   pending: '待处理',
   queued: '排队中',
