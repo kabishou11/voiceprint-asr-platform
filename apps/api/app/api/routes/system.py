@@ -23,9 +23,9 @@ def health():
     return HealthResponse(
         status="ok",
         app_name=settings.app_name,
-        broker_available=broker_available(),
-        worker_available=worker_available(),
-        async_available=is_async_available(),
+        broker_available=broker_available(refresh=True),
+        worker_available=worker_available(refresh=True),
+        async_available=is_async_available(refresh=True),
     )
 
 

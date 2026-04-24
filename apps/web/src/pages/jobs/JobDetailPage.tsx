@@ -7,6 +7,7 @@ import {
   Chip,
   Divider,
   Grid,
+  LinearProgress,
   Stack,
   Typography,
 } from '@mui/material';
@@ -14,14 +15,21 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchTranscript } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type Segment, type TranscriptResult } from '../../api/types';
+import { fetchMeetingMinutes, fetchTranscript } from '../../api/client';
+import {
+  formatDateTime,
+  jobTypeLabels,
+  type MeetingMinutesResponse,
+  type Segment,
+  type TranscriptResult,
+} from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { BalancedPretextText, MeasuredPretextBlock } from '../../components/PretextText';
 import { StatusChip } from '../../components/StatusChip';
 
 const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
+const POLL_INTERVAL_MS = 3000;
 
 type SpeakerMappingStore = Record<string, Record<string, string>>;
 type ExportSpeakerGroup = {
@@ -106,10 +114,67 @@ export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const { data, loading, error, reload } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
+  const { data, loading, error, reload, setData } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
+  const [minutes, setMinutes] = useState<MeetingMinutesResponse | null>(null);
+  const [minutesError, setMinutesError] = useState<string | null>(null);
+  const isProcessing =
+    data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
+  const isFailed = data?.job?.status === 'failed';
+  const isSucceeded = data?.job?.status === 'succeeded';
+
+  useEffect(() => {
+    if (!jobId || !isProcessing) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setInterval(() => {
+      void fetchTranscript(jobId)
+        .then((result) => {
+          if (active) {
+            setData(result);
+          }
+        })
+        .catch(() => {
+          // 保持当前页面状态，用户仍可手动刷新查看具体错误。
+        });
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isProcessing, jobId, setData]);
+
+  useEffect(() => {
+    if (!jobId || !isSucceeded) {
+      setMinutes(null);
+      setMinutesError(null);
+      return;
+    }
+
+    let active = true;
+    void fetchMeetingMinutes(jobId)
+      .then((result) => {
+        if (active) {
+          setMinutes(result);
+          setMinutesError(null);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setMinutes(null);
+          setMinutesError(reason instanceof Error ? reason.message : '会议纪要生成失败');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isSucceeded, jobId]);
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -293,6 +358,102 @@ export function JobDetailPage() {
             <Alert severity="success" onClose={() => setFeedback(null)}>
               {feedback}
             </Alert>
+          ) : null}
+
+          {isProcessing ? (
+            <Card>
+              <CardContent>
+                <Stack spacing={2}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    spacing={1.5}
+                  >
+                    <Stack spacing={0.4}>
+                      <Typography variant="h6">{data.job.asset_name ?? data.job.job_id}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {jobTypeLabels[data.job.job_type]} · 自动刷新 {POLL_INTERVAL_MS / 1000}s
+                      </Typography>
+                    </Stack>
+                    <StatusChip status={data.job.status} />
+                  </Stack>
+                  <LinearProgress />
+                  <Typography variant="body2" color="text.secondary">
+                    任务正在后端执行，完成后会自动展示全文、时间戳、Speaker 时间线和分段结果。
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isFailed ? (
+            <Alert severity="error">
+              {data.job.error_message || '任务执行失败，请检查模型、GPU、音频格式或重新发起任务。'}
+            </Alert>
+          ) : null}
+
+          {!isProcessing ? (
+          <>
+          {minutes ? (
+            <Card>
+              <CardContent>
+                <Grid container spacing={2.5}>
+                  <Grid size={{ xs: 12, lg: 5 }}>
+                    <Stack spacing={1.4}>
+                      <Typography variant="h6">会议纪要</Typography>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          lineHeight: 1.9,
+                          textWrap: 'pretty',
+                          color: 'text.primary',
+                        }}
+                      >
+                        {minutes.summary}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, lg: 4 }}>
+                    <Stack spacing={1.1}>
+                      <Typography variant="subtitle1">要点</Typography>
+                      {minutes.key_points.length ? (
+                        minutes.key_points.slice(0, 5).map((point, index) => (
+                          <Typography key={`${point}-${index}`} variant="body2" color="text.secondary">
+                            {index + 1}. {point}
+                          </Typography>
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可提取要点。
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Grid>
+                  <Grid size={{ xs: 12, lg: 3 }}>
+                    <Stack spacing={1.1}>
+                      <Typography variant="subtitle1">行动项</Typography>
+                      {minutes.action_items.length ? (
+                        minutes.action_items.slice(0, 5).map((item, index) => (
+                          <Chip
+                            key={`${item}-${index}`}
+                            label={item}
+                            variant="outlined"
+                            sx={{ justifyContent: 'flex-start', height: 'auto', py: 0.7, '& .MuiChip-label': { whiteSpace: 'normal' } }}
+                          />
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          未检测到明确行动项。
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          ) : minutesError ? (
+            <Alert severity="warning">{minutesError}</Alert>
           ) : null}
 
           <Grid container spacing={2}>
@@ -687,6 +848,8 @@ export function JobDetailPage() {
               </Card>
             </Grid>
           </Grid>
+          </>
+          ) : null}
         </Stack>
       ) : (
         <Alert severity="info">请输入有效任务 ID。</Alert>

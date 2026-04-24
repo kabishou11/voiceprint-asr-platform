@@ -113,6 +113,21 @@ export interface TranscriptResponse {
   transcript?: TranscriptResult | null;
 }
 
+export interface SpeakerMinuteStats {
+  speaker: string;
+  segment_count: number;
+  duration_ms: number;
+}
+
+export interface MeetingMinutesResponse {
+  job_id: string;
+  title: string;
+  summary: string;
+  key_points: string[];
+  action_items: string[];
+  speaker_stats: SpeakerMinuteStats[];
+}
+
 export interface ModelInfo {
   key: string;
   display_name: string;

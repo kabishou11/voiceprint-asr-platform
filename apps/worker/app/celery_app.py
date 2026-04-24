@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 from celery import Celery
 
@@ -64,6 +65,24 @@ _celery_app: Celery | None = None
 _async_mode_available: bool | None = None
 _broker_available: bool | None = None
 _worker_available: bool | None = None
+_broker_checked_at = 0.0
+_worker_checked_at = 0.0
+_async_checked_at = 0.0
+_CHECK_TTL_SECONDS = 5.0
+
+
+def _cache_valid(checked_at: float) -> bool:
+    return checked_at > 0 and time.monotonic() - checked_at < _CHECK_TTL_SECONDS
+
+
+def _get_redis_dsn() -> str:
+    try:
+        from apps.api.app.core.config import get_settings
+
+        settings = get_settings()
+        return settings.redis_dsn
+    except Exception:
+        return REDIS_DSN
 
 
 def get_celery_app() -> Celery | None:
@@ -74,28 +93,31 @@ def get_celery_app() -> Celery | None:
     return _celery_app
 
 
-def is_async_available() -> bool:
+def is_async_available(*, refresh: bool = False) -> bool:
     """检测异步模式是否可用。
 
     如果 ASYNC_MODE=disabled，返回 False。
     如果 ASYNC_MODE=enabled，尝试连接 Redis。
     如果 ASYNC_MODE=auto，自动检测 Redis 可用性。
     """
-    global _async_mode_available
+    global _async_mode_available, _async_checked_at
 
-    if _async_mode_available is not None:
+    if not refresh and _async_mode_available is not None and _cache_valid(_async_checked_at):
         return _async_mode_available
 
     if ASYNC_MODE == "disabled":
         _async_mode_available = False
+        _async_checked_at = time.monotonic()
         return False
 
     if ASYNC_MODE == "enabled":
-        _async_mode_available = broker_available() and worker_available()
+        _async_mode_available = broker_available(refresh=refresh) and worker_available(refresh=refresh)
+        _async_checked_at = time.monotonic()
         return _async_mode_available
 
     # auto 模式
-    _async_mode_available = broker_available() and worker_available()
+    _async_mode_available = broker_available(refresh=refresh) and worker_available(refresh=refresh)
+    _async_checked_at = time.monotonic()
     return _async_mode_available
 
 
@@ -104,29 +126,11 @@ def _check_redis_connection() -> bool:
     import redis
 
     try:
-        # 尝试从配置获取 DSN
-        try:
-            from apps.api.app.core.config import get_settings
-            settings = get_settings()
-            redis_dsn = settings.redis_dsn
-        except Exception:
-            redis_dsn = REDIS_DSN
-
-        # 解析 DSN
-        if redis_dsn.startswith("redis://"):
-            # redis://host:port/db -> host, port, db
-            parts = redis_dsn.replace("redis://", "").split("/")
-            if len(parts) >= 2:
-                host_port = parts[1].split(":")
-                host = host_port[0] if len(host_port) > 0 else "localhost"
-                port = int(host_port[1]) if len(host_port) > 1 else 6379
-            else:
-                host, port = "localhost", 6379
-        else:
-            host, port = "localhost", 6379
-
-        # 尝试连接
-        client = redis.Redis(host=host, port=port, socket_connect_timeout=2)
+        client = redis.Redis.from_url(
+            _get_redis_dsn(),
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
         client.ping()
         logger.info("Redis 连接正常，异步模式已启用")
         return True
@@ -135,15 +139,16 @@ def _check_redis_connection() -> bool:
         return False
 
 
-def broker_available() -> bool:
-    global _broker_available
-    if _broker_available is None:
+def broker_available(*, refresh: bool = False) -> bool:
+    global _broker_available, _broker_checked_at
+    if refresh or _broker_available is None or not _cache_valid(_broker_checked_at):
         _broker_available = _check_redis_connection()
+        _broker_checked_at = time.monotonic()
     return _broker_available
 
 
 def _check_worker_connection() -> bool:
-    if not broker_available():
+    if not broker_available(refresh=True):
         return False
 
     try:
@@ -162,17 +167,22 @@ def _check_worker_connection() -> bool:
         return False
 
 
-def worker_available() -> bool:
-    global _worker_available
-    if _worker_available is None:
+def worker_available(*, refresh: bool = False) -> bool:
+    global _worker_available, _worker_checked_at
+    if refresh or _worker_available is None or not _cache_valid(_worker_checked_at):
         _worker_available = _check_worker_connection()
+        _worker_checked_at = time.monotonic()
     return _worker_available
 
 
 def reset_async_mode_check():
     """重置异步模式检查状态（用于测试）。"""
     global _async_mode_available, _celery_app, _broker_available, _worker_available
+    global _async_checked_at, _broker_checked_at, _worker_checked_at
     _async_mode_available = None
     _celery_app = None
     _broker_available = None
     _worker_available = None
+    _async_checked_at = 0.0
+    _broker_checked_at = 0.0
+    _worker_checked_at = 0.0

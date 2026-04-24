@@ -97,6 +97,20 @@ def test_uploaded_asset_can_create_transcription_job() -> None:
         assert 'CUDA GPU' in response.json()['detail']
 
 
+def test_meeting_minutes_endpoint_generates_from_finished_job() -> None:
+    jobs = client.get('/api/v1/jobs').json()['items']
+    succeeded = next(item for item in jobs if item['status'] == 'succeeded')
+
+    response = client.get(f"/api/v1/transcriptions/{succeeded['job_id']}/minutes")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['job_id'] == succeeded['job_id']
+    assert payload['summary']
+    assert isinstance(payload['key_points'], list)
+    assert isinstance(payload['speaker_stats'], list)
+
+
 def test_jobs_endpoint_supports_delete() -> None:
     create = client.post('/api/v1/transcriptions', json={'asset_name': 'sample-meeting.wav', 'diarization_model': None})
     if create.status_code != 200:

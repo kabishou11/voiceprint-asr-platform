@@ -13,7 +13,7 @@ from apps.worker.app.tasks.voiceprint import (
     verify_voiceprint,
 )
 
-from apps.api.app.services import job_db as job_db_module  # noqa: E402,F401
+from apps.api.app.services import job_db
 from ..schemas import (
     CreateVoiceprintProfileRequest,
     CreateVoiceprintProfileResponse,

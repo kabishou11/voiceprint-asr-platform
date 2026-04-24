@@ -3,9 +3,11 @@ from fastapi import APIRouter, HTTPException
 from ..schemas import (
     CreateTranscriptionRequest,
     CreateTranscriptionResponse,
+    MeetingMinutesResponse,
     TranscriptResponse,
 )
 from ...services.job_service import job_service
+from ...services.meeting_minutes import build_meeting_minutes
 
 router = APIRouter(prefix="/transcriptions", tags=["transcriptions"])
 
@@ -46,3 +48,29 @@ def get_transcription(job_id: str) -> TranscriptResponse:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return TranscriptResponse(job=job, transcript=job.result)
+
+
+@router.get("/{job_id}/minutes", response_model=MeetingMinutesResponse)
+def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
+    job = job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        minutes = build_meeting_minutes(job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MeetingMinutesResponse(
+        job_id=job.job_id,
+        title=minutes.title,
+        summary=minutes.summary,
+        key_points=minutes.key_points,
+        action_items=minutes.action_items,
+        speaker_stats=[
+            {
+                "speaker": item.speaker,
+                "segment_count": item.segment_count,
+                "duration_ms": item.duration_ms,
+            }
+            for item in minutes.speaker_stats
+        ],
+    )
