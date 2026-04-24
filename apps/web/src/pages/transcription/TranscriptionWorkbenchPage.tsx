@@ -219,8 +219,8 @@ export function TranscriptionWorkbenchPage() {
         </Stack>
       }
     >
-      <Stack spacing={2.2}>
-        <Grid container spacing={1.5}>
+      <Stack spacing={1.8}>
+        <Grid container spacing={1.2}>
           <Grid size={{ xs: 6, md: 3 }}>
             <StatCard label="运行中任务" value={activeJobs.length} />
           </Grid>
@@ -235,7 +235,7 @@ export function TranscriptionWorkbenchPage() {
           </Grid>
         </Grid>
 
-        <Grid container spacing={2.2}>
+        <Grid container spacing={1.8}>
           <Grid size={{ xs: 12, xl: 8 }}>
             <Card>
               <CardContent>
@@ -382,7 +382,7 @@ export function TranscriptionWorkbenchPage() {
                           key={job.job_id}
                           sx={{
                             px: 1.35,
-                            py: 1.15,
+                            py: 1,
                             borderRadius: 3,
                             bgcolor: alpha('#ffffff', 0.72),
                             border: '1px solid',
@@ -391,12 +391,12 @@ export function TranscriptionWorkbenchPage() {
                           }}
                           onClick={() => navigate(`/jobs/${job.job_id}`)}
                         >
-                          <Stack spacing={0.55}>
+                          <Stack spacing={0.4}>
                             <Stack direction="row" justifyContent="space-between" spacing={1}>
-                              <Typography fontWeight={700} noWrap>{job.asset_name ?? job.job_id}</Typography>
+                              <Typography fontWeight={700} noWrap sx={{ fontSize: '0.92rem' }}>{job.asset_name ?? job.job_id}</Typography>
                               <StatusChip status={job.status} />
                             </Stack>
-                            <Typography variant="body2" color="text.secondary">
+                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem' }}>
                               {jobTypeLabels[job.job_type]} · {formatDateTime(job.updated_at)}
                             </Typography>
                           </Stack>

@@ -29,13 +29,13 @@ export function PageSection({
     <Stack spacing={compact ? 1.6 : 2.2}>
       <Box
         sx={{
-          p: compact ? { xs: 1.7, md: 2 } : { xs: 2.1, md: 2.6 },
-          borderRadius: compact ? 4 : 5,
+          p: compact ? { xs: 1.4, md: 1.7 } : { xs: 2.1, md: 2.6 },
+          borderRadius: compact ? 3.5 : 5,
           background:
             'linear-gradient(180deg, rgba(255,253,249,0.94) 0%, rgba(255,251,245,0.82) 100%)',
           border: '1px solid',
           borderColor: alpha('#1c2431', 0.06),
-          boxShadow: compact ? '0 10px 24px rgba(15,23,42,0.028)' : '0 14px 34px rgba(15,23,42,0.035)',
+          boxShadow: compact ? '0 8px 20px rgba(15,23,42,0.024)' : '0 14px 34px rgba(15,23,42,0.035)',
         }}
       >
         <Stack

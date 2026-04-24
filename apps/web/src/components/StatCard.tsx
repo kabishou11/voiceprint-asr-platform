@@ -13,14 +13,14 @@ interface StatCardProps {
 export function StatCard({ label, value, icon, color = 'primary', sx }: StatCardProps) {
   return (
     <Card sx={sx}>
-      <CardContent>
-        <Stack direction="row" spacing={1.5} alignItems="center">
+      <CardContent sx={{ py: 1.4, px: 1.6, '&:last-child': { pb: 1.4 } }}>
+        <Stack direction="row" spacing={1.2} alignItems="center">
           {icon ? (
             <Box
               sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 3,
+                width: 34,
+                height: 34,
+                borderRadius: 2.5,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -34,10 +34,10 @@ export function StatCard({ label, value, icon, color = 'primary', sx }: StatCard
             </Box>
           ) : null}
           <Box>
-            <Typography color="text.secondary" variant="body2">
+            <Typography color="text.secondary" variant="body2" sx={{ fontSize: '0.82rem', lineHeight: 1.3 }}>
               {label}
             </Typography>
-            <Typography variant="h5">{value}</Typography>
+            <Typography variant="h6" sx={{ fontSize: '1.05rem', lineHeight: 1.2 }}>{value}</Typography>
           </Box>
         </Stack>
       </CardContent>
