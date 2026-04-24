@@ -72,8 +72,13 @@ describe('JobDetailPage', () => {
       title: 'meeting.wav',
       summary: 'SPEAKER_00: 我们开始开会。',
       key_points: ['SPEAKER_00: 我们开始开会。'],
+      topics: ['我们开始开会。'],
+      decisions: ['SPEAKER_00: 确认我们开始开会。'],
       action_items: ['SPEAKER_00: 我们开始开会。'],
+      risks: [],
+      keywords: ['开会'],
       speaker_stats: [{ speaker: 'SPEAKER_00', segment_count: 1, duration_ms: 6000 }],
+      markdown: '# meeting.wav\n\n## 摘要\nSPEAKER_00: 我们开始开会。',
     });
   });
 

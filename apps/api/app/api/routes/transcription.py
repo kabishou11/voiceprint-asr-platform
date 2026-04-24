@@ -64,7 +64,11 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
         title=minutes.title,
         summary=minutes.summary,
         key_points=minutes.key_points,
+        topics=minutes.topics,
+        decisions=minutes.decisions,
         action_items=minutes.action_items,
+        risks=minutes.risks,
+        keywords=minutes.keywords,
         speaker_stats=[
             {
                 "speaker": item.speaker,
@@ -73,4 +77,5 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
             }
             for item in minutes.speaker_stats
         ],
+        markdown=minutes.markdown,
     )

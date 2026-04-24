@@ -110,6 +110,37 @@ function InfoMetric({
   );
 }
 
+function MinutesList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle1">{title}</Typography>
+      {items.length ? (
+        items.slice(0, 6).map((item, index) => (
+          <Box
+            key={`${title}-${item}-${index}`}
+            sx={{
+              px: 1.2,
+              py: 1,
+              borderRadius: 3,
+              bgcolor: alpha('#ffffff', 0.64),
+              border: '1px solid',
+              borderColor: alpha('#1c2431', 0.06),
+            }}
+          >
+            <Typography variant="body2" color="text.secondary" sx={{ textWrap: 'pretty' }}>
+              {index + 1}. {item}
+            </Typography>
+          </Box>
+        ))
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          暂无
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
 export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
@@ -301,6 +332,18 @@ export function JobDetailPage() {
     }
   };
 
+  const handleCopyMinutes = async () => {
+    if (!minutes) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(minutes.markdown);
+      setFeedback('会议纪要已复制到剪贴板。');
+    } catch {
+      setFeedback('当前环境不支持剪贴板写入。');
+    }
+  };
+
   const handleExport = () => {
     if (typeof window === 'undefined' || !data?.job) {
       return;
@@ -345,6 +388,9 @@ export function JobDetailPage() {
           </Button>
           <Button variant="outlined" onClick={handleExport} disabled={!data?.job}>
             {selectedSpeakerGroup ? '导出当前 Speaker JSON' : '导出 JSON'}
+          </Button>
+          <Button variant="outlined" onClick={handleCopyMinutes} disabled={!minutes}>
+            复制纪要
           </Button>
           <Button variant="contained" onClick={handleRetry} disabled={!data?.job}>
             快速重跑
@@ -398,8 +444,13 @@ export function JobDetailPage() {
           {minutes ? (
             <Card>
               <CardContent>
-                <Grid container spacing={2.5}>
-                  <Grid size={{ xs: 12, lg: 5 }}>
+                <Stack spacing={2.4}>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', md: 'center' }}
+                    spacing={1.5}
+                  >
                     <Stack spacing={1.4}>
                       <Typography variant="h6">会议纪要</Typography>
                       <Typography
@@ -408,48 +459,43 @@ export function JobDetailPage() {
                           lineHeight: 1.9,
                           textWrap: 'pretty',
                           color: 'text.primary',
+                          maxWidth: 780,
                         }}
                       >
                         {minutes.summary}
                       </Typography>
                     </Stack>
-                  </Grid>
-                  <Grid size={{ xs: 12, lg: 4 }}>
-                    <Stack spacing={1.1}>
-                      <Typography variant="subtitle1">要点</Typography>
-                      {minutes.key_points.length ? (
-                        minutes.key_points.slice(0, 5).map((point, index) => (
-                          <Typography key={`${point}-${index}`} variant="body2" color="text.secondary">
-                            {index + 1}. {point}
-                          </Typography>
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          暂无可提取要点。
-                        </Typography>
-                      )}
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {minutes.keywords.slice(0, 8).map((keyword) => (
+                        <Chip key={keyword} size="small" label={keyword} variant="outlined" />
+                      ))}
                     </Stack>
+                  </Stack>
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, lg: 3 }}>
+                      <MinutesList title="核心要点" items={minutes.key_points} />
+                    </Grid>
+                    <Grid size={{ xs: 12, lg: 3 }}>
+                      <MinutesList title="决策" items={minutes.decisions} />
+                    </Grid>
+                    <Grid size={{ xs: 12, lg: 3 }}>
+                      <MinutesList title="行动项" items={minutes.action_items} />
+                    </Grid>
+                    <Grid size={{ xs: 12, lg: 3 }}>
+                      <MinutesList title="风险与阻塞" items={minutes.risks} />
+                    </Grid>
                   </Grid>
-                  <Grid size={{ xs: 12, lg: 3 }}>
-                    <Stack spacing={1.1}>
-                      <Typography variant="subtitle1">行动项</Typography>
-                      {minutes.action_items.length ? (
-                        minutes.action_items.slice(0, 5).map((item, index) => (
-                          <Chip
-                            key={`${item}-${index}`}
-                            label={item}
-                            variant="outlined"
-                            sx={{ justifyContent: 'flex-start', height: 'auto', py: 0.7, '& .MuiChip-label': { whiteSpace: 'normal' } }}
-                          />
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          未检测到明确行动项。
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Grid>
-                </Grid>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {minutes.speaker_stats.slice(0, 6).map((speaker) => (
+                      <Chip
+                        key={speaker.speaker}
+                        label={`${speaker.speaker} · ${speaker.segment_count} 段 · ${(speaker.duration_ms / 1000).toFixed(1)} 秒`}
+                        color="default"
+                        variant="outlined"
+                      />
+                    ))}
+                  </Stack>
+                </Stack>
               </CardContent>
             </Card>
           ) : minutesError ? (

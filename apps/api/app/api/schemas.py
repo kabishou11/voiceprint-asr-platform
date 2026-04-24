@@ -22,6 +22,9 @@ class HealthResponse(BaseModel):
     broker_available: bool = False
     worker_available: bool = False
     async_available: bool = False
+    execution_mode: Literal["async", "sync"] = "sync"
+    broker_error: str | None = None
+    worker_error: str | None = None
 
 
 class ModelInfo(BaseModel):
@@ -69,8 +72,13 @@ class MeetingMinutesResponse(BaseModel):
     title: str
     summary: str
     key_points: list[str]
+    topics: list[str]
+    decisions: list[str]
     action_items: list[str]
+    risks: list[str]
+    keywords: list[str]
     speaker_stats: list[SpeakerMinuteStatsResponse]
+    markdown: str
 
 
 class UploadAssetResponse(BaseModel):
