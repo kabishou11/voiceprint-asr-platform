@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -36,8 +36,15 @@ class ModelInfo(BaseModel):
     experimental: bool = False
 
 
+class PaginationMeta(BaseModel):
+    page: int
+    page_size: int
+    total: int
+
+
 class JobListResponse(BaseModel):
     items: list[JobDetail]
+    meta: PaginationMeta
 
 
 class CreateTranscriptionRequest(BaseModel):
@@ -106,14 +113,20 @@ class VoiceprintEnrollmentResult(BaseModel):
     mode: str
 
 
+class VoiceprintAsyncReceipt(BaseModel):
+    status: Literal["queued", "running"]
+    job_id: str
+    result: dict[str, Any] | None = None
+
+
 class EnrollVoiceprintRequest(BaseModel):
     asset_name: str
 
 
 class EnrollVoiceprintResponse(BaseModel):
-    profile: VoiceprintProfile
-    enrollment: VoiceprintEnrollmentResult
-    job_id: str | None = None
+    profile: VoiceprintProfile | None = None
+    enrollment: VoiceprintEnrollmentResult | None = None
+    job: VoiceprintAsyncReceipt | None = None
 
 
 class VerifyVoiceprintRequest(BaseModel):
@@ -123,8 +136,8 @@ class VerifyVoiceprintRequest(BaseModel):
 
 
 class VerifyVoiceprintResponse(BaseModel):
-    result: VoiceprintVerificationResult
-    job_id: str | None = None
+    result: VoiceprintVerificationResult | None = None
+    job: VoiceprintAsyncReceipt | None = None
 
 
 class IdentifyVoiceprintRequest(BaseModel):
@@ -133,8 +146,8 @@ class IdentifyVoiceprintRequest(BaseModel):
 
 
 class IdentifyVoiceprintResponse(BaseModel):
-    result: VoiceprintIdentificationResult
-    job_id: str | None = None
+    result: VoiceprintIdentificationResult | None = None
+    job: VoiceprintAsyncReceipt | None = None
 
 
 # GPU and model management schemas

@@ -23,7 +23,7 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchTranscript } from '../../api/client';
+import { fetchSpeakerAliases, fetchTranscript } from '../../api/client';
 import {
   formatDateTime,
   jobTypeLabels,
@@ -231,17 +231,40 @@ export function JobDetailPage() {
       setSpeakerAliases({});
       return;
     }
-    try {
-      const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
-      if (!raw) {
-        setSpeakerAliases({});
-        return;
-      }
-      const store = JSON.parse(raw) as SpeakerMappingStore;
-      setSpeakerAliases(store[jobId] ?? {});
-    } catch {
-      setSpeakerAliases({});
-    }
+    let active = true;
+    fetchSpeakerAliases(jobId)
+      .then((response) => {
+        if (active && response.aliases && Object.keys(response.aliases).length > 0) {
+          setSpeakerAliases(response.aliases);
+        } else if (active) {
+          try {
+            const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
+            if (raw) {
+              const store = JSON.parse(raw) as SpeakerMappingStore;
+              setSpeakerAliases(store[jobId] ?? {});
+            }
+          } catch {
+            setSpeakerAliases({});
+          }
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        try {
+          const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
+          if (raw) {
+            const store = JSON.parse(raw) as SpeakerMappingStore;
+            setSpeakerAliases(store[jobId] ?? {});
+          } else {
+            setSpeakerAliases({});
+          }
+        } catch {
+          setSpeakerAliases({});
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [jobId, searchParams]);
 
   const segments = data?.transcript?.segments ?? [];

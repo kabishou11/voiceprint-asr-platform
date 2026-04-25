@@ -13,6 +13,7 @@ import type {
   TranscriptResponse,
   UploadAssetResponse,
   VerifyVoiceprintResponse,
+  VoiceprintJobResponse,
   VoiceprintProfilesResponse,
 } from './types';
 
@@ -44,8 +45,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function fetchJobs(): Promise<JobListResponse> {
-  return request<JobListResponse>('/jobs');
+export function fetchJobs(params?: {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  job_type?: string;
+  keyword?: string;
+}): Promise<JobListResponse> {
+  const search = new URLSearchParams();
+  if (params?.page) search.set('page', String(params.page));
+  if (params?.page_size) search.set('page_size', String(params.page_size));
+  if (params?.status) search.set('status', params.status);
+  if (params?.job_type) search.set('job_type', params.job_type);
+  if (params?.keyword) search.set('keyword', params.keyword);
+  return request<JobListResponse>(`/jobs${search.size ? `?${search.toString()}` : ''}`);
+}
+
+export function fetchVoiceprintJob(jobId: string): Promise<VoiceprintJobResponse> {
+  return request<VoiceprintJobResponse>(`/voiceprints/jobs/${jobId}`);
 }
 
 export function deleteJob(jobId: string): Promise<{ job_id: string; deleted: boolean }> {
@@ -134,5 +151,16 @@ export function identifyVoiceprint(
   return request<IdentifyVoiceprintResponse>('/voiceprints/identify', {
     method: 'POST',
     body: JSON.stringify({ probe_asset_name: probeAssetName, top_k: topK }),
+  });
+}
+
+export function fetchSpeakerAliases(jobId: string): Promise<{ job_id: string; aliases: Record<string, string> }> {
+  return request<{ job_id: string; aliases: Record<string, string> }>(`/transcriptions/${jobId}/speaker-aliases`);
+}
+
+export function upsertSpeakerAliases(jobId: string, aliases: Record<string, string>): Promise<{ job_id: string; updated: number }> {
+  return request<{ job_id: string; updated: number }>(`/transcriptions/${jobId}/speaker-aliases`, {
+    method: 'PUT',
+    body: JSON.stringify(aliases),
   });
 }
