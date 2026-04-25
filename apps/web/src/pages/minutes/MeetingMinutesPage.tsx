@@ -74,20 +74,31 @@ export function MeetingMinutesPage() {
   const [generating, setGenerating] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  const [minutesNotGenerated, setMinutesNotGenerated] = useState(false);
+
   useEffect(() => {
     if (!jobId) return;
     let active = true;
+    setMinutesNotGenerated(false);
     void fetchMeetingMinutes(jobId)
       .then((result) => {
         if (active) {
           setMinutes(result);
           setMinutesError(null);
+          setMinutesNotGenerated(false);
         }
       })
       .catch((reason: unknown) => {
         if (active) {
           setMinutes(null);
-          setMinutesError(reason instanceof Error ? reason.message : '会议纪要加载失败');
+          const msg = reason instanceof Error ? reason.message : '';
+          if (msg.includes('尚未生成') || msg.includes('404')) {
+            setMinutesNotGenerated(true);
+            setMinutesError(null);
+          } else {
+            setMinutesNotGenerated(false);
+            setMinutesError(msg || '会议纪要加载失败');
+          }
         }
       });
     return () => {
@@ -173,6 +184,11 @@ export function MeetingMinutesPage() {
         {generating ? <LinearProgress /> : null}
         {feedback ? <Alert severity="success" onClose={() => setFeedback(null)}>{feedback}</Alert> : null}
         {minutesError ? <Alert severity="warning">{minutesError}</Alert> : null}
+        {minutesNotGenerated && !minutes ? (
+          <Alert severity="info">
+            当前任务尚未生成会议纪要。点击上方"AI 生成"或"本地生成"按钮开始。
+          </Alert>
+        ) : null}
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip label={minutes?.mode === 'llm' ? `模型生成 · ${minutes.model ?? 'LLM'}` : '本地规则'} color={minutes?.mode === 'llm' ? 'primary' : 'default'} />

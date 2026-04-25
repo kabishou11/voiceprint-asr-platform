@@ -153,3 +153,14 @@ export function identifyVoiceprint(
     body: JSON.stringify({ probe_asset_name: probeAssetName, top_k: topK }),
   });
 }
+
+export function fetchSpeakerAliases(jobId: string): Promise<{ job_id: string; aliases: Record<string, string> }> {
+  return request<{ job_id: string; aliases: Record<string, string> }>(`/transcriptions/${jobId}/speaker-aliases`);
+}
+
+export function upsertSpeakerAliases(jobId: string, aliases: Record<string, string>): Promise<{ job_id: string; updated: number }> {
+  return request<{ job_id: string; updated: number }>(`/transcriptions/${jobId}/speaker-aliases`, {
+    method: 'PUT',
+    body: JSON.stringify(aliases),
+  });
+}

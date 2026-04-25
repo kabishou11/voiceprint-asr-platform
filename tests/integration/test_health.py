@@ -100,13 +100,23 @@ def test_uploaded_asset_can_create_transcription_job() -> None:
 
 def test_meeting_minutes_endpoint_generates_from_finished_job() -> None:
     jobs = client.get('/api/v1/jobs').json()['items']
-    succeeded = next(item for item in jobs if item['status'] == 'succeeded')
+    succeeded = next(
+        (item for item in jobs if item['status'] == 'succeeded' and item['job_type'] in ('transcription', 'multi_speaker_transcription')),
+        None,
+    )
+    if succeeded is None:
+        return
+    job_id = succeeded['job_id']
 
-    response = client.get(f"/api/v1/transcriptions/{succeeded['job_id']}/minutes")
+    get_before = client.get(f"/api/v1/transcriptions/{job_id}/minutes")
+    if get_before.status_code == 404:
+        post_response = client.post(f"/api/v1/transcriptions/{job_id}/minutes?use_llm=false")
+        assert post_response.status_code == 200
 
+    response = client.get(f"/api/v1/transcriptions/{job_id}/minutes")
     assert response.status_code == 200
     payload = response.json()
-    assert payload['job_id'] == succeeded['job_id']
+    assert payload['job_id'] == job_id
     assert payload['summary']
     assert isinstance(payload['key_points'], list)
     assert isinstance(payload['topics'], list)

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from ...services.job_service import job_service
+from ...services import job_db
 from ...services.meeting_minutes import (
     generate_and_store_minutes,
     get_stored_minutes,
@@ -94,12 +95,7 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
 
     minutes = get_stored_minutes(job_id)
     if minutes is None:
-        try:
-            minutes = generate_and_store_minutes(job, use_llm=False)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="尚未生成会议纪要，请先调用 POST 生成。")
     return _minutes_response(job.job_id, minutes)
 
 
@@ -119,3 +115,40 @@ def generate_meeting_minutes(job_id: str, use_llm: bool = True) -> MeetingMinute
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"会议纪要模型调用失败: {exc}") from exc
     return _minutes_response(job.job_id, minutes)
+
+
+@router.get("/{job_id}/speaker-aliases")
+def get_speaker_aliases(job_id: str):
+    job = job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    with job_db.session() as db:
+        records = (
+            db.query(job_db.SpeakerAliasRecord)
+            .filter(job_db.SpeakerAliasRecord.job_id == job_id)
+            .all()
+        )
+        return {
+            "job_id": job_id,
+            "aliases": {record.speaker_key: record.display_name for record in records},
+        }
+
+
+@router.put("/{job_id}/speaker-aliases")
+def upsert_speaker_aliases(job_id: str, aliases: dict[str, str]):
+    job = job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    with job_db.session() as db:
+        for speaker_key, display_name in aliases.items():
+            existing = db.get(job_db.SpeakerAliasRecord, (job_id, speaker_key))
+            if existing is None:
+                db.add(job_db.SpeakerAliasRecord(
+                    job_id=job_id,
+                    speaker_key=speaker_key,
+                    display_name=display_name,
+                ))
+            else:
+                existing.display_name = display_name
+        db.commit()
+    return {"job_id": job_id, "updated": len(aliases)}

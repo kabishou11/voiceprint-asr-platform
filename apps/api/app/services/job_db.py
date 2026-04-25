@@ -80,6 +80,17 @@ class MinutesRecord(Base):
     )
 
 
+class SpeakerAliasRecord(Base):
+    __tablename__ = "speaker_aliases"
+
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("jobs.job_id"), primary_key=True)
+    speaker_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 def _storage_path() -> Path:
     return Path(__file__).resolve().parents[4] / "storage"
 
