@@ -64,6 +64,37 @@ class JobService:
                 .all()
             ]
 
+    def list_job_details(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        status: str | None = None,
+        job_type: str | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[JobDetail], int]:
+        with job_db.session() as db:
+            query = db.query(job_db.JobRecord)
+            if status:
+                query = query.filter(job_db.JobRecord.status == status)
+            if job_type:
+                query = query.filter(job_db.JobRecord.job_type == job_type)
+            if keyword:
+                like_keyword = f"%{keyword}%"
+                query = query.filter(
+                    (job_db.JobRecord.asset_name.like(like_keyword))
+                    | (job_db.JobRecord.job_id.like(like_keyword))
+                )
+
+            total = query.count()
+            records = (
+                query.order_by(job_db.JobRecord.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            return [record.to_job_detail() for record in records], total
+
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:
             record = db.get(job_db.JobRecord, job_id)

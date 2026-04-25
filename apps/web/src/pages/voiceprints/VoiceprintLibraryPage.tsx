@@ -23,18 +23,19 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
   createVoiceprintProfile,
   enrollVoiceprint,
+  fetchVoiceprintJob,
   fetchVoiceprintProfiles,
   identifyVoiceprint,
   uploadAudio,
   verifyVoiceprint,
 } from '../../api/client';
-import type { VoiceprintProfile } from '../../api/types';
+import type { VoiceprintJobResponse, VoiceprintProfile } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
@@ -42,6 +43,11 @@ import { PageSection } from '../../components/PageSection';
 const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
 
 type SpeakerMappingStore = Record<string, Record<string, string>>;
+
+type PendingVoiceprintJob = {
+  jobId: string;
+  kind: 'enroll' | 'verify' | 'identify';
+};
 
 function SectionCard({
   title,
@@ -89,6 +95,7 @@ export function VoiceprintLibraryPage() {
   const [displayName, setDisplayName] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingJob, setPendingJob] = useState<PendingVoiceprintJob | null>(null);
   const [enrollFile, setEnrollFile] = useState<File | null>(null);
   const [enrollAssetName, setEnrollAssetName] = useState('');
   const [probeFile, setProbeFile] = useState<File | null>(null);
@@ -163,6 +170,62 @@ export function VoiceprintLibraryPage() {
     throw new Error('请先选择待验证或识别的音频文件');
   };
 
+  useEffect(() => {
+    if (!pendingJob) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const job = await fetchVoiceprintJob(pendingJob.jobId);
+        if (!active) {
+          return;
+        }
+        if (job.status === 'queued' || job.status === 'running') {
+          return;
+        }
+        setPendingJob(null);
+        setBusy(false);
+        if (job.status === 'failed') {
+          setActionError(job.error_message || '声纹任务执行失败');
+          return;
+        }
+        if (pendingJob.kind === 'enroll' && job.enrollment && activeProfile) {
+          profilesState.reload();
+          setEnrollResult(`注册完成：${activeProfile.display_name} 已写入基准音频`);
+          setEnrollFile(null);
+          setEnrollAssetName('');
+        }
+        if (pendingJob.kind === 'verify' && job.verification) {
+          setVerifyResult({ score: job.verification.score, matched: job.verification.matched });
+          if (job.verification.matched && activeProfile) {
+            setEnrollResult(`验证通过：可将 ${incomingSpeaker || '当前 Speaker'} 回写为 ${activeProfile.display_name}`);
+          }
+        }
+        if (pendingJob.kind === 'identify' && job.identification) {
+          setIdentifyResult(
+            job.identification.candidates.map((item) => `${item.rank}. ${item.display_name} · 相似度 ${item.score}`),
+          );
+          if (job.identification.matched && job.identification.candidates[0]) {
+            setEnrollResult(`识别命中：建议回写为 ${job.identification.candidates[0].display_name}`);
+          }
+        }
+      } catch (error) {
+        if (active) {
+          setPendingJob(null);
+          setBusy(false);
+          setActionError(error instanceof Error ? error.message : '声纹任务轮询失败');
+        }
+      }
+    }, 2000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeProfile, incomingSpeaker, pendingJob, profilesState]);
+
   const handleCreate = async () => {
     if (!displayName.trim()) {
       setActionError('请输入档案名称');
@@ -193,19 +256,27 @@ export function VoiceprintLibraryPage() {
     try {
       const assetName = await ensureEnrollAsset();
       const response = await enrollVoiceprint(activeProfileId, assetName);
-      profilesState.setData((current) => ({
-        items: (current?.items ?? []).map((item) =>
-          item.profile_id === response.profile.profile_id ? response.profile : item,
-        ),
-      }));
-      setEnrollResult(`注册完成：${response.profile.display_name} 已写入基准音频`);
+      if (response.job) {
+        setPendingJob({ jobId: response.job.job_id, kind: 'enroll' });
+        setEnrollResult('已提交注册任务，正在处理中。');
+        return;
+      }
+      if (response.profile) {
+        profilesState.setData((current) => ({
+          items: (current?.items ?? []).map((item) =>
+            item.profile_id === response.profile?.profile_id ? response.profile : item,
+          ),
+        }));
+      }
+      setEnrollResult(`注册完成：${response.profile?.display_name ?? activeProfile?.display_name ?? '档案'} 已写入基准音频`);
       setEnrollFile(null);
       setEnrollAssetName('');
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : '声纹注册失败');
-    } finally {
       setBusy(false);
+      return;
     }
+    setBusy(false);
   };
 
   const handleVerify = async () => {
@@ -218,15 +289,23 @@ export function VoiceprintLibraryPage() {
     try {
       const assetName = await ensureProbeAsset();
       const response = await verifyVoiceprint(activeProfileId, assetName, threshold);
-      setVerifyResult({ score: response.result.score, matched: response.result.matched });
-      if (response.result.matched && activeProfile) {
-        setEnrollResult(`验证通过：可将 ${incomingSpeaker || '当前 Speaker'} 回写为 ${activeProfile.display_name}`);
+      if (response.job) {
+        setPendingJob({ jobId: response.job.job_id, kind: 'verify' });
+        setEnrollResult('已提交声纹验证任务，正在处理中。');
+        return;
+      }
+      if (response.result) {
+        setVerifyResult({ score: response.result.score, matched: response.result.matched });
+        if (response.result.matched && activeProfile) {
+          setEnrollResult(`验证通过：可将 ${incomingSpeaker || '当前 Speaker'} 回写为 ${activeProfile.display_name}`);
+        }
       }
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : '声纹验证失败');
-    } finally {
       setBusy(false);
+      return;
     }
+    setBusy(false);
   };
 
   const handleIdentify = async () => {
@@ -235,17 +314,25 @@ export function VoiceprintLibraryPage() {
     try {
       const assetName = await ensureProbeAsset();
       const response = await identifyVoiceprint(assetName, topK);
-      setIdentifyResult(
-        response.result.candidates.map((item) => `${item.rank}. ${item.display_name} · 相似度 ${item.score}`),
-      );
-      if (response.result.matched && response.result.candidates[0]) {
-        setEnrollResult(`识别命中：建议回写为 ${response.result.candidates[0].display_name}`);
+      if (response.job) {
+        setPendingJob({ jobId: response.job.job_id, kind: 'identify' });
+        setEnrollResult('已提交声纹识别任务，正在处理中。');
+        return;
+      }
+      if (response.result) {
+        setIdentifyResult(
+          response.result.candidates.map((item) => `${item.rank}. ${item.display_name} · 相似度 ${item.score}`),
+        );
+        if (response.result.matched && response.result.candidates[0]) {
+          setEnrollResult(`识别命中：建议回写为 ${response.result.candidates[0].display_name}`);
+        }
       }
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : '声纹识别失败');
-    } finally {
       setBusy(false);
+      return;
     }
+    setBusy(false);
   };
 
   return (
@@ -294,11 +381,7 @@ export function VoiceprintLibraryPage() {
                     }}
                   >
                     <ListItemText
-                      primary={
-                        <Typography sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                          {profile.display_name}
-                        </Typography>
-                      }
+                      primary={<Typography sx={{ fontWeight: 700, lineHeight: 1.3 }}>{profile.display_name}</Typography>}
                       secondary={`样本 ${profile.sample_count}`}
                     />
                   </ListItemButton>
@@ -320,6 +403,8 @@ export function VoiceprintLibraryPage() {
               </Alert>
             ) : null}
 
+            {pendingJob ? <Alert severity="info">声纹任务处理中：{pendingJob.jobId}</Alert> : null}
+
             {activeProfile ? (
               <SectionCard
                 title={activeProfile.display_name}
@@ -335,20 +420,12 @@ export function VoiceprintLibraryPage() {
                   </Stack>
                 }
               >
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1.6}
-                  alignItems={{ xs: 'flex-start', md: 'center' }}
-                >
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.6} alignItems={{ xs: 'flex-start', md: 'center' }}>
                   <Avatar sx={{ width: 52, height: 52, bgcolor: 'primary.main' }}>
                     <FingerprintRounded />
                   </Avatar>
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <Chip
-                      size="small"
-                      label={`样本 ${activeProfile.sample_count}`}
-                      color={activeProfile.sample_count > 0 ? 'success' : 'default'}
-                    />
+                    <Chip size="small" label={`样本 ${activeProfile.sample_count}`} color={activeProfile.sample_count > 0 ? 'success' : 'default'} />
                     <Chip size="small" variant="outlined" label="本地 3D-Speaker" />
                   </Stack>
                 </Stack>
@@ -357,10 +434,7 @@ export function VoiceprintLibraryPage() {
               <Alert severity="info">请选择一个档案开始操作。</Alert>
             )}
 
-            <SectionCard
-              title="验证与识别"
-              subtitle="上传待比对音频。"
-            >
+            <SectionCard title="验证与识别" subtitle="上传待比对音频。">
               <Stack spacing={1.5}>
                 <AudioUploadField
                   label="待比对音频"
@@ -378,18 +452,10 @@ export function VoiceprintLibraryPage() {
                 />
                 <Grid container spacing={1.5}>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField
-                      label="验证阈值"
-                      value={thresholdText}
-                      onChange={(event) => setThresholdText(event.target.value)}
-                    />
+                    <TextField label="验证阈值" value={thresholdText} onChange={(event) => setThresholdText(event.target.value)} />
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField
-                      label="识别候选数"
-                      value={topKText}
-                      onChange={(event) => setTopKText(event.target.value)}
-                    />
+                    <TextField label="识别候选数" value={topKText} onChange={(event) => setTopKText(event.target.value)} />
                   </Grid>
                 </Grid>
                 {verifyResult ? (
@@ -406,22 +472,10 @@ export function VoiceprintLibraryPage() {
                 ) : null}
                 {identifyResult.length ? (
                   <Stack spacing={1}>
-                    <Typography variant="body2" color="text.secondary">
-                      识别结果
-                    </Typography>
+                    <Typography variant="body2" color="text.secondary">识别结果</Typography>
                     <Stack spacing={0.8}>
                       {identifyResult.map((item) => (
-                        <Box
-                          key={item}
-                          sx={{
-                            px: 1.25,
-                            py: 0.95,
-                            borderRadius: 2.5,
-                            bgcolor: alpha('#ffffff', 0.72),
-                            border: '1px solid',
-                            borderColor: alpha('#1c2431', 0.06),
-                          }}
-                        >
+                        <Box key={item} sx={{ px: 1.25, py: 0.95, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
                           <Typography variant="body2">{item}</Typography>
                         </Box>
                       ))}
@@ -431,13 +485,9 @@ export function VoiceprintLibraryPage() {
                         variant="contained"
                         onClick={() => {
                           const topCandidate = identifyResult[0];
-                          if (!topCandidate) {
-                            return;
-                          }
+                          if (!topCandidate) return;
                           const incomingDisplayName = topCandidate.replace(/^\d+\.\s*/, '').split(' · ')[0]?.trim();
-                          if (!incomingDisplayName) {
-                            return;
-                          }
+                          if (!incomingDisplayName) return;
                           persistSpeakerMapping(incomingDisplayName);
                         }}
                       >
@@ -449,16 +499,11 @@ export function VoiceprintLibraryPage() {
               </Stack>
             </SectionCard>
 
-            <SectionCard
-              title="注册基准音频"
-              subtitle="为当前档案写入基准音频。"
-            >
+            <SectionCard title="注册基准音频" subtitle="为当前档案写入基准音频。">
               <Stack spacing={1.5}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <RecordVoiceOverRounded color="action" fontSize="small" />
-                  <Typography variant="body2" color="text.secondary">
-                    注册音频
-                  </Typography>
+                  <Typography variant="body2" color="text.secondary">注册音频</Typography>
                 </Stack>
                 <AudioUploadField
                   label="注册音频"
@@ -475,9 +520,7 @@ export function VoiceprintLibraryPage() {
                   }}
                 />
                 <Divider />
-                <Button variant="outlined" onClick={handleEnroll} disabled={!activeProfile || busy}>
-                  开始注册
-                </Button>
+                <Button variant="outlined" onClick={handleEnroll} disabled={!activeProfile || busy}>开始注册</Button>
                 {enrollResult ? <Alert severity="success">{enrollResult}</Alert> : null}
                 {actionError ? <Alert severity="error">{actionError}</Alert> : null}
               </Stack>
@@ -490,22 +533,13 @@ export function VoiceprintLibraryPage() {
         <DialogTitle>新建声纹档案</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
-              label="档案名称"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              autoFocus
-            />
-            <Typography variant="body2" color="text.secondary">
-              创建后即可使用。
-            </Typography>
+            <TextField label="档案名称" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoFocus />
+            <Typography variant="body2" color="text.secondary">创建后即可使用。</Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={busy}>
-            创建
-          </Button>
+          <Button variant="contained" onClick={handleCreate} disabled={busy}>创建</Button>
         </DialogActions>
       </Dialog>
     </PageSection>

@@ -24,6 +24,7 @@ from ..schemas import (
     IdentifyVoiceprintResponse,
     VerifyVoiceprintRequest,
     VerifyVoiceprintResponse,
+    VoiceprintAsyncReceipt,
     VoiceprintEnrollmentResult,
     VoiceprintProfile,
 )
@@ -34,9 +35,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voiceprints", tags=["voiceprints"])
 
 
-# ============ 辅助函数 ============
-
-
 def _create_job_record(
     job_type: str,
     asset_name: str,
@@ -44,7 +42,6 @@ def _create_job_record(
     threshold: float | None = None,
     top_k: int | None = None,
 ) -> str:
-    """创建 job 记录，返回 job_id。"""
     job_id = str(uuid4())
     now = datetime.now(timezone.utc)
     with job_db.session() as db:
@@ -92,7 +89,8 @@ def _run_sync_voiceprint_job(job_id: str, runner):
     return result
 
 
-# ============ 档案管理路由（同步，无 job） ============
+def _job_receipt(job_id: str, status: str = "queued") -> VoiceprintAsyncReceipt:
+    return VoiceprintAsyncReceipt(job_id=job_id, status=status)
 
 
 @router.get("/profiles")
@@ -106,7 +104,36 @@ def create_profile(payload: CreateVoiceprintProfileRequest) -> CreateVoiceprintP
     return CreateVoiceprintProfileResponse(profile=profile)
 
 
-# ============ 声纹任务路由（通过 Celery 队列） ============
+@router.get("/jobs/{job_id}")
+def get_voiceprint_job(job_id: str):
+    with job_db.session() as db:
+        record = db.get(job_db.JobRecord, job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if record.job_type not in {"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}:
+            raise HTTPException(status_code=404, detail="Voiceprint job not found")
+
+        payload = {
+            "job_id": record.job_id,
+            "job_type": record.job_type,
+            "status": record.status,
+            "asset_name": record.asset_name,
+            "error_message": record.error_message,
+            "enrollment": None,
+            "verification": None,
+            "identification": None,
+        }
+        if record.result:
+            import json
+
+            parsed = json.loads(record.result)
+            if record.job_type == "voiceprint_enroll":
+                payload["enrollment"] = parsed
+            elif record.job_type == "voiceprint_verify":
+                payload["verification"] = parsed
+            elif record.job_type == "voiceprint_identify":
+                payload["identification"] = parsed
+        return payload
 
 
 @router.post("/profiles/{profile_id}/enroll", response_model=EnrollVoiceprintResponse)
@@ -120,16 +147,12 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
 
     if is_async_available():
         try:
-            result = enroll_voiceprint(
+            enroll_voiceprint(
                 job_id=job_id,
                 asset_name=payload.asset_name,
                 profile_id=profile_id,
             )
-            return EnrollVoiceprintResponse(
-                profile=profile,
-                enrollment=VoiceprintEnrollmentResult(**result),
-                job_id=job_id,
-            )
+            return EnrollVoiceprintResponse(profile=profile, job=_job_receipt(job_id))
         except Exception as exc:
             logger.warning(f"声纹注册任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
 
@@ -140,7 +163,6 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
     return EnrollVoiceprintResponse(
         profile=enrolled_profile,
         enrollment=VoiceprintEnrollmentResult(**enrollment),
-        job_id=job_id,
     )
 
 
@@ -156,13 +178,13 @@ def verify(payload: VerifyVoiceprintRequest) -> VerifyVoiceprintResponse:
 
     if is_async_available():
         try:
-            result = verify_voiceprint(
+            verify_voiceprint(
                 job_id=job_id,
                 asset_name=payload.probe_asset_name,
                 profile_id=payload.profile_id,
                 threshold=payload.threshold,
             )
-            return VerifyVoiceprintResponse(result=result, job_id=job_id)
+            return VerifyVoiceprintResponse(job=_job_receipt(job_id))
         except Exception as exc:
             logger.warning(f"声纹验证任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
 
@@ -170,7 +192,7 @@ def verify(payload: VerifyVoiceprintRequest) -> VerifyVoiceprintResponse:
         job_id,
         lambda: voiceprint_service.verify(payload.profile_id, payload.probe_asset_name, payload.threshold),
     )
-    return VerifyVoiceprintResponse(result=result, job_id=job_id)
+    return VerifyVoiceprintResponse(result=result)
 
 
 @router.post("/identify", response_model=IdentifyVoiceprintResponse)
@@ -183,12 +205,12 @@ def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
 
     if is_async_available():
         try:
-            result = identify_voiceprint(
+            identify_voiceprint(
                 job_id=job_id,
                 asset_name=payload.probe_asset_name,
                 top_k=payload.top_k,
             )
-            return IdentifyVoiceprintResponse(result=result, job_id=job_id)
+            return IdentifyVoiceprintResponse(job=_job_receipt(job_id))
         except Exception as exc:
             logger.warning(f"声纹识别任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
 
@@ -196,4 +218,4 @@ def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
         job_id,
         lambda: voiceprint_service.identify(probe_asset_name=payload.probe_asset_name, top_k=payload.top_k),
     )
-    return IdentifyVoiceprintResponse(result=result, job_id=job_id)
+    return IdentifyVoiceprintResponse(result=result)

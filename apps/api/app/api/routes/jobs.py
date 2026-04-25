@@ -1,15 +1,30 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from ..schemas import JobListResponse
+from ..schemas import JobListResponse, PaginationMeta
 from ...services.job_service import job_service
 
 router = APIRouter(tags=["jobs"])
 
 
 @router.get("/jobs", response_model=JobListResponse)
-def list_jobs() -> JobListResponse:
-    items = [job_service.get_job(job.job_id) for job in job_service.list_jobs()]
-    return JobListResponse(items=[item for item in items if item is not None])
+def list_jobs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status: str | None = Query(default=None),
+    job_type: str | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+) -> JobListResponse:
+    items, total = job_service.list_job_details(
+        page=page,
+        page_size=page_size,
+        status=status,
+        job_type=job_type,
+        keyword=keyword,
+    )
+    return JobListResponse(
+        items=items,
+        meta=PaginationMeta(page=page, page_size=page_size, total=total),
+    )
 
 
 @router.get("/jobs/{job_id}")

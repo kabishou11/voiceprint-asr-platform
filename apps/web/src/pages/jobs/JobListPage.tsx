@@ -9,6 +9,7 @@ import {
   Chip,
   Divider,
   MenuItem,
+  Pagination,
   Stack,
   TextField,
   Typography,
@@ -22,6 +23,8 @@ import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
+
+const PAGE_SIZE = 20;
 
 function StatChip({
   label,
@@ -37,37 +40,34 @@ function StatChip({
 
 export function JobListPage() {
   const navigate = useNavigate();
-  const { data, loading, error, reload } = useAsyncData(() => fetchJobs(), []);
   const [statusFilter, setStatusFilter] = useState('all');
   const [jobTypeFilter, setJobTypeFilter] = useState('all');
   const [keyword, setKeyword] = useState('');
+  const [page, setPage] = useState(1);
+  const { data, loading, error, reload } = useAsyncData(
+    () =>
+      fetchJobs({
+        page,
+        page_size: PAGE_SIZE,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        job_type: jobTypeFilter === 'all' ? undefined : jobTypeFilter,
+        keyword: keyword.trim() || undefined,
+      }),
+    [page, statusFilter, jobTypeFilter, keyword],
+  );
 
-  const { filteredJobs, statCounts } = useMemo(() => {
+  const statCounts = useMemo(() => {
     const items = data?.items ?? [];
-    const counts = { all: items.length, queued: 0, running: 0, succeeded: 0, failed: 0 };
+    const counts = { all: data?.meta?.total ?? items.length, queued: 0, running: 0, succeeded: 0, failed: 0 };
     items.forEach((job) => {
       if (job.status in counts) {
         counts[job.status as keyof typeof counts]++;
       }
     });
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    const filtered = items.filter((job) => {
-      if (statusFilter !== 'all' && job.status !== statusFilter) {
-        return false;
-      }
-      if (jobTypeFilter !== 'all' && job.job_type !== jobTypeFilter) {
-        return false;
-      }
-      if (!normalizedKeyword) {
-        return true;
-      }
-      return (
-        (job.asset_name ?? '').toLowerCase().includes(normalizedKeyword) ||
-        job.job_id.toLowerCase().includes(normalizedKeyword)
-      );
-    });
-    return { filteredJobs: filtered, statCounts: counts };
-  }, [data?.items, jobTypeFilter, keyword, statusFilter]);
+    return counts;
+  }, [data?.items, data?.meta?.total]);
+
+  const totalPages = Math.max(1, Math.ceil((data?.meta?.total ?? 0) / PAGE_SIZE));
 
   return (
     <PageSection
@@ -100,7 +100,10 @@ export function JobListPage() {
             <TextField
               size="small"
               value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
+              onChange={(event) => {
+                setKeyword(event.target.value);
+                setPage(1);
+              }}
               placeholder="搜索文件名或任务号"
               sx={{ minWidth: { xs: '100%', xl: 260 } }}
             />
@@ -108,18 +111,27 @@ export function JobListPage() {
               select
               size="small"
               value={jobTypeFilter}
-              onChange={(event) => setJobTypeFilter(event.target.value)}
+              onChange={(event) => {
+                setJobTypeFilter(event.target.value);
+                setPage(1);
+              }}
               sx={{ minWidth: { xs: '100%', md: 160 } }}
             >
               <MenuItem value="all">全部类型</MenuItem>
               <MenuItem value="transcription">单人转写</MenuItem>
               <MenuItem value="multi_speaker_transcription">多人转写</MenuItem>
+              <MenuItem value="voiceprint_enroll">声纹注册</MenuItem>
+              <MenuItem value="voiceprint_verify">声纹验证</MenuItem>
+              <MenuItem value="voiceprint_identify">声纹识别</MenuItem>
             </TextField>
             <TextField
               select
               size="small"
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setPage(1);
+              }}
               sx={{ minWidth: { xs: '100%', md: 150 } }}
             >
               <MenuItem value="all">全部状态</MenuItem>
@@ -149,8 +161,8 @@ export function JobListPage() {
         </Box>
 
         <Stack divider={<Divider flexItem />}>
-          {filteredJobs.length ? (
-            filteredJobs.map((job) => (
+          {data?.items?.length ? (
+            data.items.map((job) => (
               <Box
                 key={job.job_id}
                 role="button"
@@ -201,10 +213,13 @@ export function JobListPage() {
                   </Typography>
 
                   <Box>
-                    <Button size="small" onClick={(event) => {
-                      event.stopPropagation();
-                      navigate(`/jobs/${job.job_id}`);
-                    }}>
+                    <Button
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        navigate(`/jobs/${job.job_id}`);
+                      }}
+                    >
                       {job.job_type === 'multi_speaker_transcription' ? '复核' : '查看'}
                     </Button>
                   </Box>
@@ -217,6 +232,12 @@ export function JobListPage() {
             </Box>
           )}
         </Stack>
+
+        {(data?.meta?.total ?? 0) > PAGE_SIZE ? (
+          <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'center' }}>
+            <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
+          </Box>
+        ) : null}
       </Card>
     </PageSection>
   );

@@ -13,6 +13,7 @@ import type {
   TranscriptResponse,
   UploadAssetResponse,
   VerifyVoiceprintResponse,
+  VoiceprintJobResponse,
   VoiceprintProfilesResponse,
 } from './types';
 
@@ -44,8 +45,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function fetchJobs(): Promise<JobListResponse> {
-  return request<JobListResponse>('/jobs');
+export function fetchJobs(params?: {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  job_type?: string;
+  keyword?: string;
+}): Promise<JobListResponse> {
+  const search = new URLSearchParams();
+  if (params?.page) search.set('page', String(params.page));
+  if (params?.page_size) search.set('page_size', String(params.page_size));
+  if (params?.status) search.set('status', params.status);
+  if (params?.job_type) search.set('job_type', params.job_type);
+  if (params?.keyword) search.set('keyword', params.keyword);
+  return request<JobListResponse>(`/jobs${search.size ? `?${search.toString()}` : ''}`);
+}
+
+export function fetchVoiceprintJob(jobId: string): Promise<VoiceprintJobResponse> {
+  return request<VoiceprintJobResponse>(`/voiceprints/jobs/${jobId}`);
 }
 
 export function deleteJob(jobId: string): Promise<{ job_id: string; deleted: boolean }> {

@@ -94,8 +94,15 @@ export interface JobDetail {
   error_message?: string | null;
 }
 
+export interface PaginationMeta {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
 export interface JobListResponse {
   items: JobDetail[];
+  meta?: PaginationMeta;
 }
 
 export interface CreateTranscriptionResponse {
@@ -232,9 +239,15 @@ export interface VoiceprintEnrollmentResult {
   mode: string;
 }
 
+export interface VoiceprintAsyncReceipt {
+  status: 'queued' | 'running';
+  job_id: string;
+}
+
 export interface EnrollVoiceprintResponse {
-  profile: VoiceprintProfile;
-  enrollment: VoiceprintEnrollmentResult;
+  profile?: VoiceprintProfile | null;
+  enrollment?: VoiceprintEnrollmentResult | null;
+  job?: VoiceprintAsyncReceipt | null;
 }
 
 export interface VoiceprintVerificationResult {
@@ -245,7 +258,8 @@ export interface VoiceprintVerificationResult {
 }
 
 export interface VerifyVoiceprintResponse {
-  result: VoiceprintVerificationResult;
+  result?: VoiceprintVerificationResult | null;
+  job?: VoiceprintAsyncReceipt | null;
 }
 
 export interface VoiceprintIdentificationCandidate {
@@ -261,7 +275,19 @@ export interface VoiceprintIdentificationResult {
 }
 
 export interface IdentifyVoiceprintResponse {
-  result: VoiceprintIdentificationResult;
+  result?: VoiceprintIdentificationResult | null;
+  job?: VoiceprintAsyncReceipt | null;
+}
+
+export interface VoiceprintJobResponse {
+  job_id: string;
+  job_type: Extract<JobType, 'voiceprint_enroll' | 'voiceprint_verify' | 'voiceprint_identify'>;
+  status: JobStatus;
+  asset_name?: string | null;
+  error_message?: string | null;
+  enrollment?: VoiceprintEnrollmentResult | null;
+  verification?: VoiceprintVerificationResult | null;
+  identification?: VoiceprintIdentificationResult | null;
 }
 
 export function formatDateTime(value?: string | null): string {
