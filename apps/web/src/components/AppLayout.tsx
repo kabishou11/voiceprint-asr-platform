@@ -57,8 +57,16 @@ export function AppLayout() {
     }
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
   });
-  const jobsState = useAsyncData(() => fetchJobs(), []);
-  const modelsState = useAsyncData(() => fetchModels(), []);
+  const jobsState = useAsyncData(() => fetchJobs({ page: 1, page_size: 50 }), [], {
+    enabled: true,
+    intervalMs: STATUS_POLL_INTERVAL_MS,
+    pauseWhenHidden: true,
+  });
+  const modelsState = useAsyncData(() => fetchModels(), [], {
+    enabled: true,
+    intervalMs: STATUS_POLL_INTERVAL_MS,
+    pauseWhenHidden: true,
+  });
   const runningCount = useMemo(
     () =>
       (jobsState.data?.items ?? []).filter(
@@ -80,14 +88,6 @@ export function AppLayout() {
     }
     window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
   }, [collapsed]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      jobsState.reload();
-      modelsState.reload();
-    }, STATUS_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [jobsState.reload, modelsState.reload]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', color: 'text.primary' }}>

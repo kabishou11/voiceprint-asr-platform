@@ -194,37 +194,25 @@ export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const { data, loading, error, reload, setData } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
+  const { data, loading, error, reload } = useAsyncData(
+    () => fetchTranscript(jobId),
+    [jobId],
+    {
+      enabled: true,
+      intervalMs: POLL_INTERVAL_MS,
+      pauseWhenHidden: true,
+      stopWhen: (result) => {
+        const status = result?.job?.status;
+        return status === 'succeeded' || status === 'failed';
+      },
+    },
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
-
-  useEffect(() => {
-    if (!jobId || !isProcessing) {
-      return undefined;
-    }
-
-    let active = true;
-    const timer = window.setInterval(() => {
-      void fetchTranscript(jobId)
-        .then((result) => {
-          if (active) {
-            setData(result);
-          }
-        })
-        .catch(() => {
-          // 保持当前页面状态，用户仍可手动刷新查看具体错误。
-        });
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [isProcessing, jobId, setData]);
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
