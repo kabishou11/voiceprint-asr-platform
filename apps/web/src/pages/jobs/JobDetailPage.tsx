@@ -42,6 +42,15 @@ const UNLABELED_SPEAKER_KEY = '__unlabeled__';
 const UNLABELED_SPEAKER_LABEL = '未标注说话人';
 const PANEL_MAX_HEIGHT = 720;
 
+const SPEAKER_PALETTE = [
+  '#2f6fed', '#16a34a', '#ea580c', '#7c3aed', '#0891b2',
+  '#be185d', '#ca8a04', '#4f46e5', '#059669', '#dc2626',
+];
+
+function speakerColor(index: number): string {
+  return SPEAKER_PALETTE[index % SPEAKER_PALETTE.length];
+}
+
 type SpeakerMappingStore = Record<string, Record<string, string>>;
 type ExportSpeakerGroup = {
   speaker: string | null;
@@ -323,6 +332,14 @@ export function JobDetailPage() {
       .sort((left, right) => right.durationMs - left.durationMs);
   }, [displaySegments]);
 
+  const speakerColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    speakerGroups.forEach((group, index) => {
+      map.set(group.speaker, speakerColor(index));
+    });
+    return map;
+  }, [speakerGroups]);
+
   const filteredSegments = useMemo(
     () =>
       selectedSpeaker === 'ALL'
@@ -525,9 +542,14 @@ export function JobDetailPage() {
                 >
                   <Box
                     sx={{
-                      px: { xs: 0, md: 0.5 },
+                      px: { xs: 1.2, md: 2 },
+                      py: 1.6,
                       maxHeight: PANEL_MAX_HEIGHT,
                       overflow: 'auto',
+                      bgcolor: alpha('#fafbfc', 0.92),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                      borderRadius: 3,
                     }}
                   >
                     <MeasuredPretextBlock
@@ -572,6 +594,7 @@ export function JobDetailPage() {
                                 selectedSpeaker !== 'ALL' && segment.speakerKey === selectedSpeaker
                                   ? alpha('#2f6fed', 0.18)
                                   : alpha('#1c2431', 0.06),
+                              borderLeft: `3px solid ${alpha(speakerColorMap.get(segment.speakerKey) ?? '#64748b', 0.5)}`,
                             }}
                           >
                             <Stack spacing={0.85}>
@@ -580,7 +603,7 @@ export function JobDetailPage() {
                                   <Typography variant="body2" color="text.secondary">
                                     {formatTimelineRange(segment.start_ms, segment.end_ms)}
                                   </Typography>
-                                  <Chip size="small" label={segment.displaySpeaker} />
+                                  <Chip size="small" label={segment.displaySpeaker} sx={{ bgcolor: alpha(speakerColorMap.get(segment.speakerKey) ?? '#64748b', 0.12), color: speakerColorMap.get(segment.speakerKey) ?? '#64748b', fontWeight: 600 }} />
                                   {typeof segment.confidence === 'number' ? (
                                     <Chip size="small" variant="outlined" label={`置信度 ${segment.confidence.toFixed(2)}`} />
                                   ) : null}
