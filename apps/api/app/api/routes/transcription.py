@@ -64,6 +64,7 @@ def create_transcription(payload: CreateTranscriptionRequest) -> CreateTranscrip
         job = job_service.create_transcription_job(
             asset_name=payload.asset_name,
             job_type=job_type,
+            asr_model=payload.asr_model,
             diarization_model=payload.diarization_model,
             hotwords=payload.hotwords,
             language=payload.language,

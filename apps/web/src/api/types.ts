@@ -111,6 +111,7 @@ export interface CreateTranscriptionResponse {
 
 export interface CreateTranscriptionRequest {
   asset_name: string;
+  asr_model?: string;
   diarization_model?: string | null;
   hotwords?: string[] | null;
   language?: string;

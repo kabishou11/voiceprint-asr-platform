@@ -91,6 +91,33 @@ class SpeakerAliasRecord(Base):
     )
 
 
+class VoiceprintProfileRecord(Base):
+    __tablename__ = "voiceprint_profiles"
+
+    profile_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    model_key: Mapped[str] = mapped_column(String(64), nullable=False, default="3dspeaker-embedding")
+    sample_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VoiceprintSampleRecord(Base):
+    __tablename__ = "voiceprint_samples"
+
+    sample_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_profiles.profile_id"), nullable=False)
+    asset_name: Mapped[str] = mapped_column(Text, nullable=False)
+    source_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 def _storage_path() -> Path:
     return Path(__file__).resolve().parents[4] / "storage"
 

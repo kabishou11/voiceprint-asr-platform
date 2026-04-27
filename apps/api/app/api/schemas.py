@@ -49,6 +49,7 @@ class JobListResponse(BaseModel):
 
 class CreateTranscriptionRequest(BaseModel):
     asset_name: str
+    asr_model: str = "funasr-nano"
     diarization_model: str | None = None
     hotwords: list[str] | None = None
     language: str = "zh-cn"
