@@ -22,28 +22,35 @@ const API_BASE = '/api/v1';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: isFormData
-      ? init?.headers
-      : {
-          'Content-Type': 'application/json',
-          ...(init?.headers ?? {}),
-        },
-    ...init,
-  });
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: isFormData
+        ? init?.headers
+        : {
+            'Content-Type': 'application/json',
+            ...(init?.headers ?? {}),
+          },
+      ...init,
+    });
 
-  const contentType = response.headers.get('content-type') ?? '';
-  const payload = contentType.includes('application/json') ? await response.json() : null;
+    const contentType = response.headers.get('content-type') ?? '';
+    const payload = contentType.includes('application/json') ? await response.json() : null;
 
-  if (!response.ok) {
-    const detail =
-      typeof payload === 'object' && payload !== null && 'detail' in payload
-        ? String(payload.detail)
-        : `服务请求失败（${response.status}）`;
-    throw new Error(detail);
+    if (!response.ok) {
+      const detail =
+        typeof payload === 'object' && payload !== null && 'detail' in payload
+          ? String(payload.detail)
+          : `服务请求失败（${response.status}）`;
+      throw new Error(detail);
+    }
+
+    return payload as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('后端服务未连接，请确认 API 服务是否已启动。');
+    }
+    throw error;
   }
-
-  return payload as T;
 }
 
 export function fetchJobs(params?: {

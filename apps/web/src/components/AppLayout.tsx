@@ -61,11 +61,13 @@ export function AppLayout() {
     enabled: true,
     intervalMs: STATUS_POLL_INTERVAL_MS,
     pauseWhenHidden: true,
+    errorBackoffMs: 15000,
   });
   const modelsState = useAsyncData(() => fetchModels(), [], {
     enabled: true,
     intervalMs: STATUS_POLL_INTERVAL_MS,
     pauseWhenHidden: true,
+    errorBackoffMs: 15000,
   });
   const runningCount = useMemo(
     () =>

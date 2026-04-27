@@ -6,6 +6,7 @@ interface PollingOptions<T> {
   intervalMs: number;
   stopWhen?: (data: T | null) => boolean;
   pauseWhenHidden?: boolean;
+  errorBackoffMs?: number;
 }
 
 export function useAsyncData<T>(
@@ -56,8 +57,9 @@ export function useAsyncData<T>(
     }
 
     const tick = () => {
+      const nextInterval = error && polling.errorBackoffMs ? polling.errorBackoffMs : polling.intervalMs;
       if (polling.pauseWhenHidden && typeof document !== 'undefined' && document.hidden) {
-        timeoutRef.current = window.setTimeout(tick, polling.intervalMs);
+        timeoutRef.current = window.setTimeout(tick, nextInterval);
         return;
       }
       if (polling.stopWhen?.(data ?? null)) {
@@ -65,7 +67,7 @@ export function useAsyncData<T>(
       }
       isPollingRefreshRef.current = true;
       setVersion((current) => current + 1);
-      timeoutRef.current = window.setTimeout(tick, polling.intervalMs);
+      timeoutRef.current = window.setTimeout(tick, nextInterval);
     };
 
     timeoutRef.current = window.setTimeout(tick, polling.intervalMs);
