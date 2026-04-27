@@ -64,6 +64,7 @@ export function TranscriptionWorkbenchPage() {
   const [searchParams] = useSearchParams();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedAssetName, setUploadedAssetName] = useState('');
+  const [taskMode, setTaskMode] = useState<'single' | 'multi'>('multi');
   const [diarizationModel, setDiarizationModel] = useState('');
   const [language, setLanguage] = useState('zh-cn');
   const [asrModel, setAsrModel] = useState('funasr-nano');
@@ -116,10 +117,13 @@ export function TranscriptionWorkbenchPage() {
   const asrLoadable = asrState !== 'unavailable';
 
   useEffect(() => {
-    if (!diarizationModel && diarizationOptions.length > 0) {
+    if (taskMode === 'multi' && !diarizationModel && diarizationOptions.length > 0) {
       setDiarizationModel(diarizationOptions[0].key);
     }
-  }, [diarizationModel, diarizationOptions]);
+    if (taskMode === 'single' && diarizationModel) {
+      setDiarizationModel('');
+    }
+  }, [taskMode, diarizationModel, diarizationOptions]);
 
   useEffect(() => {
     const asset = searchParams.get('asset') ?? '';
@@ -134,10 +138,14 @@ export function TranscriptionWorkbenchPage() {
       setLanguage(incomingLanguage);
     }
     if (mode === 'single') {
+      setTaskMode('single');
       setDiarizationModel('');
     }
-    if (mode === 'multi' && diarizationOptions.length > 0) {
-      setDiarizationModel(diarizationOptions[0].key);
+    if (mode === 'multi') {
+      setTaskMode('multi');
+      if (diarizationOptions.length > 0) {
+        setDiarizationModel(diarizationOptions[0].key);
+      }
     }
   }, [diarizationOptions, searchParams]);
 
@@ -195,7 +203,7 @@ export function TranscriptionWorkbenchPage() {
       const response = await createTranscription({
         asset_name: assetName,
         asr_model: asrModel,
-        diarization_model: diarizationModel || null,
+        diarization_model: taskMode === 'multi' ? diarizationModel || null : null,
         hotwords: parsedHotwords.length ? parsedHotwords : null,
         language,
         vad_enabled: vadEnabled,
@@ -240,7 +248,7 @@ export function TranscriptionWorkbenchPage() {
       compact
       title="开始任务"
       description="上传音频，选择单人或多人转写；多人模式默认包含说话人分离，可选限定声纹分组。"
-      loading={modelsState.loading || jobsState.loading}
+      loading={(modelsState.loading && !modelsState.data) || (jobsState.loading && !jobsState.data)}
       error={modelsState.error ?? jobsState.error}
       actions={
         <Stack direction="row" spacing={1}>
@@ -351,19 +359,16 @@ export function TranscriptionWorkbenchPage() {
                       select
                       fullWidth
                       label="任务模式"
-                      value={diarizationModel ? 'multi' : 'single'}
+                      value={taskMode}
                       onChange={(event) => {
-                        if (event.target.value === 'single') {
-                          setDiarizationModel('');
-                        } else if (diarizationOptions.length > 0) {
-                          setDiarizationModel(diarizationOptions[0].key);
-                        }
+                        const nextMode = event.target.value as 'single' | 'multi';
+                        setTaskMode(nextMode);
                       }}
                     >
                       <MenuItem value="single">单人转写</MenuItem>
                       <MenuItem value="multi">多人转写</MenuItem>
                     </TextField>
-                    {diarizationModel ? (
+                    {taskMode === 'multi' ? (
                       <TextField
                         select
                         fullWidth
@@ -378,7 +383,7 @@ export function TranscriptionWorkbenchPage() {
                     ) : null}
                   </Stack>
 
-                  {diarizationModel && voiceprintScopeMode === 'group' ? (
+                  {taskMode === 'multi' && voiceprintScopeMode === 'group' ? (
                     <TextField
                       select
                       fullWidth
