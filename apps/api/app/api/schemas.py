@@ -55,6 +55,9 @@ class CreateTranscriptionRequest(BaseModel):
     language: str = "zh-cn"
     vad_enabled: bool = False
     itn: bool = True
+    voiceprint_scope_mode: Literal["none", "all", "group"] = "none"
+    voiceprint_group_id: str | None = None
+    voiceprint_profile_ids: list[str] | None = None
     num_speakers: int | None = Field(default=None, ge=1, le=32)
     min_speakers: int | None = Field(default=None, ge=1, le=32)
     max_speakers: int | None = Field(default=None, ge=1, le=32)

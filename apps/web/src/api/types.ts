@@ -117,6 +117,9 @@ export interface CreateTranscriptionRequest {
   language?: string;
   vad_enabled?: boolean;
   itn?: boolean;
+  voiceprint_scope_mode?: 'none' | 'all' | 'group';
+  voiceprint_group_id?: string | null;
+  voiceprint_profile_ids?: string[] | null;
   num_speakers?: number | null;
   min_speakers?: number | null;
   max_speakers?: number | null;

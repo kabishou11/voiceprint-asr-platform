@@ -200,6 +200,8 @@ export function TranscriptionWorkbenchPage() {
         language,
         vad_enabled: vadEnabled,
         itn: itnEnabled,
+        voiceprint_scope_mode: voiceprintScopeMode,
+        voiceprint_group_id: voiceprintScopeMode === 'group' ? voiceprintGroupId || null : null,
         num_speakers: numSpeakers,
         min_speakers: minSpeakers,
         max_speakers: maxSpeakers,
