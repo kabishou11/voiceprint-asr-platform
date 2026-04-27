@@ -1,0 +1,41 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "声纹库" [ref=e17] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e19]: 声纹库
+      - link "系统模型" [ref=e20] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e22]: 系统模型
+  - main [ref=e23]:
+    - generic [ref=e96]:
+      - generic [ref=e98]:
+        - heading "任务详情" [level=4] [ref=e99]
+        - paragraph [ref=e100]: 查看任务结果、speaker 标签与文本分段。
+      - generic [ref=e103]:
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - heading "sample-meeting.wav" [level=6] [ref=e106]
+            - paragraph [ref=e107]: transcription
+          - generic [ref=e109]: succeeded
+        - separator [ref=e110]
+        - heading "全文结果" [level=6] [ref=e111]
+        - paragraph [ref=e112]: 欢迎使用 voiceprint-asr-platform。
+        - separator [ref=e113]
+        - heading "分段结果" [level=6] [ref=e114]
+        - generic [ref=e115]:
+          - generic [ref=e118]:
+            - paragraph [ref=e119]: 0ms - 2300ms · SPEAKER_00
+            - paragraph [ref=e120]: 欢迎使用
+          - generic [ref=e123]:
+            - paragraph [ref=e124]: 2300ms - 5200ms · SPEAKER_00
+            - paragraph [ref=e125]: voiceprint-asr-platform。

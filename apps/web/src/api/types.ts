@@ -2,7 +2,6 @@ export type JobStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed
 export type JobType =
   | 'transcription'
   | 'multi_speaker_transcription'
-  | 'diarization'
   | 'voiceprint_enroll'
   | 'voiceprint_verify'
   | 'voiceprint_identify';
@@ -27,7 +26,6 @@ export const jobStatusLabels: Record<JobStatus, string> = {
 export const jobTypeLabels: Record<JobType, string> = {
   transcription: '单人转写',
   multi_speaker_transcription: '多人转写',
-  diarization: '说话人分离',
   voiceprint_enroll: '声纹注册',
   voiceprint_verify: '声纹验证',
   voiceprint_identify: '声纹识别',

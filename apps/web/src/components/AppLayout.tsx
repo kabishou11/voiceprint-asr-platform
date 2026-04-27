@@ -1,7 +1,6 @@
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
 import HomeRounded from '@mui/icons-material/HomeRounded';
 import ArticleRounded from '@mui/icons-material/ArticleRounded';
-import GraphicEqRounded from '@mui/icons-material/GraphicEqRounded';
 import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import KeyboardDoubleArrowRightRounded from '@mui/icons-material/KeyboardDoubleArrowRightRounded';
 import ManageSearchRounded from '@mui/icons-material/ManageSearchRounded';
@@ -36,7 +35,6 @@ const navItems = [
   { label: '工作台', to: '/', icon: <HomeRounded fontSize="small" /> },
   { label: '任务队列', to: '/tasks', icon: <CheckCircleOutlineRounded fontSize="small" /> },
   { label: '任务中心', to: '/jobs', icon: <ManageSearchRounded fontSize="small" /> },
-  { label: '说话人分离', to: '/diarization', icon: <GraphicEqRounded fontSize="small" /> },
   { label: '会议纪要', to: '/minutes', icon: <ArticleRounded fontSize="small" /> },
   { label: '声纹库', to: '/voiceprints', icon: <MicRounded fontSize="small" /> },
   { label: '模型', to: '/system/models', icon: <MonitorHeartRounded fontSize="small" /> },

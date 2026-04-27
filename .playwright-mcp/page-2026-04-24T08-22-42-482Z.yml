@@ -1,0 +1,403 @@
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - img "Voiceprint ASR Platform" [ref=e11]
+          - generic [ref=e12]:
+            - heading "智能语音平台" [level=6] [ref=e13]
+            - paragraph [ref=e14]: ASR Platform
+        - button "收起侧边栏" [ref=e15] [cursor=pointer]:
+          - img [ref=e16]
+      - generic [ref=e19]:
+        - generic [ref=e21]: 运行中 11
+        - generic [ref=e23]: 模型 0
+        - generic [ref=e25]: GPU
+    - list [ref=e26]:
+      - link "工作台" [ref=e27] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e28]:
+          - img [ref=e29]
+          - generic [ref=e32]: 工作台
+      - link "任务队列" [ref=e33] [cursor=pointer]:
+        - /url: /tasks
+        - generic [ref=e34]:
+          - img [ref=e35]
+          - generic [ref=e38]: 任务队列
+      - link "任务中心" [ref=e39] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e40]:
+          - img [ref=e41]
+          - generic [ref=e44]: 任务中心
+      - link "会议纪要" [ref=e45] [cursor=pointer]:
+        - /url: /minutes
+        - generic [ref=e46]:
+          - img [ref=e47]
+          - generic [ref=e50]: 会议纪要
+      - link "声纹库" [ref=e51] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e52]:
+          - img [ref=e53]
+          - generic [ref=e56]: 声纹库
+      - link "模型" [ref=e57] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e58]:
+          - img [ref=e59]
+          - generic [ref=e63]: 模型
+    - generic [ref=e65]:
+      - paragraph [ref=e66]: 任务中心
+      - generic [ref=e67]:
+        - generic [ref=e69]: 任务 11
+        - generic [ref=e71]: 模型 0
+  - main [ref=e72]:
+    - generic [ref=e631]:
+      - generic [ref=e633]:
+        - generic [ref=e634]:
+          - heading "973c3803531a3517.wav" [level=4] [ref=e635]
+          - paragraph [ref=e636]: 多人转写 · 更新时间 04/23 12:22
+        - generic [ref=e637]:
+          - button "刷新" [ref=e638] [cursor=pointer]
+          - button "复制结果" [ref=e639] [cursor=pointer]:
+            - img [ref=e641]
+            - text: 复制结果
+          - button "导出 JSON" [ref=e643] [cursor=pointer]:
+            - img [ref=e645]
+            - text: 导出 JSON
+          - button "会议纪要" [ref=e647] [cursor=pointer]:
+            - img [ref=e649]
+            - text: 会议纪要
+          - button "快速重跑" [ref=e651] [cursor=pointer]:
+            - img [ref=e653]
+            - text: 快速重跑
+      - generic [ref=e656]:
+        - generic [ref=e657]:
+          - generic [ref=e659]: 已完成
+          - generic [ref=e661]: 语言 未标注
+          - generic [ref=e663]: Speaker 3
+          - generic [ref=e665]: 对齐 Exclusive
+          - generic [ref=e667]: exclusive 44 段
+          - generic [ref=e669]: display 22 段
+          - generic [ref=e671]: regular 44 段
+        - generic [ref=e672]:
+          - generic [ref=e676]:
+            - img [ref=e678]
+            - generic [ref=e680]:
+              - paragraph [ref=e681]: 总时长
+              - heading "03:06" [level=5] [ref=e682]
+          - generic [ref=e686]:
+            - img [ref=e688]
+            - generic [ref=e690]:
+              - paragraph [ref=e691]: 分段数
+              - heading "29" [level=5] [ref=e692]
+          - generic [ref=e696]:
+            - img [ref=e698]
+            - generic [ref=e700]:
+              - paragraph [ref=e701]: 说话人数
+              - heading "3" [level=5] [ref=e702]
+          - generic [ref=e706]:
+            - img [ref=e708]
+            - generic [ref=e710]:
+              - paragraph [ref=e711]: 对齐来源
+              - heading "Exclusive" [level=5] [ref=e712]
+        - generic [ref=e713]:
+          - generic [ref=e715]:
+            - generic [ref=e718]:
+              - generic [ref=e720]:
+                - heading "全文结果" [level=6] [ref=e721]
+                - paragraph [ref=e722]: 完整转录文本 · 29 段
+              - paragraph [ref=e725]:
+                - generic [ref=e726]: 春天的花开，秋天的风，以及冬天的落阳，忧郁的青春年少的我，曾经无知的这么想。 风车在
+                - generic [ref=e727]: 四季轮回的歌里，它天天地流转。不争风花雪月的诗句里，我在年年的成长流水，它带走光阴的
+                - generic [ref=e728]: 故事，改变了一个人。 就在那多愁善感的初次等待。只能卖给青春。 the 发黄的相片，古老的
+                - generic [ref=e729]: 信，以及褪色的圣诞卡。年轻时为你写的歌，恐怕你早已忘了吧。 过去的誓言，就像那课本里
+                - generic [ref=e730]: 缤纷的书签。抒情刻画着多少美丽的诗，可是终究是一阵烟，流水它带走光阴的故事，改变了
+                - generic [ref=e731]: 两。 两个人就在那多愁善感的初次。勇敢的初次流泪的青春 the 遥远的路。遥远的路程，昨日
+                - generic [ref=e732]: 的梦以及远去的笑声，再次的见面，我们又历经了多少的路程。 不再是旧日熟悉的我，有着旧
+                - generic [ref=e733]: 日狂热的梦。也不是旧日手心里有着依然的笑容。 流水它带走光阴的故事，改变了我们，就在
+                - generic [ref=e734]: 那多愁善感的初。都说善良的柱子会青春，都在他带走光阴的故事改变了我们。 就在那多愁善
+                - generic [ref=e735]: 感而初次回忆的青春
+            - generic [ref=e738]:
+              - generic [ref=e739]:
+                - generic [ref=e740]:
+                  - heading "分段结果" [level=6] [ref=e741]
+                  - paragraph [ref=e742]: 按时间顺序展示全部分段
+                - generic [ref=e744]: 29 条
+              - generic [ref=e746]:
+                - generic [ref=e748]:
+                  - generic [ref=e750]:
+                    - paragraph [ref=e751]: 00:00 - 00:17
+                    - generic [ref=e753]: Speaker 1
+                  - paragraph [ref=e754]: 春天的花
+                - generic [ref=e756]:
+                  - generic [ref=e758]:
+                    - paragraph [ref=e759]: 00:17 - 00:32
+                    - generic [ref=e761]: Speaker 2
+                  - paragraph [ref=e762]: 开秋天的风，以及冬天的落阳，忧郁的青春年少的我，曾经无知的这么想。
+                - generic [ref=e764]:
+                  - generic [ref=e766]:
+                    - paragraph [ref=e767]: 00:32 - 00:43
+                    - generic [ref=e769]: Speaker 2
+                  - paragraph [ref=e770]: 风车在四季轮回的歌里，它天天地流争风花雪月我在年
+                - generic [ref=e772]:
+                  - generic [ref=e774]:
+                    - paragraph [ref=e775]: 00:43 - 00:46
+                    - generic [ref=e777]: Speaker 1
+                  - paragraph [ref=e778]: 年的成长流水，它带
+                - generic [ref=e780]:
+                  - generic [ref=e782]:
+                    - paragraph [ref=e783]: 00:46 - 00:49
+                    - generic [ref=e785]: Speaker 3
+                  - paragraph [ref=e786]: 走光阴的故事，改
+                - generic [ref=e788]:
+                  - generic [ref=e790]:
+                    - paragraph [ref=e791]: 00:49 - 00:51
+                    - generic [ref=e793]: Speaker 2
+                  - paragraph [ref=e794]: 变了一个
+                - generic [ref=e796]:
+                  - generic [ref=e798]:
+                    - paragraph [ref=e799]: 00:51 - 00:52
+                    - generic [ref=e801]: Speaker 1
+                  - paragraph [ref=e802]: 人。 就在那
+                - generic [ref=e804]:
+                  - generic [ref=e806]:
+                    - paragraph [ref=e807]: 00:52 - 00:59
+                    - generic [ref=e809]: Speaker 3
+                  - paragraph [ref=e810]: 多愁善感的初次等待。 只能
+                - generic [ref=e812]:
+                  - generic [ref=e814]:
+                    - paragraph [ref=e815]: 00:59 - 01:14
+                    - generic [ref=e817]: Speaker 1
+                  - paragraph [ref=e818]: 卖给青春。 the 发黄的
+                - generic [ref=e820]:
+                  - generic [ref=e822]:
+                    - paragraph [ref=e823]: 01:14 - 01:27
+                    - generic [ref=e825]: Speaker 2
+                  - paragraph [ref=e826]: 相片，古老的信，以及褪色的圣诞卡。 年轻时为你写的歌，恐怕你早已忘了吧。
+                - generic [ref=e828]:
+                  - generic [ref=e830]:
+                    - paragraph [ref=e831]: 01:27 - 01:39
+                    - generic [ref=e833]: Speaker 2
+                  - paragraph [ref=e834]: 过去的誓言，就像那课签。 抒情刻画着多少美丽的诗，可是终究
+                - generic [ref=e836]:
+                  - generic [ref=e838]:
+                    - paragraph [ref=e839]: 01:39 - 01:45
+                    - generic [ref=e841]: Speaker 3
+                  - paragraph [ref=e842]: 是一带走光阴的故事，改
+                - generic [ref=e844]:
+                  - generic [ref=e846]:
+                    - paragraph [ref=e847]: 01:45 - 01:46
+                    - generic [ref=e849]: Speaker 2
+                  - paragraph [ref=e850]: 变了
+                - generic [ref=e852]:
+                  - generic [ref=e854]:
+                    - paragraph [ref=e855]: 01:46 - 01:48
+                    - generic [ref=e857]: Speaker 1
+                  - paragraph [ref=e858]: 两。 两个人就在
+                - generic [ref=e860]:
+                  - generic [ref=e862]:
+                    - paragraph [ref=e863]: 01:48 - 01:55
+                    - generic [ref=e865]: Speaker 3
+                  - paragraph [ref=e866]: 那多愁善感的初次。 勇敢的
+                - generic [ref=e868]:
+                  - generic [ref=e870]:
+                    - paragraph [ref=e871]: 01:55 - 02:09
+                    - generic [ref=e873]: Speaker 1
+                  - paragraph [ref=e874]: 初次流泪的青春 the 遥远的
+                - generic [ref=e876]:
+                  - generic [ref=e878]:
+                    - paragraph [ref=e879]: 02:09 - 02:10
+                    - generic [ref=e881]: Speaker 2
+                  - paragraph [ref=e882]: 路。
+                - generic [ref=e884]:
+                  - generic [ref=e886]:
+                    - paragraph [ref=e887]: 02:10 - 02:17
+                    - generic [ref=e889]: Speaker 2
+                  - paragraph [ref=e890]: 遥远的路程昨日的梦以及远去的笑声
+                - generic [ref=e892]:
+                  - generic [ref=e894]:
+                    - paragraph [ref=e895]: 02:17 - 02:19
+                    - generic [ref=e897]: Speaker 2
+                  - paragraph [ref=e898]: 再次的见面
+                - generic [ref=e900]:
+                  - generic [ref=e902]:
+                    - paragraph [ref=e903]: 02:19 - 02:26
+                    - generic [ref=e905]: Speaker 2
+                  - paragraph [ref=e906]: 我们又历经了多少的路程旧日熟悉的我
+                - generic [ref=e908]:
+                  - generic [ref=e910]:
+                    - paragraph [ref=e911]: 02:26 - 02:29
+                    - generic [ref=e913]: Speaker 2
+                  - paragraph [ref=e914]: 有着狂热的梦。
+                - generic [ref=e916]:
+                  - generic [ref=e918]:
+                    - paragraph [ref=e919]: 02:29 - 02:36
+                    - generic [ref=e921]: Speaker 2
+                  - paragraph [ref=e922]: 也不是旧日手心里有着依然的笑容。 流水
+                - generic [ref=e924]:
+                  - generic [ref=e926]:
+                    - paragraph [ref=e927]: 02:36 - 02:38
+                    - generic [ref=e929]: Speaker 1
+                  - paragraph [ref=e930]: 它带走光
+                - generic [ref=e932]:
+                  - generic [ref=e934]:
+                    - paragraph [ref=e935]: 02:38 - 02:42
+                    - generic [ref=e937]: Speaker 3
+                  - paragraph [ref=e938]: 阴的故事，改变了我们
+                - generic [ref=e940]:
+                  - generic [ref=e942]:
+                    - paragraph [ref=e943]: 02:42 - 02:44
+                    - generic [ref=e945]: Speaker 1
+                  - paragraph [ref=e946]: 就在那
+                - generic [ref=e948]:
+                  - generic [ref=e950]:
+                    - paragraph [ref=e951]: 02:44 - 02:54
+                    - generic [ref=e953]: Speaker 3
+                  - paragraph [ref=e954]: 多愁善感的初。 都说善良的柱都在他
+                - generic [ref=e956]:
+                  - generic [ref=e958]:
+                    - paragraph [ref=e959]: 02:54 - 03:00
+                    - generic [ref=e961]: Speaker 1
+                  - paragraph [ref=e962]: 光阴的故事改变了我们。 就在那
+                - generic [ref=e964]:
+                  - generic [ref=e966]:
+                    - paragraph [ref=e967]: 03:00 - 03:05
+                    - generic [ref=e969]: Speaker 3
+                  - paragraph [ref=e970]: 多愁善感而初次回忆
+                - generic [ref=e972]:
+                  - generic [ref=e974]:
+                    - paragraph [ref=e975]: 03:05 - 03:06
+                    - generic [ref=e977]: Speaker 1
+                  - paragraph [ref=e978]: 的青春
+          - generic [ref=e980]:
+            - generic [ref=e983]:
+              - generic [ref=e985]:
+                - heading "Speaker" [level=6] [ref=e986]
+                - paragraph [ref=e987]: 筛选说话人并快速查看摘要与声纹入口
+              - generic [ref=e988]:
+                - generic [ref=e989]:
+                  - button "全部 29 段" [ref=e990] [cursor=pointer]:
+                    - generic [ref=e991]: 全部 29 段
+                  - button "Speaker 2 · 12 段" [ref=e992] [cursor=pointer]:
+                    - generic [ref=e993]: Speaker 2 · 12 段
+                  - button "Speaker 1 · 10 段" [ref=e994] [cursor=pointer]:
+                    - generic [ref=e995]: Speaker 1 · 10 段
+                  - button "Speaker 3 · 7 段" [ref=e996] [cursor=pointer]:
+                    - generic [ref=e997]: Speaker 3 · 7 段
+                - separator [ref=e998]
+                - generic [ref=e1000]:
+                  - generic [ref=e1002]:
+                    - generic [ref=e1003]:
+                      - paragraph [ref=e1004]: Speaker 2
+                      - generic [ref=e1006]: 12 段
+                    - paragraph [ref=e1007]: 原标签 SPEAKER_02
+                    - paragraph [ref=e1008]: 总时长 01:20 · 平均置信度 —
+                    - paragraph [ref=e1009]: 开秋天的风，以及冬天的落阳，忧郁的青春年少的我，曾经无知的这么想。
+                    - button "对这个 Speaker 做声纹处理" [ref=e1010] [cursor=pointer]
+                  - generic [ref=e1012]:
+                    - generic [ref=e1013]:
+                      - paragraph [ref=e1014]: Speaker 1
+                      - generic [ref=e1016]: 10 段
+                    - paragraph [ref=e1017]: 原标签 SPEAKER_01
+                    - paragraph [ref=e1018]: 总时长 01:04 · 平均置信度 —
+                    - paragraph [ref=e1019]: 春天的花
+                    - button "对这个 Speaker 做声纹处理" [ref=e1020] [cursor=pointer]
+                  - generic [ref=e1022]:
+                    - generic [ref=e1023]:
+                      - paragraph [ref=e1024]: Speaker 3
+                      - generic [ref=e1026]: 7 段
+                    - paragraph [ref=e1027]: 原标签 SPEAKER_00
+                    - paragraph [ref=e1028]: 总时长 00:41 · 平均置信度 —
+                    - paragraph [ref=e1029]: 走光阴的故事，改
+                    - button "对这个 Speaker 做声纹处理" [ref=e1030] [cursor=pointer]
+            - generic [ref=e1033]:
+              - generic [ref=e1035]:
+                - heading "Speaker 时间线" [level=6] [ref=e1036]
+                - paragraph [ref=e1037]: 按当前筛选显示时间分布
+              - generic [ref=e1070]:
+                - generic [ref=e1072]:
+                  - paragraph [ref=e1073]: Speaker 1
+                  - paragraph [ref=e1074]: 00:00 - 00:17
+                - generic [ref=e1076]:
+                  - paragraph [ref=e1077]: Speaker 2
+                  - paragraph [ref=e1078]: 00:17 - 00:32
+                - generic [ref=e1080]:
+                  - paragraph [ref=e1081]: Speaker 2
+                  - paragraph [ref=e1082]: 00:32 - 00:43
+                - generic [ref=e1084]:
+                  - paragraph [ref=e1085]: Speaker 1
+                  - paragraph [ref=e1086]: 00:43 - 00:46
+                - generic [ref=e1088]:
+                  - paragraph [ref=e1089]: Speaker 3
+                  - paragraph [ref=e1090]: 00:46 - 00:49
+                - generic [ref=e1092]:
+                  - paragraph [ref=e1093]: Speaker 2
+                  - paragraph [ref=e1094]: 00:49 - 00:51
+                - generic [ref=e1096]:
+                  - paragraph [ref=e1097]: Speaker 1
+                  - paragraph [ref=e1098]: 00:51 - 00:52
+                - generic [ref=e1100]:
+                  - paragraph [ref=e1101]: Speaker 3
+                  - paragraph [ref=e1102]: 00:52 - 00:59
+                - generic [ref=e1104]:
+                  - paragraph [ref=e1105]: Speaker 1
+                  - paragraph [ref=e1106]: 00:59 - 01:14
+                - generic [ref=e1108]:
+                  - paragraph [ref=e1109]: Speaker 2
+                  - paragraph [ref=e1110]: 01:14 - 01:27
+                - generic [ref=e1112]:
+                  - paragraph [ref=e1113]: Speaker 2
+                  - paragraph [ref=e1114]: 01:27 - 01:39
+                - generic [ref=e1116]:
+                  - paragraph [ref=e1117]: Speaker 3
+                  - paragraph [ref=e1118]: 01:39 - 01:45
+                - generic [ref=e1120]:
+                  - paragraph [ref=e1121]: Speaker 2
+                  - paragraph [ref=e1122]: 01:45 - 01:46
+                - generic [ref=e1124]:
+                  - paragraph [ref=e1125]: Speaker 1
+                  - paragraph [ref=e1126]: 01:46 - 01:48
+                - generic [ref=e1128]:
+                  - paragraph [ref=e1129]: Speaker 3
+                  - paragraph [ref=e1130]: 01:48 - 01:55
+                - generic [ref=e1132]:
+                  - paragraph [ref=e1133]: Speaker 1
+                  - paragraph [ref=e1134]: 01:55 - 02:09
+                - generic [ref=e1136]:
+                  - paragraph [ref=e1137]: Speaker 2
+                  - paragraph [ref=e1138]: 02:09 - 02:10
+                - generic [ref=e1140]:
+                  - paragraph [ref=e1141]: Speaker 2
+                  - paragraph [ref=e1142]: 02:10 - 02:17
+                - generic [ref=e1144]:
+                  - paragraph [ref=e1145]: Speaker 2
+                  - paragraph [ref=e1146]: 02:17 - 02:19
+                - generic [ref=e1148]:
+                  - paragraph [ref=e1149]: Speaker 2
+                  - paragraph [ref=e1150]: 02:19 - 02:26
+                - generic [ref=e1152]:
+                  - paragraph [ref=e1153]: Speaker 2
+                  - paragraph [ref=e1154]: 02:26 - 02:29
+                - generic [ref=e1156]:
+                  - paragraph [ref=e1157]: Speaker 2
+                  - paragraph [ref=e1158]: 02:29 - 02:36
+                - generic [ref=e1160]:
+                  - paragraph [ref=e1161]: Speaker 1
+                  - paragraph [ref=e1162]: 02:36 - 02:38
+                - generic [ref=e1164]:
+                  - paragraph [ref=e1165]: Speaker 3
+                  - paragraph [ref=e1166]: 02:38 - 02:42
+                - generic [ref=e1168]:
+                  - paragraph [ref=e1169]: Speaker 1
+                  - paragraph [ref=e1170]: 02:42 - 02:44
+                - generic [ref=e1172]:
+                  - paragraph [ref=e1173]: Speaker 3
+                  - paragraph [ref=e1174]: 02:44 - 02:54
+                - generic [ref=e1176]:
+                  - paragraph [ref=e1177]: Speaker 1
+                  - paragraph [ref=e1178]: 02:54 - 03:00
+                - generic [ref=e1180]:
+                  - paragraph [ref=e1181]: Speaker 3
+                  - paragraph [ref=e1182]: 03:00 - 03:05
+                - generic [ref=e1184]:
+                  - paragraph [ref=e1185]: Speaker 1
+                  - paragraph [ref=e1186]: 03:05 - 03:06

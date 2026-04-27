@@ -1,0 +1,52 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "声纹库" [ref=e17] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e19]: 声纹库
+      - link "系统模型" [ref=e20] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e22]: 系统模型
+  - main [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e26]:
+        - heading "声纹库管理" [level=4] [ref=e27]
+        - paragraph [ref=e28]: 创建 profile，并执行 1:1 验证与 1:N 识别。
+      - generic [ref=e29]:
+        - progressbar [ref=e30]:
+          - img [ref=e31]
+        - paragraph [ref=e33]: 加载中...
+      - generic [ref=e34]:
+        - generic [ref=e38]:
+          - heading "声纹档案" [level=6] [ref=e39]
+          - list
+        - generic [ref=e41]:
+          - generic [ref=e44]:
+            - heading "新增 profile" [level=6] [ref=e45]
+            - generic [ref=e46]:
+              - generic [ref=e47]: 显示名
+              - generic [ref=e48]:
+                - textbox "显示名" [ref=e49]: 新建声纹用户
+                - group:
+                  - generic: 显示名
+            - button "创建档案" [ref=e50] [cursor=pointer]
+          - generic [ref=e53]:
+            - heading "验证 / 识别" [level=6] [ref=e54]
+            - generic [ref=e55]:
+              - generic: Profile ID
+              - generic [ref=e56]:
+                - textbox "Profile ID" [ref=e57]
+                - group:
+                  - generic: Profile ID
+            - generic [ref=e58]:
+              - button "执行验证" [disabled]
+              - button "执行识别" [ref=e59] [cursor=pointer]

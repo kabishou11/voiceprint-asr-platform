@@ -1,0 +1,51 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "任务详情" [ref=e17] [cursor=pointer]:
+        - /url: /jobs/demo
+        - generic [ref=e19]: 任务详情
+      - link "声纹库" [ref=e20] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e22]: 声纹库
+      - link "系统模型" [ref=e23] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e25]: 系统模型
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e29]:
+        - heading "转写工作台" [level=4] [ref=e30]
+        - paragraph [ref=e31]: 创建单说话人或多说话人转写任务，当前优先使用 FunASR + 3D-Speaker。
+      - generic [ref=e32]:
+        - progressbar [ref=e33]:
+          - img [ref=e34]
+        - paragraph [ref=e36]: 加载中...
+      - generic [ref=e37]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - generic [ref=e43]: 音频文件名
+            - generic [ref=e44]:
+              - textbox "音频文件名" [ref=e45]: sample-meeting.wav
+              - group:
+                - generic: 音频文件名
+            - paragraph [ref=e46]: 当前骨架阶段使用文件名模拟上传资产。
+          - generic [ref=e47]:
+            - generic: 说话人分离模型
+            - generic [ref=e48]:
+              - combobox "说话人分离模型" [ref=e49] [cursor=pointer]
+              - textbox
+              - img
+              - group:
+                - generic: 说话人分离模型
+          - generic [ref=e50]:
+            - button "创建转写任务" [ref=e51] [cursor=pointer]
+            - button "查看任务列表" [ref=e52] [cursor=pointer]
+        - heading "当前可用模型" [level=6] [ref=e57]

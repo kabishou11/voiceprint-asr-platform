@@ -164,16 +164,3 @@ export function upsertSpeakerAliases(jobId: string, aliases: Record<string, stri
     body: JSON.stringify(aliases),
   });
 }
-
-export function createDiarization(payload: {
-  asset_name: string;
-  diarization_model?: string;
-  num_speakers?: number | null;
-  min_speakers?: number | null;
-  max_speakers?: number | null;
-}): Promise<{ job_id: string; status: string }> {
-  return request<{ job_id: string; status: string }>('/diarizations', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}

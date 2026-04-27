@@ -1,0 +1,67 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "声纹库" [ref=e17] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e19]: 声纹库
+      - link "系统模型" [ref=e20] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e22]: 系统模型
+  - main [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e26]:
+        - heading "转写工作台" [level=4] [ref=e27]
+        - paragraph [ref=e28]: 创建单说话人或多说话人转写任务，当前优先使用 FunASR + 3D-Speaker。
+      - generic [ref=e29]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - generic [ref=e35]: 音频文件名
+            - generic [ref=e36]:
+              - textbox "音频文件名" [ref=e37]: sample-meeting.wav
+              - group:
+                - generic: 音频文件名
+            - paragraph [ref=e38]: 当前骨架阶段使用文件名模拟上传资产。
+          - generic [ref=e39]:
+            - generic: 说话人分离模型
+            - generic [ref=e40]:
+              - combobox "说话人分离模型" [ref=e41] [cursor=pointer]
+              - textbox
+              - img
+              - group:
+                - generic: 说话人分离模型
+          - generic [ref=e42]:
+            - button "创建转写任务" [ref=e43] [cursor=pointer]
+            - button "查看任务列表" [ref=e44] [cursor=pointer]
+        - generic [ref=e48]:
+          - heading "当前可用模型" [level=6] [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]:
+              - paragraph [ref=e52]: FunASR Nano
+              - paragraph [ref=e53]: funasr · transcription
+            - generic [ref=e56]: optional
+          - generic [ref=e57]:
+            - generic [ref=e58]:
+              - paragraph [ref=e59]: 3D-Speaker Diarization
+              - paragraph [ref=e60]: 3dspeaker · diarization
+            - generic [ref=e63]: optional
+          - generic [ref=e64]:
+            - generic [ref=e65]:
+              - paragraph [ref=e66]: 3D-Speaker Embedding
+              - paragraph [ref=e67]: 3dspeaker · voiceprint
+            - generic [ref=e70]: optional
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - paragraph [ref=e73]: pyannote community-1
+              - paragraph [ref=e74]: pyannote · diarization
+            - generic [ref=e75]:
+              - generic [ref=e77]: 实验性
+              - generic [ref=e79]: optional

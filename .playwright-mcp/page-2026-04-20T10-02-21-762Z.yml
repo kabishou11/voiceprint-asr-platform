@@ -1,0 +1,30 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "声纹库" [ref=e17] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e19]: 声纹库
+      - link "系统模型" [ref=e20] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e22]: 系统模型
+  - main [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e26]:
+        - heading "任务列表" [level=4] [ref=e27]
+        - paragraph [ref=e28]: 查看转写与声纹任务的当前状态。
+      - link "sample-meeting.wav transcription · 5957b2af-034f-4766-8ee3-32faa4c8fe3b succeeded" [ref=e36] [cursor=pointer]:
+        - /url: /jobs/5957b2af-034f-4766-8ee3-32faa4c8fe3b
+        - generic [ref=e38]:
+          - generic [ref=e39]:
+            - heading "sample-meeting.wav" [level=6] [ref=e40]
+            - paragraph [ref=e41]: transcription · 5957b2af-034f-4766-8ee3-32faa4c8fe3b
+          - generic [ref=e44]: succeeded

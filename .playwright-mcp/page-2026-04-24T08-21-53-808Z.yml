@@ -1,0 +1,352 @@
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - img "Voiceprint ASR Platform" [ref=e11]
+          - generic [ref=e12]:
+            - heading "智能语音平台" [level=6] [ref=e13]
+            - paragraph [ref=e14]: ASR Platform
+        - button "收起侧边栏" [ref=e15] [cursor=pointer]:
+          - img [ref=e16]
+      - generic [ref=e19]:
+        - generic [ref=e21]: 运行中 11
+        - generic [ref=e23]: 模型 0
+        - generic [ref=e25]: GPU
+    - list [ref=e26]:
+      - link "工作台" [ref=e27] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e28]:
+          - img [ref=e29]
+          - generic [ref=e32]: 工作台
+      - link "任务队列" [ref=e33] [cursor=pointer]:
+        - /url: /tasks
+        - generic [ref=e34]:
+          - img [ref=e35]
+          - generic [ref=e38]: 任务队列
+      - link "任务中心" [active] [ref=e39] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e40]:
+          - img [ref=e41]
+          - generic [ref=e44]: 任务中心
+      - link "会议纪要" [ref=e45] [cursor=pointer]:
+        - /url: /minutes
+        - generic [ref=e46]:
+          - img [ref=e47]
+          - generic [ref=e50]: 会议纪要
+      - link "声纹库" [ref=e51] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e52]:
+          - img [ref=e53]
+          - generic [ref=e56]: 声纹库
+      - link "模型" [ref=e57] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e58]:
+          - img [ref=e59]
+          - generic [ref=e63]: 模型
+    - generic [ref=e65]:
+      - paragraph [ref=e66]: 任务中心
+      - generic [ref=e67]:
+        - generic [ref=e69]: 任务 11
+        - generic [ref=e71]: 模型 0
+  - main [ref=e72]:
+    - generic [ref=e193]:
+      - generic [ref=e195]:
+        - heading "任务中心" [level=4] [ref=e197]
+        - button "刷新" [ref=e198] [cursor=pointer]
+      - generic [ref=e199]:
+        - generic [ref=e200]:
+          - generic [ref=e202]: 全部 27
+          - generic [ref=e204]: 处理中 11
+          - generic [ref=e206]: 已完成 16
+        - generic [ref=e207]:
+          - generic [ref=e209]:
+            - generic [ref=e211]:
+              - textbox "搜索文件名或任务号" [ref=e212]
+              - group
+            - generic [ref=e214]:
+              - combobox "全部类型" [ref=e215] [cursor=pointer]
+              - textbox: all
+              - img
+              - group
+            - generic [ref=e217]:
+              - combobox "全部状态" [ref=e218] [cursor=pointer]
+              - textbox: all
+              - img
+              - group
+          - generic [ref=e220]:
+            - paragraph [ref=e221]: 文件
+            - paragraph [ref=e222]: 状态
+            - paragraph [ref=e223]: 类型
+            - paragraph [ref=e224]: 更新时间
+            - paragraph [ref=e225]: 操作
+          - generic [ref=e226]:
+            - button "5分钟.wav 3bcd9a4c-34c5-440a-bdbf-c27249484a9b 已完成 声纹识别 04/24 08:18 查看" [ref=e227] [cursor=pointer]:
+              - generic [ref=e228]:
+                - generic [ref=e229]:
+                  - paragraph [ref=e230]: 5分钟.wav
+                  - paragraph [ref=e231]: 3bcd9a4c-34c5-440a-bdbf-c27249484a9b
+                - generic [ref=e234]: 已完成
+                - generic [ref=e237]: 声纹识别
+                - paragraph [ref=e238]: 04/24 08:18
+                - button "查看" [ref=e240]
+            - separator [ref=e241]
+            - button "5分钟.wav 68768055-f278-4a92-aec1-326beb70f104 已完成 声纹验证 04/24 08:18 查看" [ref=e242] [cursor=pointer]:
+              - generic [ref=e243]:
+                - generic [ref=e244]:
+                  - paragraph [ref=e245]: 5分钟.wav
+                  - paragraph [ref=e246]: 68768055-f278-4a92-aec1-326beb70f104
+                - generic [ref=e249]: 已完成
+                - generic [ref=e252]: 声纹验证
+                - paragraph [ref=e253]: 04/24 08:18
+                - button "查看" [ref=e255]
+            - separator [ref=e256]
+            - button "53cd9f148c08f7e2.wav 2b52d069-b7c5-46a9-9e44-03ae81b39935 已完成 声纹注册 04/24 08:16 查看" [ref=e257] [cursor=pointer]:
+              - generic [ref=e258]:
+                - generic [ref=e259]:
+                  - paragraph [ref=e260]: 53cd9f148c08f7e2.wav
+                  - paragraph [ref=e261]: 2b52d069-b7c5-46a9-9e44-03ae81b39935
+                - generic [ref=e264]: 已完成
+                - generic [ref=e267]: 声纹注册
+                - paragraph [ref=e268]: 04/24 08:16
+                - button "查看" [ref=e270]
+            - separator [ref=e271]
+            - button "2c4936e2d9513459.wav ee207525-1fcd-4559-917a-358710bb7896 已完成 声纹注册 04/24 08:16 查看" [ref=e272] [cursor=pointer]:
+              - generic [ref=e273]:
+                - generic [ref=e274]:
+                  - paragraph [ref=e275]: 2c4936e2d9513459.wav
+                  - paragraph [ref=e276]: ee207525-1fcd-4559-917a-358710bb7896
+                - generic [ref=e279]: 已完成
+                - generic [ref=e282]: 声纹注册
+                - paragraph [ref=e283]: 04/24 08:16
+                - button "查看" [ref=e285]
+            - separator [ref=e286]
+            - button "76afff8c1d9cefa4.wav 212d5046-8a2c-403e-b637-66567ed830e8 已完成 声纹注册 04/24 08:16 查看" [ref=e287] [cursor=pointer]:
+              - generic [ref=e288]:
+                - generic [ref=e289]:
+                  - paragraph [ref=e290]: 76afff8c1d9cefa4.wav
+                  - paragraph [ref=e291]: 212d5046-8a2c-403e-b637-66567ed830e8
+                - generic [ref=e294]: 已完成
+                - generic [ref=e297]: 声纹注册
+                - paragraph [ref=e298]: 04/24 08:16
+                - button "查看" [ref=e300]
+            - separator [ref=e301]
+            - button "sample-meeting.wav 95a03e33-7ed4-4f1e-bd0d-f9fcf5dd12a5 处理中 单人转写 04/24 08:13 查看" [ref=e302] [cursor=pointer]:
+              - generic [ref=e303]:
+                - generic [ref=e304]:
+                  - paragraph [ref=e305]: sample-meeting.wav
+                  - paragraph [ref=e306]: 95a03e33-7ed4-4f1e-bd0d-f9fcf5dd12a5
+                - generic [ref=e309]: 处理中
+                - generic [ref=e312]: 单人转写
+                - paragraph [ref=e313]: 04/24 08:13
+                - button "查看" [ref=e315]
+            - separator [ref=e316]
+            - button "50f859a322cdebb9.wav 919c2e2a-af85-421e-9bcf-cc8c8c1a6cbc 已完成 单人转写 04/24 08:13 查看" [ref=e317] [cursor=pointer]:
+              - generic [ref=e318]:
+                - generic [ref=e319]:
+                  - paragraph [ref=e320]: 50f859a322cdebb9.wav
+                  - paragraph [ref=e321]: 919c2e2a-af85-421e-9bcf-cc8c8c1a6cbc
+                - generic [ref=e324]: 已完成
+                - generic [ref=e327]: 单人转写
+                - paragraph [ref=e328]: 04/24 08:13
+                - button "查看" [ref=e330]
+            - separator [ref=e331]
+            - button "5分钟.wav 08ac1733-18c1-4051-88e2-1c6201fc3507 已完成 声纹识别 04/24 07:41 查看" [ref=e332] [cursor=pointer]:
+              - generic [ref=e333]:
+                - generic [ref=e334]:
+                  - paragraph [ref=e335]: 5分钟.wav
+                  - paragraph [ref=e336]: 08ac1733-18c1-4051-88e2-1c6201fc3507
+                - generic [ref=e339]: 已完成
+                - generic [ref=e342]: 声纹识别
+                - paragraph [ref=e343]: 04/24 07:41
+                - button "查看" [ref=e345]
+            - separator [ref=e346]
+            - button "5分钟.wav ca2ff60a-3081-47d1-8ac4-d9276f1caca4 已完成 声纹验证 04/24 07:41 查看" [ref=e347] [cursor=pointer]:
+              - generic [ref=e348]:
+                - generic [ref=e349]:
+                  - paragraph [ref=e350]: 5分钟.wav
+                  - paragraph [ref=e351]: ca2ff60a-3081-47d1-8ac4-d9276f1caca4
+                - generic [ref=e354]: 已完成
+                - generic [ref=e357]: 声纹验证
+                - paragraph [ref=e358]: 04/24 07:41
+                - button "查看" [ref=e360]
+            - separator [ref=e361]
+            - button "99516e0ff1de79f9.wav 468b4342-99a9-4d8a-a1ee-74f59b957d49 已完成 声纹注册 04/24 07:40 查看" [ref=e362] [cursor=pointer]:
+              - generic [ref=e363]:
+                - generic [ref=e364]:
+                  - paragraph [ref=e365]: 99516e0ff1de79f9.wav
+                  - paragraph [ref=e366]: 468b4342-99a9-4d8a-a1ee-74f59b957d49
+                - generic [ref=e369]: 已完成
+                - generic [ref=e372]: 声纹注册
+                - paragraph [ref=e373]: 04/24 07:40
+                - button "查看" [ref=e375]
+            - separator [ref=e376]
+            - button "da95dc50db99ec5c.wav ebd519b2-8387-4f87-b8e0-2efbe44e9a82 已完成 声纹注册 04/24 07:40 查看" [ref=e377] [cursor=pointer]:
+              - generic [ref=e378]:
+                - generic [ref=e379]:
+                  - paragraph [ref=e380]: da95dc50db99ec5c.wav
+                  - paragraph [ref=e381]: ebd519b2-8387-4f87-b8e0-2efbe44e9a82
+                - generic [ref=e384]: 已完成
+                - generic [ref=e387]: 声纹注册
+                - paragraph [ref=e388]: 04/24 07:40
+                - button "查看" [ref=e390]
+            - separator [ref=e391]
+            - button "e7ae877658b4f44d.wav b444250b-446d-4ab4-acb4-5097aff0b6b4 已完成 声纹注册 04/24 07:40 查看" [ref=e392] [cursor=pointer]:
+              - generic [ref=e393]:
+                - generic [ref=e394]:
+                  - paragraph [ref=e395]: e7ae877658b4f44d.wav
+                  - paragraph [ref=e396]: b444250b-446d-4ab4-acb4-5097aff0b6b4
+                - generic [ref=e399]: 已完成
+                - generic [ref=e402]: 声纹注册
+                - paragraph [ref=e403]: 04/24 07:40
+                - button "查看" [ref=e405]
+            - separator [ref=e406]
+            - button "sample-meeting.wav 30384f41-50f1-4359-86c7-1100b23da56c 处理中 单人转写 04/24 07:37 查看" [ref=e407] [cursor=pointer]:
+              - generic [ref=e408]:
+                - generic [ref=e409]:
+                  - paragraph [ref=e410]: sample-meeting.wav
+                  - paragraph [ref=e411]: 30384f41-50f1-4359-86c7-1100b23da56c
+                - generic [ref=e414]: 处理中
+                - generic [ref=e417]: 单人转写
+                - paragraph [ref=e418]: 04/24 07:37
+                - button "查看" [ref=e420]
+            - separator [ref=e421]
+            - button "cc1efeea3bb46b65.wav be3b608f-22f9-4246-9479-9a01c2fd6c01 已完成 单人转写 04/24 07:37 查看" [ref=e422] [cursor=pointer]:
+              - generic [ref=e423]:
+                - generic [ref=e424]:
+                  - paragraph [ref=e425]: cc1efeea3bb46b65.wav
+                  - paragraph [ref=e426]: be3b608f-22f9-4246-9479-9a01c2fd6c01
+                - generic [ref=e429]: 已完成
+                - generic [ref=e432]: 单人转写
+                - paragraph [ref=e433]: 04/24 07:37
+                - button "查看" [ref=e435]
+            - separator [ref=e436]
+            - button "5分钟.wav 53f00032-67d8-403b-91f6-1a812959d63e 排队中 声纹识别 04/24 06:10 查看" [ref=e437] [cursor=pointer]:
+              - generic [ref=e438]:
+                - generic [ref=e439]:
+                  - paragraph [ref=e440]: 5分钟.wav
+                  - paragraph [ref=e441]: 53f00032-67d8-403b-91f6-1a812959d63e
+                - generic [ref=e444]: 排队中
+                - generic [ref=e447]: 声纹识别
+                - paragraph [ref=e448]: 04/24 06:10
+                - button "查看" [ref=e450]
+            - separator [ref=e451]
+            - button "5分钟.wav 43911f59-fc0c-48be-b122-387ff0d03777 排队中 声纹验证 04/24 06:10 查看" [ref=e452] [cursor=pointer]:
+              - generic [ref=e453]:
+                - generic [ref=e454]:
+                  - paragraph [ref=e455]: 5分钟.wav
+                  - paragraph [ref=e456]: 43911f59-fc0c-48be-b122-387ff0d03777
+                - generic [ref=e459]: 排队中
+                - generic [ref=e462]: 声纹验证
+                - paragraph [ref=e463]: 04/24 06:10
+                - button "查看" [ref=e465]
+            - separator [ref=e466]
+            - button "5分钟.wav 2d317b44-2f65-4a68-9006-91fad6be4836 排队中 声纹验证 04/24 06:10 查看" [ref=e467] [cursor=pointer]:
+              - generic [ref=e468]:
+                - generic [ref=e469]:
+                  - paragraph [ref=e470]: 5分钟.wav
+                  - paragraph [ref=e471]: 2d317b44-2f65-4a68-9006-91fad6be4836
+                - generic [ref=e474]: 排队中
+                - generic [ref=e477]: 声纹验证
+                - paragraph [ref=e478]: 04/24 06:10
+                - button "查看" [ref=e480]
+            - separator [ref=e481]
+            - button "1d3b663554481a54.wav cbe882bb-8883-43fd-a295-fd848a7a97bb 排队中 声纹注册 04/24 06:09 查看" [ref=e482] [cursor=pointer]:
+              - generic [ref=e483]:
+                - generic [ref=e484]:
+                  - paragraph [ref=e485]: 1d3b663554481a54.wav
+                  - paragraph [ref=e486]: cbe882bb-8883-43fd-a295-fd848a7a97bb
+                - generic [ref=e489]: 排队中
+                - generic [ref=e492]: 声纹注册
+                - paragraph [ref=e493]: 04/24 06:09
+                - button "查看" [ref=e495]
+            - separator [ref=e496]
+            - button "137570f7f4c2f417.wav 211ab9f1-d48b-43df-b947-e594fa2480e7 排队中 声纹注册 04/24 06:09 查看" [ref=e497] [cursor=pointer]:
+              - generic [ref=e498]:
+                - generic [ref=e499]:
+                  - paragraph [ref=e500]: 137570f7f4c2f417.wav
+                  - paragraph [ref=e501]: 211ab9f1-d48b-43df-b947-e594fa2480e7
+                - generic [ref=e504]: 排队中
+                - generic [ref=e507]: 声纹注册
+                - paragraph [ref=e508]: 04/24 06:09
+                - button "查看" [ref=e510]
+            - separator [ref=e511]
+            - button "missing.wav bf2c3724-0198-4dda-aebc-1aed1f9f2e1d 排队中 声纹注册 04/24 06:09 查看" [ref=e512] [cursor=pointer]:
+              - generic [ref=e513]:
+                - generic [ref=e514]:
+                  - paragraph [ref=e515]: missing.wav
+                  - paragraph [ref=e516]: bf2c3724-0198-4dda-aebc-1aed1f9f2e1d
+                - generic [ref=e519]: 排队中
+                - generic [ref=e522]: 声纹注册
+                - paragraph [ref=e523]: 04/24 06:09
+                - button "查看" [ref=e525]
+            - separator [ref=e526]
+            - button "6136ca03d5c6f881.wav 3e7471bb-0234-4f3f-adab-40b76499f676 排队中 声纹注册 04/24 06:09 查看" [ref=e527] [cursor=pointer]:
+              - generic [ref=e528]:
+                - generic [ref=e529]:
+                  - paragraph [ref=e530]: 6136ca03d5c6f881.wav
+                  - paragraph [ref=e531]: 3e7471bb-0234-4f3f-adab-40b76499f676
+                - generic [ref=e534]: 排队中
+                - generic [ref=e537]: 声纹注册
+                - paragraph [ref=e538]: 04/24 06:09
+                - button "查看" [ref=e540]
+            - separator [ref=e541]
+            - button "sample-meeting.wav e863b076-f722-45ab-af36-08aebab9dc42 处理中 单人转写 04/24 06:06 查看" [ref=e542] [cursor=pointer]:
+              - generic [ref=e543]:
+                - generic [ref=e544]:
+                  - paragraph [ref=e545]: sample-meeting.wav
+                  - paragraph [ref=e546]: e863b076-f722-45ab-af36-08aebab9dc42
+                - generic [ref=e549]: 处理中
+                - generic [ref=e552]: 单人转写
+                - paragraph [ref=e553]: 04/24 06:06
+                - button "查看" [ref=e555]
+            - separator [ref=e556]
+            - button "fd872d2693f1881e.wav 6a3c24a6-d9b6-41bd-8afb-cd05fa41350b 已完成 单人转写 04/24 06:06 查看" [ref=e557] [cursor=pointer]:
+              - generic [ref=e558]:
+                - generic [ref=e559]:
+                  - paragraph [ref=e560]: fd872d2693f1881e.wav
+                  - paragraph [ref=e561]: 6a3c24a6-d9b6-41bd-8afb-cd05fa41350b
+                - generic [ref=e564]: 已完成
+                - generic [ref=e567]: 单人转写
+                - paragraph [ref=e568]: 04/24 06:06
+                - button "查看" [ref=e570]
+            - separator [ref=e571]
+            - button "fec48baa8e466188.wav 5b9470d0-a80d-4a9e-a692-ff9f894fc87a 已完成 单人转写 04/24 03:12 查看" [ref=e572] [cursor=pointer]:
+              - generic [ref=e573]:
+                - generic [ref=e574]:
+                  - paragraph [ref=e575]: fec48baa8e466188.wav
+                  - paragraph [ref=e576]: 5b9470d0-a80d-4a9e-a692-ff9f894fc87a
+                - generic [ref=e579]: 已完成
+                - generic [ref=e582]: 单人转写
+                - paragraph [ref=e583]: 04/24 03:12
+                - button "查看" [ref=e585]
+            - separator [ref=e586]
+            - button "sample-meeting.wav 9b9f7d76-fb6d-470f-a011-c75cd74054c1 处理中 单人转写 04/24 03:05 查看" [ref=e587] [cursor=pointer]:
+              - generic [ref=e588]:
+                - generic [ref=e589]:
+                  - paragraph [ref=e590]: sample-meeting.wav
+                  - paragraph [ref=e591]: 9b9f7d76-fb6d-470f-a011-c75cd74054c1
+                - generic [ref=e594]: 处理中
+                - generic [ref=e597]: 单人转写
+                - paragraph [ref=e598]: 04/24 03:05
+                - button "查看" [ref=e600]
+            - separator [ref=e601]
+            - button "bebf1736c51dbd8b.wav 7db7826a-e246-4b68-9a5d-818cbc687640 已完成 单人转写 04/24 03:05 查看" [ref=e602] [cursor=pointer]:
+              - generic [ref=e603]:
+                - generic [ref=e604]:
+                  - paragraph [ref=e605]: bebf1736c51dbd8b.wav
+                  - paragraph [ref=e606]: 7db7826a-e246-4b68-9a5d-818cbc687640
+                - generic [ref=e609]: 已完成
+                - generic [ref=e612]: 单人转写
+                - paragraph [ref=e613]: 04/24 03:05
+                - button "查看" [ref=e615]
+            - separator [ref=e616]
+            - button "973c3803531a3517.wav d2306328-bca5-4424-bcd1-0a457f84b879 已完成 多人转写 04/23 12:22 复核" [ref=e617] [cursor=pointer]:
+              - generic [ref=e618]:
+                - generic [ref=e619]:
+                  - paragraph [ref=e620]: 973c3803531a3517.wav
+                  - paragraph [ref=e621]: d2306328-bca5-4424-bcd1-0a457f84b879
+                - generic [ref=e624]: 已完成
+                - generic [ref=e627]: 多人转写
+                - paragraph [ref=e628]: 04/23 12:22
+                - button "复核" [ref=e630]

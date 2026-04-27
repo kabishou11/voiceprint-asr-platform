@@ -1,0 +1,46 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "voiceprint-asr-platform" [level=6] [ref=e7]
+      - generic [ref=e9]: React + MUI
+    - list [ref=e10]:
+      - link "转写工作台" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e13]: 转写工作台
+      - link "任务列表" [ref=e14] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e16]: 任务列表
+      - link "声纹库" [ref=e17] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e19]: 声纹库
+      - link "系统模型" [active] [ref=e20] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e22]: 系统模型
+  - main [ref=e23]:
+    - generic [ref=e165]:
+      - generic [ref=e167]:
+        - heading "系统模型" [level=4] [ref=e168]
+        - paragraph [ref=e169]: 展示当前 API 注册的模型与可用性状态。
+      - generic [ref=e170]:
+        - generic [ref=e173]:
+          - generic [ref=e174]:
+            - heading "FunASR Nano" [level=6] [ref=e175]
+            - paragraph [ref=e176]: funasr-nano · funasr · transcription
+          - generic [ref=e179]: optional
+        - generic [ref=e182]:
+          - generic [ref=e183]:
+            - heading "3D-Speaker Diarization" [level=6] [ref=e184]
+            - paragraph [ref=e185]: 3dspeaker-diarization · 3dspeaker · diarization
+          - generic [ref=e188]: optional
+        - generic [ref=e191]:
+          - generic [ref=e192]:
+            - heading "3D-Speaker Embedding" [level=6] [ref=e193]
+            - paragraph [ref=e194]: 3dspeaker-embedding · 3dspeaker · voiceprint
+          - generic [ref=e197]: optional
+        - generic [ref=e200]:
+          - generic [ref=e201]:
+            - heading "pyannote community-1" [level=6] [ref=e202]
+            - paragraph [ref=e203]: pyannote-community-1 · pyannote · diarization
+          - generic [ref=e204]:
+            - generic [ref=e206]: optional
+            - generic [ref=e208]: 实验性

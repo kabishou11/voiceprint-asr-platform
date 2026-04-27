@@ -1,0 +1,74 @@
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - img "Voiceprint ASR Platform" [ref=e11]
+          - generic [ref=e12]:
+            - heading "智能语音平台" [level=6] [ref=e13]
+            - paragraph [ref=e14]: ASR Platform
+        - button "收起侧边栏" [ref=e15] [cursor=pointer]:
+          - img [ref=e16]
+      - generic [ref=e19]:
+        - generic [ref=e21]: 运行中 0
+        - generic [ref=e23]: 模型 0
+        - generic [ref=e25]: CPU
+    - list [ref=e26]:
+      - link "工作台" [ref=e27] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e28]:
+          - img [ref=e29]
+          - generic [ref=e32]: 工作台
+      - link "任务队列" [ref=e33] [cursor=pointer]:
+        - /url: /tasks
+        - generic [ref=e34]:
+          - img [ref=e35]
+          - generic [ref=e38]: 任务队列
+      - link "任务中心" [ref=e39] [cursor=pointer]:
+        - /url: /jobs
+        - generic [ref=e40]:
+          - img [ref=e41]
+          - generic [ref=e44]: 任务中心
+      - link "会议纪要" [ref=e45] [cursor=pointer]:
+        - /url: /minutes
+        - generic [ref=e46]:
+          - img [ref=e47]
+          - generic [ref=e50]: 会议纪要
+      - link "声纹库" [ref=e51] [cursor=pointer]:
+        - /url: /voiceprints
+        - generic [ref=e52]:
+          - img [ref=e53]
+          - generic [ref=e56]: 声纹库
+      - link "模型" [ref=e57] [cursor=pointer]:
+        - /url: /system/models
+        - generic [ref=e58]:
+          - img [ref=e59]
+          - generic [ref=e63]: 模型
+    - generic [ref=e65]:
+      - paragraph [ref=e66]: 任务中心
+      - generic [ref=e67]:
+        - generic [ref=e69]: 任务 0
+        - generic [ref=e71]: 模型 0
+  - main [ref=e72]:
+    - generic [ref=e74]:
+      - generic [ref=e76]:
+        - heading "结果" [level=4] [ref=e78]
+        - generic [ref=e79]:
+          - button "刷新" [ref=e80] [cursor=pointer]
+          - button "复制结果" [disabled]:
+            - generic:
+              - img
+            - text: 复制结果
+          - button "导出 JSON" [disabled]:
+            - generic:
+              - img
+            - text: 导出 JSON
+          - button "会议纪要" [disabled]:
+            - generic:
+              - img
+            - text: 会议纪要
+          - button "快速重跑" [disabled]:
+            - generic:
+              - img
+            - text: 快速重跑
+      - progressbar [ref=e81]
