@@ -533,7 +533,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         from sklearn.metrics.pairwise import cosine_similarity
 
         merged = labels.copy()
-        while True:
+        max_iterations = max(1, np.unique(merged).size)
+        for _ in range(max_iterations):
             speaker_ids = np.unique(merged)
             if speaker_ids.size <= 1:
                 return self._arrange_labels(merged)
@@ -545,6 +546,7 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 return self._arrange_labels(merged)
             left, right = speaker_ids[np.array(best_pair)]
             merged[merged == right] = left
+        return self._arrange_labels(merged)
 
     def _arrange_labels(self, labels: np.ndarray) -> np.ndarray:
         unique_labels = np.unique(labels)
@@ -1629,7 +1631,7 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             matched=score >= threshold,
         )
 
-    def identify(self, asset: AudioAsset, top_k: int) -> VoiceprintIdentificationResult:
+    def identify(self, asset: AudioAsset, top_k: int, min_score: float = 0.5) -> VoiceprintIdentificationResult:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹识别")
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
@@ -1640,14 +1642,15 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         candidates = []
         for index, (profile_id, value) in enumerate(known_profiles.items(), start=1):
             score = round(self._run_sv_score(sv_pipeline, str(value), asset.path), 5)
-            candidates.append(
-                VoiceprintIdentificationCandidate(
-                    profile_id=profile_id,
-                    display_name=profile_id,
-                    score=score,
-                    rank=index,
+            if score >= min_score:
+                candidates.append(
+                    VoiceprintIdentificationCandidate(
+                        profile_id=profile_id,
+                        display_name=profile_id,
+                        score=score,
+                        rank=index,
+                    )
                 )
-            )
         candidates.sort(key=lambda item: item.score, reverse=True)
         reranked = [candidate.model_copy(update={"rank": idx + 1}) for idx, candidate in enumerate(candidates[:top_k])]
         _clear_cuda_cache()
