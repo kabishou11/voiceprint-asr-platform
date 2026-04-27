@@ -93,7 +93,8 @@ class JobService:
                 .limit(page_size)
                 .all()
             )
-            return [record.to_job_detail() for record in records], total
+            details = [record.to_job_detail() for record in records]
+            return [d for d in details if d is not None], total
 
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:

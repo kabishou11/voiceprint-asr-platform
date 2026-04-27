@@ -36,23 +36,26 @@ class JobRecord(Base):
         Index("idx_jobs_created_at", "created_at"),
     )
 
-    def to_job_detail(self) -> JobDetail:
+    def to_job_detail(self) -> JobDetail | None:
         result_obj: TranscriptResult | None = None
         if self.result and self.job_type in TRANSCRIPTION_JOB_TYPES:
             try:
                 result_obj = TranscriptResult.model_validate_json(self.result)
             except Exception:
                 result_obj = None
-        return JobDetail(
-            job_id=self.job_id,
-            job_type=self.job_type,  # type: ignore[arg-type]
-            status=self.status,  # type: ignore[arg-type]
-            asset_name=self.asset_name,
-            result=result_obj,
-            error_message=self.error_message,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-        )
+        try:
+            return JobDetail(
+                job_id=self.job_id,
+                job_type=self.job_type,  # type: ignore[arg-type]
+                status=self.status,  # type: ignore[arg-type]
+                asset_name=self.asset_name,
+                result=result_obj,
+                error_message=self.error_message,
+                created_at=self.created_at,
+                updated_at=self.updated_at,
+            )
+        except Exception:
+            return None
 
     def to_job_summary(self) -> JobSummary:
         return JobSummary(
