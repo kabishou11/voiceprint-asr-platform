@@ -33,10 +33,11 @@ def _run_transcription_sync(
     """
     registry = get_worker_registry()
     registry.require_available(model_key)
-    adapter = registry.get_asr(model_key)
     asset = preprocess_audio(_adapter_asset(asset_name))
 
-    # 如适配器支持热词参数，注入热词
+    import copy
+
+    adapter = copy.copy(registry.get_asr(model_key))
     if hotwords and hasattr(adapter, "hotwords"):
         adapter.hotwords = hotwords
     if hasattr(adapter, "language"):

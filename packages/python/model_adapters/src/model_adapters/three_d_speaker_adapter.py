@@ -1533,6 +1533,9 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         self._profile_vectors: dict[str, np.ndarray] = {}
         self._profile_assets: dict[str, str] = {}
         self._sv_model = None
+        self._vector_dir = Path(__file__).resolve().parents[5] / "storage" / "voiceprint_vectors"
+        self._vector_dir.mkdir(parents=True, exist_ok=True)
+        self._load_persisted_assets()
 
     @property
     def availability(self) -> str:
@@ -1542,6 +1545,33 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         if not has_local_model:
             return "unavailable"
         return "available" if has_torch and has_modelscope and has_cuda_runtime() else "unavailable"
+
+    def _load_persisted_assets(self) -> None:
+        """从磁盘恢复已注册的声纹音频路径映射。"""
+        import json
+        manifest = self._vector_dir / "manifest.json"
+        if manifest.exists():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                for profile_id, asset_path in data.items():
+                    if Path(asset_path).exists():
+                        self._profile_assets[profile_id] = asset_path
+            except Exception:
+                pass
+
+    def _persist_asset(self, profile_id: str, asset_path: str) -> None:
+        """将声纹音频路径持久化到磁盘。"""
+        import json
+        self._profile_assets[profile_id] = asset_path
+        manifest = self._vector_dir / "manifest.json"
+        try:
+            existing = {}
+            if manifest.exists():
+                existing = json.loads(manifest.read_text(encoding="utf-8"))
+            existing[profile_id] = asset_path
+            manifest.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _ensure_sv_pipeline(self):
         if self._sv_model is not None:
@@ -1572,7 +1602,7 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
 
     def enroll(self, asset: AudioAsset, profile_id: str) -> dict:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹注册")
-        self._profile_assets[profile_id] = asset.path
+        self._persist_asset(profile_id, asset.path)
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
             raise RuntimeError("3D-Speaker CAM++ CUDA 声纹推理管道初始化失败。")

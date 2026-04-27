@@ -54,8 +54,9 @@ def _run_multi_speaker_transcription_sync(
     registry.require_available(diarization_model_key)
     asset = preprocess_audio(_adapter_asset(asset_name))
 
-    # 配置 ASR 适配器
-    asr_adapter = registry.get_asr(asr_model_key)
+    import copy
+
+    asr_adapter = copy.copy(registry.get_asr(asr_model_key))
     if hotwords and hasattr(asr_adapter, "hotwords"):
         asr_adapter.hotwords = hotwords
     if hasattr(asr_adapter, "language"):
@@ -65,11 +66,9 @@ def _run_multi_speaker_transcription_sync(
     if hasattr(asr_adapter, "itn"):
         asr_adapter.itn = itn
 
-    # 运行 ASR 转写
     transcript = asr_adapter.transcribe(asset)
 
-    # 运行说话人分离（VAD + CAM++ + 谱聚类）
-    diarization_adapter = registry.get_diarization(diarization_model_key)
+    diarization_adapter = copy.copy(registry.get_diarization(diarization_model_key))
     if hasattr(diarization_adapter, "num_speakers"):
         diarization_adapter.num_speakers = num_speakers
     if hasattr(diarization_adapter, "min_speakers"):
