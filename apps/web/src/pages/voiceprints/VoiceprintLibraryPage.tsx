@@ -1,6 +1,8 @@
 import AddRounded from '@mui/icons-material/AddRounded';
+import CheckRounded from '@mui/icons-material/CheckRounded';
+import DeleteRounded from '@mui/icons-material/DeleteRounded';
 import FingerprintRounded from '@mui/icons-material/FingerprintRounded';
-import RecordVoiceOverRounded from '@mui/icons-material/RecordVoiceOverRounded';
+import GroupsRounded from '@mui/icons-material/GroupsRounded';
 import {
   Alert,
   Avatar,
@@ -8,6 +10,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -15,11 +18,10 @@ import {
   DialogTitle,
   Divider,
   Grid,
-  List,
-  ListItemButton,
-  ListItemText,
+  IconButton,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -45,127 +47,398 @@ import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
 
 const SPEAKER_MAPPING_STORAGE_KEY = 'voiceprint-job-speaker-mappings';
-
 type SpeakerMappingStore = Record<string, Record<string, string>>;
+type PendingVoiceprintJob = { jobId: string; kind: 'enroll' | 'verify' | 'identify' };
 
-type PendingVoiceprintJob = {
-  jobId: string;
-  kind: 'enroll' | 'verify' | 'identify';
-};
+// ─── 档案详情区 ───────────────────────────────────────────────────────────────
 
-function SectionCard({
-  title,
-  subtitle,
-  children,
-  action,
+function ProfileDetail({
+  profile,
+  incomingProbeAsset,
+  incomingSpeaker,
+  incomingJobId,
+  scopeGroupId,
+  onEnrolled,
 }: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
+  profile: VoiceprintProfile;
+  incomingProbeAsset: string;
+  incomingSpeaker: string;
+  incomingJobId: string;
+  scopeGroupId: string;
+  onEnrolled: () => void;
 }) {
-  return (
-    <Card>
-      <CardContent sx={{ p: 2.2 }}>
-        <Stack spacing={1.5}>
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', md: 'center' }}
-          >
-            <Stack spacing={0.45}>
-              <Typography variant="h6">{title}</Typography>
-              {subtitle ? (
-                <Typography variant="body2" color="text.secondary">
-                  {subtitle}
-                </Typography>
-              ) : null}
-            </Stack>
-            {action}
-          </Stack>
-          {children}
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
+  const navigate = useNavigate();
+  const detailState = useAsyncData(() => fetchVoiceprintProfileDetail(profile.profile_id), [profile.profile_id]);
+  const [enrollFile, setEnrollFile] = useState<File | null>(null);
+  const [enrollAssetName, setEnrollAssetName] = useState('');
+  const [probeFile, setProbeFile] = useState<File | null>(null);
+  const [probeAssetName, setProbeAssetName] = useState('');
+  const [thresholdText, setThresholdText] = useState('0.7');
+  const [topKText, setTopKText] = useState('3');
+  const [busy, setBusy] = useState(false);
+  const [pendingJob, setPendingJob] = useState<PendingVoiceprintJob | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{ score: number; matched: boolean } | null>(null);
+  const [identifyResult, setIdentifyResult] = useState<Array<{ rank: number; display_name: string; score: number; profile_id?: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-function ProfileDetailSection({ profileId }: { profileId: string }) {
-  const detailState = useAsyncData(() => fetchVoiceprintProfileDetail(profileId), [profileId]);
+  const threshold = Number.parseFloat(thresholdText) || 0.7;
+  const topK = Math.max(1, Number.parseInt(topKText, 10) || 3);
+
+  const ensureAsset = async (file: File | null, assetName: string) => {
+    if (file) {
+      const uploaded = await uploadAudio(file);
+      return uploaded.asset_name;
+    }
+    if (assetName.trim()) return assetName.trim();
+    throw new Error('请先选择音频文件');
+  };
+
+  useEffect(() => {
+    if (!pendingJob) return undefined;
+    let active = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const job = await fetchVoiceprintJob(pendingJob.jobId);
+        if (!active) return;
+        if (job.status === 'queued' || job.status === 'running') return;
+        setPendingJob(null);
+        setBusy(false);
+        if (job.status === 'failed') { setError(job.error_message || '任务失败'); return; }
+        if (pendingJob.kind === 'enroll') { onEnrolled(); setFeedback('注册完成'); }
+        if (pendingJob.kind === 'verify' && job.verification) {
+          setVerifyResult({ score: job.verification.score, matched: job.verification.matched });
+        }
+        if (pendingJob.kind === 'identify' && job.identification) {
+          setIdentifyResult(job.identification.candidates);
+        }
+      } catch { if (active) { setPendingJob(null); setBusy(false); setError('轮询失败'); } }
+    }, 2000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [pendingJob, onEnrolled]);
+
+  const handleEnroll = async () => {
+    setBusy(true); setError(null); setFeedback(null);
+    try {
+      const assetName = await ensureAsset(enrollFile, enrollAssetName);
+      const res = await enrollVoiceprint(profile.profile_id, assetName);
+      if (res.job) { setPendingJob({ jobId: res.job.job_id, kind: 'enroll' }); setFeedback('注册任务已提交'); return; }
+      onEnrolled(); setFeedback('注册完成');
+    } catch (e) { setError(e instanceof Error ? e.message : '注册失败'); setBusy(false); }
+    setBusy(false);
+  };
+
+  const handleVerify = async () => {
+    setBusy(true); setError(null); setVerifyResult(null);
+    try {
+      const assetName = await ensureAsset(probeFile, probeAssetName || incomingProbeAsset);
+      const res = await verifyVoiceprint(profile.profile_id, assetName, threshold);
+      if (res.job) { setPendingJob({ jobId: res.job.job_id, kind: 'verify' }); setFeedback('验证任务已提交'); return; }
+      if (res.result) setVerifyResult({ score: res.result.score, matched: res.result.matched });
+    } catch (e) { setError(e instanceof Error ? e.message : '验证失败'); }
+    setBusy(false);
+  };
+
+  const handleIdentify = async () => {
+    setBusy(true); setError(null); setIdentifyResult([]);
+    try {
+      const assetName = await ensureAsset(probeFile, probeAssetName || incomingProbeAsset);
+      const res = await identifyVoiceprint(assetName, topK);
+      if (res.job) { setPendingJob({ jobId: res.job.job_id, kind: 'identify' }); setFeedback('识别任务已提交'); return; }
+      if (res.result) setIdentifyResult(res.result.candidates);
+    } catch (e) { setError(e instanceof Error ? e.message : '识别失败'); }
+    setBusy(false);
+  };
+
+  const persistSpeakerMapping = (displayName: string) => {
+    if (!incomingJobId || !incomingSpeaker || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
+      const store = raw ? (JSON.parse(raw) as SpeakerMappingStore) : {};
+      store[incomingJobId] = { ...(store[incomingJobId] ?? {}), [incomingSpeaker]: displayName };
+      window.localStorage.setItem(SPEAKER_MAPPING_STORAGE_KEY, JSON.stringify(store));
+      navigate(`/jobs/${incomingJobId}`);
+    } catch { setError('回写失败'); }
+  };
+
   const samples = detailState.data?.samples ?? [];
   const history = detailState.data?.history ?? [];
 
   return (
-    <SectionCard title="档案详情" subtitle="样本列表与最近操作记录">
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Stack spacing={1}>
-            <Typography variant="body2" fontWeight={700}>注册样本 ({samples.length})</Typography>
-            {samples.length ? (
+    <Stack spacing={2}>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Avatar sx={{ bgcolor: 'primary.main', width: 44, height: 44 }}>
+          <FingerprintRounded />
+        </Avatar>
+        <Stack>
+          <Typography variant="h6">{profile.display_name}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {profile.sample_count} 个样本 · {profile.model_key}
+          </Typography>
+        </Stack>
+      </Stack>
+
+      {incomingProbeAsset ? (
+        <Alert severity="info">
+          来自任务：{incomingProbeAsset}
+          {incomingSpeaker ? `，Speaker：${incomingSpeaker}` : ''}
+          {scopeGroupId ? `，分组范围：${scopeGroupId}` : ''}
+        </Alert>
+      ) : null}
+
+      {error ? <Alert severity="error">{error}</Alert> : null}
+      {feedback ? <Alert severity="success">{feedback}</Alert> : null}
+      {pendingJob ? <Alert severity="info">任务处理中：{pendingJob.jobId}</Alert> : null}
+
+      <Card variant="outlined">
+        <CardContent>
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" fontWeight={700}>注册样本</Typography>
+            <AudioUploadField
+              label="注册音频"
+              fileName={(enrollFile?.name ?? enrollAssetName) || null}
+              helperText="wav / m4a / mp3 / flac"
+              disabled={busy}
+              error={null}
+              onChange={(f) => { setEnrollFile(f); if (f) setEnrollAssetName(''); }}
+            />
+            <Button variant="outlined" onClick={handleEnroll} disabled={busy || (!enrollFile && !enrollAssetName.trim())}>
+              开始注册
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card variant="outlined">
+        <CardContent>
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" fontWeight={700}>验证 / 识别</Typography>
+            <AudioUploadField
+              label="待比对音频"
+              fileName={(probeFile?.name ?? (probeAssetName || incomingProbeAsset)) || null}
+              helperText="wav / m4a / mp3 / flac"
+              disabled={busy}
+              error={null}
+              onChange={(f) => { setProbeFile(f); if (f) setProbeAssetName(''); }}
+            />
+            <Stack direction="row" spacing={1.5}>
+              <TextField label="验证阈值" value={thresholdText} onChange={(e) => setThresholdText(e.target.value)} size="small" />
+              <TextField label="识别候选数" value={topKText} onChange={(e) => setTopKText(e.target.value)} size="small" />
+            </Stack>
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" onClick={handleVerify} disabled={busy}>验证</Button>
+              <Button variant="outlined" onClick={handleIdentify} disabled={busy}>识别</Button>
+            </Stack>
+
+            {verifyResult ? (
+              <Stack spacing={1}>
+                <Alert severity={verifyResult.matched ? 'success' : 'warning'}>
+                  相似度 {verifyResult.score.toFixed(3)}，阈值 {threshold.toFixed(2)}，
+                  {verifyResult.matched ? '通过验证' : '未通过'}
+                </Alert>
+                {verifyResult.matched && incomingJobId && incomingSpeaker ? (
+                  <Button variant="contained" onClick={() => persistSpeakerMapping(profile.display_name)}>
+                    将 {incomingSpeaker} 回写为 {profile.display_name}
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : null}
+
+            {identifyResult.length ? (
               <Stack spacing={0.8}>
-                {samples.map((s) => (
+                <Typography variant="body2" fontWeight={700}>识别候选</Typography>
+                {identifyResult.map((c) => (
                   <Box
-                    key={s.sample_id}
-                    sx={{
-                      px: 1.2,
-                      py: 0.9,
-                      borderRadius: 2.5,
-                      bgcolor: alpha('#ffffff', 0.72),
-                      border: '1px solid',
-                      borderColor: alpha('#1c2431', 0.06),
-                    }}
+                    key={c.profile_id ?? c.rank}
+                    sx={{ px: 1.2, py: 0.9, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}
                   >
-                    <Stack direction="row" justifyContent="space-between" spacing={1}>
-                      <Typography variant="body2" noWrap>{s.asset_name}</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', flexShrink: 0 }}>
-                        {s.created_at ? new Date(s.created_at).toLocaleDateString('zh-CN') : '—'}
-                      </Typography>
+                    <Stack direction="row" justifyContent="space-between">
+                      <Typography variant="body2">{c.rank}. {c.display_name}</Typography>
+                      <Typography variant="body2" color="text.secondary">{c.score.toFixed(3)}</Typography>
                     </Stack>
                   </Box>
                 ))}
+                {incomingJobId && incomingSpeaker && identifyResult[0] ? (
+                  <Button variant="contained" onClick={() => persistSpeakerMapping(identifyResult[0].display_name)}>
+                    将 {incomingSpeaker} 回写为 {identifyResult[0].display_name}
+                  </Button>
+                ) : null}
               </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">暂无注册样本。</Typography>
-            )}
+            ) : null}
           </Stack>
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Stack spacing={1}>
-            <Typography variant="body2" fontWeight={700}>最近操作 ({history.length})</Typography>
-            {history.length ? (
-              <Stack spacing={0.8}>
-                {history.slice(0, 8).map((h) => (
-                  <Box
-                    key={h.job_id}
-                    sx={{
-                      px: 1.2,
-                      py: 0.9,
-                      borderRadius: 2.5,
-                      bgcolor: alpha('#ffffff', 0.72),
-                      border: '1px solid',
-                      borderColor: alpha('#1c2431', 0.06),
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" spacing={1}>
-                      <Stack direction="row" spacing={0.8} alignItems="center">
-                        <Chip size="small" label={h.job_type.replace('voiceprint_', '')} />
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>{h.asset_name ?? h.job_id}</Typography>
-                      </Stack>
-                      <Chip size="small" variant="outlined" label={h.status} color={h.status === 'succeeded' ? 'success' : h.status === 'failed' ? 'error' : 'default'} />
+        </CardContent>
+      </Card>
+
+      {samples.length > 0 ? (
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>已注册样本（{samples.length}）</Typography>
+              {samples.map((s) => (
+                <Box key={s.sample_id} sx={{ px: 1.2, py: 0.8, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" noWrap>{s.asset_name}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', flexShrink: 0 }}>
+                      {s.created_at ? new Date(s.created_at).toLocaleDateString('zh-CN') : '—'}
+                    </Typography>
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {history.length > 0 ? (
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>最近操作</Typography>
+              {history.slice(0, 6).map((h) => (
+                <Box key={h.job_id} sx={{ px: 1.2, py: 0.8, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1}>
+                    <Stack direction="row" spacing={0.8} alignItems="center">
+                      <Chip size="small" label={h.job_type.replace('voiceprint_', '')} />
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>{h.asset_name ?? h.job_id}</Typography>
                     </Stack>
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">暂无操作记录。</Typography>
-            )}
-          </Stack>
-        </Grid>
-      </Grid>
-    </SectionCard>
+                    <Chip size="small" variant="outlined" label={h.status} color={h.status === 'succeeded' ? 'success' : h.status === 'failed' ? 'error' : 'default'} />
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      ) : null}
+    </Stack>
   );
 }
+
+// ─── 分组管理区 ───────────────────────────────────────────────────────────────
+
+function GroupPanel({
+  profiles,
+  groups,
+  onGroupsChanged,
+}: {
+  profiles: VoiceprintProfile[];
+  groups: Array<{ group_id: string; display_name: string; profile_ids: string[] }>;
+  onGroupsChanged: () => void;
+}) {
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingMembers, setEditingMembers] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      await createVoiceprintGroup(newGroupName.trim());
+      setNewGroupName('');
+      onGroupsChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : '创建失败'); }
+    setBusy(false);
+  };
+
+  const handleStartEdit = (group: { group_id: string; profile_ids: string[] }) => {
+    setEditingGroupId(group.group_id);
+    setEditingMembers([...group.profile_ids]);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingGroupId) return;
+    setBusy(true); setError(null);
+    try {
+      await updateVoiceprintGroup(editingGroupId, editingMembers);
+      setEditingGroupId(null);
+      onGroupsChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); }
+    setBusy(false);
+  };
+
+  const toggleMember = (profileId: string) => {
+    setEditingMembers((prev) =>
+      prev.includes(profileId) ? prev.filter((id) => id !== profileId) : [...prev, profileId],
+    );
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="h6">声纹分组</Typography>
+      <Typography variant="body2" color="text.secondary">
+        分组用于多人转写时限定候选范围，提升识别准确率。
+      </Typography>
+
+      {error ? <Alert severity="error">{error}</Alert> : null}
+
+      <Stack direction="row" spacing={1}>
+        <TextField
+          fullWidth
+          size="small"
+          label="新建分组"
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateGroup(); }}
+        />
+        <Button variant="outlined" onClick={handleCreateGroup} disabled={busy || !newGroupName.trim()}>
+          创建
+        </Button>
+      </Stack>
+
+      <Stack spacing={1.2}>
+        {groups.length ? groups.map((group) => (
+          <Card key={group.group_id} variant="outlined">
+            <CardContent sx={{ py: 1.4, px: 1.6, '&:last-child': { pb: 1.4 } }}>
+              {editingGroupId === group.group_id ? (
+                <Stack spacing={1.2}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography fontWeight={700}>{group.display_name}</Typography>
+                    <Stack direction="row" spacing={0.8}>
+                      <Button size="small" variant="contained" onClick={handleSaveEdit} disabled={busy}>保存</Button>
+                      <Button size="small" onClick={() => setEditingGroupId(null)}>取消</Button>
+                    </Stack>
+                  </Stack>
+                  <Stack spacing={0.6}>
+                    {profiles.map((p) => (
+                      <Stack key={p.profile_id} direction="row" spacing={1} alignItems="center">
+                        <Checkbox
+                          size="small"
+                          checked={editingMembers.includes(p.profile_id)}
+                          onChange={() => toggleMember(p.profile_id)}
+                        />
+                        <Typography variant="body2">{p.display_name}</Typography>
+                        <Typography variant="body2" color="text.secondary">({p.sample_count} 样本)</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </Stack>
+              ) : (
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                  <Stack spacing={0.5}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <GroupsRounded fontSize="small" color="action" />
+                      <Typography fontWeight={700}>{group.display_name}</Typography>
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary">
+                      {group.profile_ids.length} 个档案
+                      {group.profile_ids.length > 0 ? `：${group.profile_ids.map((id) => profiles.find((p) => p.profile_id === id)?.display_name ?? id).join('、')}` : ''}
+                    </Typography>
+                  </Stack>
+                  <Button size="small" onClick={() => handleStartEdit(group)}>编辑成员</Button>
+                </Stack>
+              )}
+            </CardContent>
+          </Card>
+        )) : (
+          <Typography variant="body2" color="text.secondary">暂无分组，创建后可在工作台多人转写时选择。</Typography>
+        )}
+      </Stack>
+    </Stack>
+  );
+}
+
+// ─── 主页面 ───────────────────────────────────────────────────────────────────
 
 export function VoiceprintLibraryPage() {
   const navigate = useNavigate();
@@ -173,517 +446,159 @@ export function VoiceprintLibraryPage() {
   const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
   const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
-  const [displayName, setDisplayName] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [pendingJob, setPendingJob] = useState<PendingVoiceprintJob | null>(null);
-  const [enrollFile, setEnrollFile] = useState<File | null>(null);
-  const [enrollAssetName, setEnrollAssetName] = useState('');
-  const [probeFile, setProbeFile] = useState<File | null>(null);
-  const [probeAssetName, setProbeAssetName] = useState('');
-  const [enrollResult, setEnrollResult] = useState<string | null>(null);
-  const [verifyResult, setVerifyResult] = useState<{ score: number; matched: boolean } | null>(null);
-  const [identifyResult, setIdentifyResult] = useState<string[]>([]);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [thresholdText, setThresholdText] = useState('0.7');
-  const [topKText, setTopKText] = useState('3');
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const incomingProbeAsset = searchParams.get('probe') ?? '';
   const incomingSpeaker = searchParams.get('speaker') ?? '';
   const incomingJobId = searchParams.get('jobId') ?? '';
+  const scopeGroupId = searchParams.get('voiceprintGroupId') ?? '';
+  const scopeMode = searchParams.get('voiceprintScope') ?? 'none';
 
   const profiles = profilesState.data?.items ?? [];
-  const activeProfileId = selectedProfileId || profiles[0]?.profile_id || '';
+  const groups = groupsState.data?.items ?? [];
+
+  // 如果有分组范围，只展示该分组内的档案
+  const visibleProfiles = useMemo(() => {
+    if (scopeMode === 'group' && scopeGroupId) {
+      const group = groups.find((g) => g.group_id === scopeGroupId);
+      if (group && group.profile_ids.length > 0) {
+        return profiles.filter((p) => group.profile_ids.includes(p.profile_id));
+      }
+    }
+    return profiles;
+  }, [profiles, groups, scopeMode, scopeGroupId]);
+
   const activeProfile = useMemo(
-    () => profiles.find((profile) => profile.profile_id === activeProfileId) ?? null,
-    [profiles, activeProfileId],
+    () => visibleProfiles.find((p) => p.profile_id === selectedProfileId) ?? visibleProfiles[0] ?? null,
+    [visibleProfiles, selectedProfileId],
   );
 
-  const threshold = Number.parseFloat(thresholdText) || 0.7;
-  const topK = Math.max(1, Number.parseInt(topKText, 10) || 3);
-
-  const resetMessages = () => {
-    setActionError(null);
-    setEnrollResult(null);
-    setVerifyResult(null);
-    setIdentifyResult([]);
-  };
-
-  const persistSpeakerMapping = (incomingDisplayName: string) => {
-    if (!incomingJobId || !incomingSpeaker || typeof window === 'undefined') {
-      return;
-    }
+  const handleCreateProfile = async () => {
+    if (!newProfileName.trim()) { setCreateError('请输入档案名称'); return; }
+    setBusy(true); setCreateError(null);
     try {
-      const raw = window.localStorage.getItem(SPEAKER_MAPPING_STORAGE_KEY);
-      const store = raw ? (JSON.parse(raw) as SpeakerMappingStore) : {};
-      store[incomingJobId] = {
-        ...(store[incomingJobId] ?? {}),
-        [incomingSpeaker]: incomingDisplayName,
-      };
-      window.localStorage.setItem(SPEAKER_MAPPING_STORAGE_KEY, JSON.stringify(store));
-      navigate(`/jobs/${incomingJobId}`);
-    } catch {
-      setActionError('Speaker 回写失败，请稍后重试。');
-    }
-  };
-
-  const ensureEnrollAsset = async () => {
-    if (enrollFile) {
-      const uploaded = await uploadAudio(enrollFile);
-      setEnrollAssetName(uploaded.asset_name);
-      return uploaded.asset_name;
-    }
-    if (enrollAssetName.trim()) {
-      return enrollAssetName.trim();
-    }
-    throw new Error('请先选择用于注册的音频文件');
-  };
-
-  const ensureProbeAsset = async () => {
-    if (probeFile) {
-      const uploaded = await uploadAudio(probeFile);
-      setProbeAssetName(uploaded.asset_name);
-      return uploaded.asset_name;
-    }
-    if ((probeAssetName || incomingProbeAsset).trim()) {
-      return (probeAssetName || incomingProbeAsset).trim();
-    }
-    throw new Error('请先选择待验证或识别的音频文件');
-  };
-
-  useEffect(() => {
-    if (!pendingJob) {
-      return undefined;
-    }
-
-    let active = true;
-    const timer = window.setInterval(async () => {
-      try {
-        const job = await fetchVoiceprintJob(pendingJob.jobId);
-        if (!active) {
-          return;
-        }
-        if (job.status === 'queued' || job.status === 'running') {
-          return;
-        }
-        setPendingJob(null);
-        setBusy(false);
-        if (job.status === 'failed') {
-          setActionError(job.error_message || '声纹任务执行失败');
-          return;
-        }
-        if (pendingJob.kind === 'enroll' && job.enrollment && activeProfile) {
-          profilesState.reload();
-          setEnrollResult(`注册完成：${activeProfile.display_name} 已写入基准音频`);
-          setEnrollFile(null);
-          setEnrollAssetName('');
-        }
-        if (pendingJob.kind === 'verify' && job.verification) {
-          setVerifyResult({ score: job.verification.score, matched: job.verification.matched });
-          if (job.verification.matched && activeProfile) {
-            setEnrollResult(`验证通过：可将 ${incomingSpeaker || '当前 Speaker'} 回写为 ${activeProfile.display_name}`);
-          }
-        }
-        if (pendingJob.kind === 'identify' && job.identification) {
-          setIdentifyResult(
-            job.identification.candidates.map((item) => `${item.rank}. ${item.display_name} · 相似度 ${item.score}`),
-          );
-          if (job.identification.matched && job.identification.candidates[0]) {
-            setEnrollResult(`识别命中：建议回写为 ${job.identification.candidates[0].display_name}`);
-          }
-        }
-      } catch (error) {
-        if (active) {
-          setPendingJob(null);
-          setBusy(false);
-          setActionError(error instanceof Error ? error.message : '声纹任务轮询失败');
-        }
-      }
-    }, 2000);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [activeProfile, incomingSpeaker, pendingJob, profilesState]);
-
-  const handleCreate = async () => {
-    if (!displayName.trim()) {
-      setActionError('请输入档案名称');
-      return;
-    }
-    setBusy(true);
-    setActionError(null);
-    try {
-      const response = await createVoiceprintProfile(displayName.trim(), '3dspeaker-embedding');
-      profilesState.setData((current) => ({ items: [response.profile, ...(current?.items ?? [])] }));
-      setSelectedProfileId(response.profile.profile_id);
-      setDialogOpen(false);
-      setDisplayName('');
-    } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : '创建档案失败');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCreateGroup = async () => {
-    if (!groupName.trim()) {
-      setActionError('请输入分组名称');
-      return;
-    }
-    setBusy(true);
-    setActionError(null);
-    try {
-      await createVoiceprintGroup(groupName.trim());
-      await groupsState.reload();
-      setGroupName('');
-    } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : '创建分组失败');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleEnroll = async () => {
-    if (!activeProfileId) {
-      setActionError('请先选择一个声纹档案');
-      return;
-    }
-    setBusy(true);
-    resetMessages();
-    try {
-      const assetName = await ensureEnrollAsset();
-      const response = await enrollVoiceprint(activeProfileId, assetName);
-      if (response.job) {
-        setPendingJob({ jobId: response.job.job_id, kind: 'enroll' });
-        setEnrollResult('已提交注册任务，正在处理中。');
-        return;
-      }
-      if (response.profile) {
-        profilesState.setData((current) => ({
-          items: (current?.items ?? []).map((item) =>
-            item.profile_id === response.profile?.profile_id ? response.profile : item,
-          ),
-        }));
-      }
-      setEnrollResult(`注册完成：${response.profile?.display_name ?? activeProfile?.display_name ?? '档案'} 已写入基准音频`);
-      setEnrollFile(null);
-      setEnrollAssetName('');
-    } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : '声纹注册失败');
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
-  };
-
-  const handleVerify = async () => {
-    if (!activeProfileId) {
-      setActionError('请先选择一个声纹档案');
-      return;
-    }
-    setBusy(true);
-    resetMessages();
-    try {
-      const assetName = await ensureProbeAsset();
-      const response = await verifyVoiceprint(activeProfileId, assetName, threshold);
-      if (response.job) {
-        setPendingJob({ jobId: response.job.job_id, kind: 'verify' });
-        setEnrollResult('已提交声纹验证任务，正在处理中。');
-        return;
-      }
-      if (response.result) {
-        setVerifyResult({ score: response.result.score, matched: response.result.matched });
-        if (response.result.matched && activeProfile) {
-          setEnrollResult(`验证通过：可将 ${incomingSpeaker || '当前 Speaker'} 回写为 ${activeProfile.display_name}`);
-        }
-      }
-    } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : '声纹验证失败');
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
-  };
-
-  const handleIdentify = async () => {
-    setBusy(true);
-    resetMessages();
-    try {
-      const assetName = await ensureProbeAsset();
-      const response = await identifyVoiceprint(assetName, topK);
-      if (response.job) {
-        setPendingJob({ jobId: response.job.job_id, kind: 'identify' });
-        setEnrollResult('已提交声纹识别任务，正在处理中。');
-        return;
-      }
-      if (response.result) {
-        setIdentifyResult(
-          response.result.candidates.map((item) => `${item.rank}. ${item.display_name} · 相似度 ${item.score}`),
-        );
-        if (response.result.matched && response.result.candidates[0]) {
-          setEnrollResult(`识别命中：建议回写为 ${response.result.candidates[0].display_name}`);
-        }
-      }
-    } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : '声纹识别失败');
-      setBusy(false);
-      return;
-    }
+      const res = await createVoiceprintProfile(newProfileName.trim(), '3dspeaker-embedding');
+      profilesState.setData((current) => ({ items: [res.profile, ...(current?.items ?? [])] }));
+      setSelectedProfileId(res.profile.profile_id);
+      setCreateDialogOpen(false);
+      setNewProfileName('');
+    } catch (e) { setCreateError(e instanceof Error ? e.message : '创建失败'); }
     setBusy(false);
   };
 
   return (
     <PageSection
+      compact
       title="声纹库"
-      loading={profilesState.loading}
-      error={profilesState.error}
+      loading={(profilesState.loading && !profilesState.data) || (groupsState.loading && !groupsState.data)}
+      error={profilesState.error ?? groupsState.error}
       actions={
-        <Stack direction="row" spacing={1.5}>
-          <Button variant="outlined" onClick={profilesState.reload}>
-            刷新
-          </Button>
-          <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialogOpen(true)}>
+        <Stack direction="row" spacing={1}>
+          <Button variant="outlined" onClick={() => { profilesState.reload(); groupsState.reload(); }}>刷新</Button>
+          <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreateDialogOpen(true)}>
             新建档案
           </Button>
         </Stack>
       }
     >
-      <Grid container spacing={2.2} alignItems="stretch">
-        <Grid size={{ xs: 12, xl: 3.6 }}>
-          <SectionCard title="档案列表" subtitle={profiles.length ? `共 ${profiles.length} 个档案` : undefined}>
-            {profiles.length ? (
-              <List disablePadding sx={{ display: 'grid', gap: 1 }}>
-                {profiles.map((profile: VoiceprintProfile) => (
-                  <ListItemButton
-                    key={profile.profile_id}
-                    selected={profile.profile_id === activeProfileId}
-                    onClick={() => {
-                      setSelectedProfileId(profile.profile_id);
-                      resetMessages();
-                    }}
-                    sx={{
-                      alignItems: 'flex-start',
-                      borderRadius: 3,
-                      px: 1.5,
-                      py: 1.25,
-                      bgcolor:
-                        profile.profile_id === activeProfileId
-                          ? alpha('#2f6fed', 0.08)
-                          : alpha('#ffffff', 0.72),
-                      border: '1px solid',
-                      borderColor:
-                        profile.profile_id === activeProfileId
-                          ? alpha('#2f6fed', 0.16)
-                          : alpha('#1c2431', 0.06),
-                    }}
-                  >
-                    <ListItemText
-                      primary={<Typography sx={{ fontWeight: 700, lineHeight: 1.3 }}>{profile.display_name}</Typography>}
-                      secondary={`样本 ${profile.sample_count}`}
-                    />
-                  </ListItemButton>
-                ))}
-              </List>
-            ) : (
-              <Alert severity="info">当前还没有声纹档案。</Alert>
-            )}
-          </SectionCard>
-        </Grid>
+      {scopeMode !== 'none' && scopeGroupId ? (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          当前仅展示分组 <strong>{groups.find((g) => g.group_id === scopeGroupId)?.display_name ?? scopeGroupId}</strong> 内的档案（共 {visibleProfiles.length} 个）。
+          <Button size="small" sx={{ ml: 1 }} onClick={() => navigate('/voiceprints')}>查看全部</Button>
+        </Alert>
+      ) : null}
 
-        <Grid size={{ xs: 12, xl: 8.4 }}>
-          <Stack spacing={2.2}>
-            {incomingProbeAsset ? (
-              <Alert severity="info">
-                已从任务详情带入资产：{incomingProbeAsset}
-                {incomingSpeaker ? `，当前 Speaker：${incomingSpeaker}` : ''}
-                {incomingJobId ? `，任务：${incomingJobId}` : ''}
-              </Alert>
-            ) : null}
-
-            {pendingJob ? <Alert severity="info">声纹任务处理中：{pendingJob.jobId}</Alert> : null}
-
-            {activeProfile ? (
-              <SectionCard
-                title={activeProfile.display_name}
-                subtitle={`档案 ${activeProfile.profile_id}`}
-                action={
-                  <Stack direction="row" spacing={1}>
-                    <Button variant="outlined" onClick={handleVerify} disabled={busy}>
-                      声纹验证
-                    </Button>
-                    <Button variant="outlined" onClick={handleIdentify} disabled={busy}>
-                      声纹识别
-                    </Button>
-                  </Stack>
-                }
-              >
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.6} alignItems={{ xs: 'flex-start', md: 'center' }}>
-                  <Avatar sx={{ width: 52, height: 52, bgcolor: 'primary.main' }}>
-                    <FingerprintRounded />
-                  </Avatar>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <Chip size="small" label={`样本 ${activeProfile.sample_count}`} color={activeProfile.sample_count > 0 ? 'success' : 'default'} />
-                    <Chip size="small" variant="outlined" label="本地 3D-Speaker" />
-                  </Stack>
-                </Stack>
-              </SectionCard>
-            ) : (
-              <Alert severity="info">请选择一个档案开始操作。</Alert>
-            )}
-
-            {activeProfile ? (
-              <ProfileDetailSection profileId={activeProfile.profile_id} />
-            ) : null}
-
-            <SectionCard title="声纹分组" subtitle="为后续限定候选范围做准备。">
-              <Stack spacing={1.2}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                  <TextField
-                    fullWidth
-                    label="新建分组"
-                    value={groupName}
-                    onChange={(event) => setGroupName(event.target.value)}
-                  />
-                  <Button variant="outlined" onClick={handleCreateGroup} disabled={busy}>
-                    创建分组
-                  </Button>
-                </Stack>
-                <Stack spacing={0.8}>
-                  {(groupsState.data?.items ?? []).length ? (
-                    (groupsState.data?.items ?? []).map((group) => (
+      <Grid container spacing={2.2} alignItems="flex-start">
+        {/* 左侧：档案列表 */}
+        <Grid size={{ xs: 12, md: 3 }}>
+          <Card>
+            <CardContent>
+              <Stack spacing={1}>
+                <Typography variant="h6">档案列表</Typography>
+                <Typography variant="body2" color="text.secondary">{visibleProfiles.length} 个档案</Typography>
+                <Divider />
+                {visibleProfiles.length ? (
+                  <Stack spacing={0.8}>
+                    {visibleProfiles.map((p) => (
                       <Box
-                        key={group.group_id}
+                        key={p.profile_id}
+                        onClick={() => setSelectedProfileId(p.profile_id)}
                         sx={{
                           px: 1.2,
-                          py: 0.9,
+                          py: 1,
                           borderRadius: 2.5,
-                          bgcolor: alpha('#ffffff', 0.72),
+                          cursor: 'pointer',
+                          bgcolor: p.profile_id === activeProfile?.profile_id ? alpha('#2f6fed', 0.08) : alpha('#ffffff', 0.72),
                           border: '1px solid',
-                          borderColor: alpha('#1c2431', 0.06),
+                          borderColor: p.profile_id === activeProfile?.profile_id ? alpha('#2f6fed', 0.18) : alpha('#1c2431', 0.06),
                         }}
                       >
-                        <Typography variant="body2" fontWeight={700}>{group.display_name}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {group.profile_ids.length} 个档案
-                        </Typography>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography fontWeight={700} variant="body2">{p.display_name}</Typography>
+                          <Chip size="small" label={`${p.sample_count} 样本`} color={p.sample_count > 0 ? 'success' : 'default'} />
+                        </Stack>
                       </Box>
-                    ))
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">当前还没有分组。</Typography>
-                  )}
-                </Stack>
-              </Stack>
-            </SectionCard>
-
-            <SectionCard title="验证与识别" subtitle="上传待比对音频。">
-              <Stack spacing={1.5}>
-                <AudioUploadField
-                  label="待比对音频"
-                  fileName={(probeFile?.name ?? probeAssetName ?? incomingProbeAsset) || null}
-                  helperText="支持 wav、m4a、mp3、flac。"
-                  disabled={busy}
-                  error={null}
-                  onChange={(file) => {
-                    setProbeFile(file);
-                    if (file) {
-                      setProbeAssetName('');
-                    }
-                    resetMessages();
-                  }}
-                />
-                <Grid container spacing={1.5}>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField label="验证阈值" value={thresholdText} onChange={(event) => setThresholdText(event.target.value)} />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField label="识别候选数" value={topKText} onChange={(event) => setTopKText(event.target.value)} />
-                  </Grid>
-                </Grid>
-                {verifyResult ? (
-                  <Stack spacing={1}>
-                    <Alert severity={verifyResult.matched ? 'success' : 'warning'}>
-                      相似度 {verifyResult.score}，阈值 {threshold.toFixed(2)}，{verifyResult.matched ? '已通过验证' : '未达到阈值'}
-                    </Alert>
-                    {verifyResult.matched && incomingJobId && incomingSpeaker && activeProfile ? (
-                      <Button variant="contained" onClick={() => persistSpeakerMapping(activeProfile.display_name)}>
-                        将当前 Speaker 回写为 {activeProfile.display_name}
-                      </Button>
-                    ) : null}
+                    ))}
                   </Stack>
-                ) : null}
-                {identifyResult.length ? (
-                  <Stack spacing={1}>
-                    <Typography variant="body2" color="text.secondary">识别结果</Typography>
-                    <Stack spacing={0.8}>
-                      {identifyResult.map((item) => (
-                        <Box key={item} sx={{ px: 1.25, py: 0.95, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
-                          <Typography variant="body2">{item}</Typography>
-                        </Box>
-                      ))}
-                    </Stack>
-                    {incomingJobId && incomingSpeaker ? (
-                      <Button
-                        variant="contained"
-                        onClick={() => {
-                          const topCandidate = identifyResult[0];
-                          if (!topCandidate) return;
-                          const incomingDisplayName = topCandidate.replace(/^\d+\.\s*/, '').split(' · ')[0]?.trim();
-                          if (!incomingDisplayName) return;
-                          persistSpeakerMapping(incomingDisplayName);
-                        }}
-                      >
-                        将首个候选回写到任务详情
-                      </Button>
-                    ) : null}
-                  </Stack>
-                ) : null}
+                ) : (
+                  <Alert severity="info">暂无档案。</Alert>
+                )}
               </Stack>
-            </SectionCard>
+            </CardContent>
+          </Card>
+        </Grid>
 
-            <SectionCard title="注册基准音频" subtitle="为当前档案写入基准音频。">
-              <Stack spacing={1.5}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <RecordVoiceOverRounded color="action" fontSize="small" />
-                  <Typography variant="body2" color="text.secondary">注册音频</Typography>
-                </Stack>
-                <AudioUploadField
-                  label="注册音频"
-                  fileName={(enrollFile?.name ?? enrollAssetName) || null}
-                  helperText="注册后可用于后续验证与识别。"
-                  disabled={busy}
-                  error={null}
-                  onChange={(file) => {
-                    setEnrollFile(file);
-                    if (file) {
-                      setEnrollAssetName('');
-                    }
-                    resetMessages();
-                  }}
-                />
-                <Divider />
-                <Button variant="outlined" onClick={handleEnroll} disabled={!activeProfile || busy}>开始注册</Button>
-                {enrollResult ? <Alert severity="success">{enrollResult}</Alert> : null}
-                {actionError ? <Alert severity="error">{actionError}</Alert> : null}
-              </Stack>
-            </SectionCard>
-          </Stack>
+        {/* 中部：档案详情与操作 */}
+        <Grid size={{ xs: 12, md: 5 }}>
+          {activeProfile ? (
+            <ProfileDetail
+              profile={activeProfile}
+              incomingProbeAsset={incomingProbeAsset}
+              incomingSpeaker={incomingSpeaker}
+              incomingJobId={incomingJobId}
+              scopeGroupId={scopeGroupId}
+              onEnrolled={() => profilesState.reload()}
+            />
+          ) : (
+            <Alert severity="info">请从左侧选择一个档案，或新建档案。</Alert>
+          )}
+        </Grid>
+
+        {/* 右侧：分组管理 */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Card>
+            <CardContent>
+              <GroupPanel
+                profiles={profiles}
+                groups={groups}
+                onGroupsChanged={() => groupsState.reload()}
+              />
+            </CardContent>
+          </Card>
         </Grid>
       </Grid>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="xs">
+      {/* 新建档案对话框 */}
+      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>新建声纹档案</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField label="档案名称" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoFocus />
-            <Typography variant="body2" color="text.secondary">创建后即可使用。</Typography>
+            <TextField
+              label="档案名称"
+              value={newProfileName}
+              onChange={(e) => setNewProfileName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateProfile(); }}
+            />
+            {createError ? <Alert severity="error">{createError}</Alert> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={busy}>创建</Button>
+          <Button onClick={() => setCreateDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={handleCreateProfile} disabled={busy}>创建</Button>
         </DialogActions>
       </Dialog>
     </PageSection>
