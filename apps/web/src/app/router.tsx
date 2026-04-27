@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '../components/AppLayout';
+import { DiarizationPage } from '../pages/diarization/DiarizationPage';
 import { JobDetailPage } from '../pages/jobs/JobDetailPage';
 import { JobListPage } from '../pages/jobs/JobListPage';
 import { MeetingMinutesIndexPage } from '../pages/minutes/MeetingMinutesIndexPage';
@@ -34,6 +35,10 @@ export const router = createBrowserRouter([
       {
         path: 'minutes/:jobId',
         element: <MeetingMinutesPage />,
+      },
+      {
+        path: 'diarization',
+        element: <DiarizationPage />,
       },
       {
         path: 'voiceprints',

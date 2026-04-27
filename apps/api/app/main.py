@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from .api.routes import assets, jobs, system, transcription, voiceprints
+from .api.routes import assets, diarization, jobs, system, transcription, voiceprints
 from .core.config import get_settings
 
 
@@ -18,6 +18,7 @@ app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(transcription.router, prefix="/api/v1")
 app.include_router(voiceprints.router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
+app.include_router(diarization.router, prefix="/api/v1")
 
 
 @app.get("/")
