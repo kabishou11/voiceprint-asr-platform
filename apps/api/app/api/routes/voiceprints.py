@@ -117,9 +117,20 @@ def list_groups():
         return {"items": result}
 
 
+from pydantic import BaseModel as _BaseModel
+
+
+class _CreateGroupRequest(_BaseModel):
+    display_name: str
+
+
+class _UpdateGroupRequest(_BaseModel):
+    profile_ids: list[str] = []
+
+
 @router.post("/groups")
-def create_group(payload: dict):
-    display_name = str(payload.get("display_name") or "").strip()
+def create_group(payload: _CreateGroupRequest):
+    display_name = payload.display_name.strip()
     if not display_name:
         raise HTTPException(status_code=400, detail="分组名称不能为空")
     group_id = f"group-{uuid4().hex[:8]}"
@@ -130,8 +141,7 @@ def create_group(payload: dict):
 
 
 @router.put("/groups/{group_id}")
-def update_group(group_id: str, payload: dict):
-    profile_ids = payload.get("profile_ids") or []
+def update_group(group_id: str, payload: _UpdateGroupRequest):
     with job_db.session() as db:
         group = db.get(job_db.VoiceprintGroupRecord, group_id)
         if group is None:
@@ -139,10 +149,10 @@ def update_group(group_id: str, payload: dict):
         db.query(job_db.VoiceprintGroupMemberRecord).filter(
             job_db.VoiceprintGroupMemberRecord.group_id == group_id
         ).delete()
-        for profile_id in profile_ids:
+        for profile_id in payload.profile_ids:
             db.add(job_db.VoiceprintGroupMemberRecord(group_id=group_id, profile_id=profile_id))
         db.commit()
-    return {"group_id": group_id, "profile_ids": profile_ids}
+    return {"group_id": group_id, "profile_ids": payload.profile_ids}
 
 
 @router.get("/profiles/{profile_id}")
@@ -160,6 +170,11 @@ def get_profile(profile_id: str):
             .filter(
                 job_db.JobRecord.asset_name.isnot(None),
                 job_db.JobRecord.job_type.in_({"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}),
+                job_db.JobRecord.asset_name.in_(
+                    db.query(job_db.VoiceprintSampleRecord.asset_name)
+                    .filter(job_db.VoiceprintSampleRecord.profile_id == profile_id)
+                    .scalar_subquery()
+                ),
             )
             .order_by(job_db.JobRecord.created_at.desc())
             .limit(20)
