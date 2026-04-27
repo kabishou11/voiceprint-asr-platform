@@ -4,7 +4,6 @@ from pathlib import Path
 from secrets import token_hex
 from typing import BinaryIO
 
-MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
 ALLOWED_SUFFIXES = {'.wav', '.m4a', '.mp3', '.flac'}
 
 
@@ -31,10 +30,6 @@ class AssetStorageService:
                 if not chunk:
                     break
                 size += len(chunk)
-                if size > MAX_UPLOAD_SIZE_BYTES:
-                    target.close()
-                    destination.unlink(missing_ok=True)
-                    raise ValueError('上传文件过大，最大支持 100MB')
                 target.write(chunk)
 
         if size == 0:

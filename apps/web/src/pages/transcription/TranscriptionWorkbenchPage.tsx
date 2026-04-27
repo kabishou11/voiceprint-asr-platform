@@ -163,10 +163,6 @@ export function TranscriptionWorkbenchPage() {
       setSubmitError('请先选择音频文件');
       return;
     }
-    if (selectedFile && selectedFile.size > 100 * 1024 * 1024) {
-      setSubmitError('上传文件过大，最大支持 100MB');
-      return;
-    }
     if (minSpeakers && maxSpeakers && minSpeakers > maxSpeakers) {
       setSubmitError('最少说话人数不能大于最多说话人数');
       return;
