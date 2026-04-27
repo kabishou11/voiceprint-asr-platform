@@ -22,7 +22,7 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
+import { createTranscription, fetchJobs, fetchModels, fetchVoiceprintGroups, fetchVoiceprintProfiles, uploadAudio } from '../../api/client';
 import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
@@ -67,6 +67,8 @@ export function TranscriptionWorkbenchPage() {
   const [diarizationModel, setDiarizationModel] = useState('');
   const [language, setLanguage] = useState('zh-cn');
   const [asrModel, setAsrModel] = useState('funasr-nano');
+  const [voiceprintScopeMode, setVoiceprintScopeMode] = useState<'none' | 'all' | 'group'>('none');
+  const [voiceprintGroupId, setVoiceprintGroupId] = useState('');
   const [hotwordsText, setHotwordsText] = useState('');
   const [vadEnabled, setVadEnabled] = useState(true);
   const [itnEnabled, setItnEnabled] = useState(true);
@@ -78,7 +80,11 @@ export function TranscriptionWorkbenchPage() {
 
   const modelsState = useAsyncData(() => fetchModels(), []);
   const jobsState = useAsyncData(() => fetchJobs(), []);
+  const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
+  const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
   const modelItems = modelsState.data?.items ?? [];
+  const voiceprintGroups = groupsState.data?.items ?? [];
+  const voiceprintProfiles = profilesState.data?.items ?? [];
   const gpuReady = modelsState.data?.gpu?.cuda_available ?? false;
 
   const resolveRuntimeState = (key: string): RuntimeState => {
@@ -335,6 +341,17 @@ export function TranscriptionWorkbenchPage() {
                     <TextField
                       select
                       fullWidth
+                      label="声纹识别范围"
+                      value={voiceprintScopeMode}
+                      onChange={(event) => setVoiceprintScopeMode(event.target.value as 'none' | 'all' | 'group')}
+                    >
+                      <MenuItem value="none">不做声纹识别</MenuItem>
+                      <MenuItem value="all">全库识别</MenuItem>
+                      <MenuItem value="group">指定分组</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      fullWidth
                       label="任务模式"
                       value={diarizationModel ? 'multi' : 'single'}
                       onChange={(event) => {
@@ -349,6 +366,20 @@ export function TranscriptionWorkbenchPage() {
                       <MenuItem value="multi">多人转写</MenuItem>
                     </TextField>
                   </Stack>
+
+                  {voiceprintScopeMode === 'group' ? (
+                    <TextField
+                      select
+                      fullWidth
+                      label="声纹分组"
+                      value={voiceprintGroupId}
+                      onChange={(event) => setVoiceprintGroupId(event.target.value)}
+                    >
+                      {voiceprintGroups.map((group) => (
+                        <MenuItem key={group.group_id} value={group.group_id}>{group.display_name}</MenuItem>
+                      ))}
+                    </TextField>
+                  ) : null}
 
                   <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}>
                     <AccordionSummary expandIcon={<ExpandMoreRounded />}>
