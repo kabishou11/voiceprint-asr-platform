@@ -18,10 +18,13 @@ export function useAsyncData<T>(
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const timeoutRef = useRef<number | null>(null);
+  const isPollingRefreshRef = useRef(false);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    if (!isPollingRefreshRef.current || data === null) {
+      setLoading(true);
+    }
     setError(null);
 
     loader()
@@ -38,6 +41,7 @@ export function useAsyncData<T>(
       .finally(() => {
         if (active) {
           setLoading(false);
+          isPollingRefreshRef.current = false;
         }
       });
 
@@ -59,6 +63,7 @@ export function useAsyncData<T>(
       if (polling.stopWhen?.(data ?? null)) {
         return;
       }
+      isPollingRefreshRef.current = true;
       setVersion((current) => current + 1);
       timeoutRef.current = window.setTimeout(tick, polling.intervalMs);
     };
@@ -72,6 +77,7 @@ export function useAsyncData<T>(
   }, [data, polling?.enabled, polling?.intervalMs, polling?.pauseWhenHidden, polling?.stopWhen]);
 
   const reload = useCallback(() => {
+    isPollingRefreshRef.current = false;
     setVersion((current) => current + 1);
   }, []);
 

@@ -239,7 +239,7 @@ export function TranscriptionWorkbenchPage() {
     <PageSection
       compact
       title="开始任务"
-      description="上传音频、选择模式并快速进入结果审阅。"
+      description="上传音频，选择单人或多人转写；多人模式默认包含说话人分离，可选限定声纹分组。"
       loading={modelsState.loading || jobsState.loading}
       error={modelsState.error ?? jobsState.error}
       actions={
@@ -350,17 +350,6 @@ export function TranscriptionWorkbenchPage() {
                     <TextField
                       select
                       fullWidth
-                      label="声纹识别范围"
-                      value={voiceprintScopeMode}
-                      onChange={(event) => setVoiceprintScopeMode(event.target.value as 'none' | 'all' | 'group')}
-                    >
-                      <MenuItem value="none">不做声纹识别</MenuItem>
-                      <MenuItem value="all">全库识别</MenuItem>
-                      <MenuItem value="group">指定分组</MenuItem>
-                    </TextField>
-                    <TextField
-                      select
-                      fullWidth
                       label="任务模式"
                       value={diarizationModel ? 'multi' : 'single'}
                       onChange={(event) => {
@@ -374,9 +363,22 @@ export function TranscriptionWorkbenchPage() {
                       <MenuItem value="single">单人转写</MenuItem>
                       <MenuItem value="multi">多人转写</MenuItem>
                     </TextField>
+                    {diarizationModel ? (
+                      <TextField
+                        select
+                        fullWidth
+                        label="多人转写声纹分组"
+                        value={voiceprintScopeMode}
+                        onChange={(event) => setVoiceprintScopeMode(event.target.value as 'none' | 'all' | 'group')}
+                      >
+                        <MenuItem value="none">不限制</MenuItem>
+                        <MenuItem value="all">全库</MenuItem>
+                        <MenuItem value="group">指定分组</MenuItem>
+                      </TextField>
+                    ) : null}
                   </Stack>
 
-                  {voiceprintScopeMode === 'group' ? (
+                  {diarizationModel && voiceprintScopeMode === 'group' ? (
                     <TextField
                       select
                       fullWidth
