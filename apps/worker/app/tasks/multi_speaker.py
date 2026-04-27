@@ -1,10 +1,14 @@
 """多人转写任务 - Celery Task 封装。
 
 提供异步多人转写任务的注册和执行函数。
+ASR 与 Diarization 默认并行执行以减少总耗时。
 """
 from __future__ import annotations
 
+import copy
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from domain.schemas.transcript import TranscriptMetadata, TranscriptResult, TranscriptTimeline
 from model_adapters import resolve_audio_asset_path
@@ -20,6 +24,8 @@ from ..worker_runtime import get_worker_registry
 from ._base import update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
+
+PARALLEL_ASR_DIARIZATION = os.environ.get("PARALLEL_ASR_DIARIZATION", "1") == "1"
 
 
 def _run_multi_speaker_transcription_sync(
@@ -38,6 +44,8 @@ def _run_multi_speaker_transcription_sync(
 ) -> TranscriptResult:
     """同步执行多人转写任务（内部实现）。
 
+    ASR 与 Diarization 默认并行执行（可通过 PARALLEL_ASR_DIARIZATION=0 关闭）。
+
     参数：
         job_id: 任务 ID
         asset_name: 音频资产名
@@ -48,13 +56,13 @@ def _run_multi_speaker_transcription_sync(
         vad_enabled: 是否启用 VAD（语音活动检测，过滤静音噪声）
         itn: 是否启用逆文本正则化（数字/日期/货币格式化）
         num_speakers: 已知说话人数量（用于聚类提示，None 则自动估计）
+        min_speakers: 最少说话人数
+        max_speakers: 最多说话人数
     """
     registry = get_worker_registry()
     registry.require_available(asr_model_key)
     registry.require_available(diarization_model_key)
     asset = preprocess_audio(_adapter_asset(asset_name))
-
-    import copy
 
     asr_adapter = copy.copy(registry.get_asr(asr_model_key))
     if hotwords and hasattr(asr_adapter, "hotwords"):
@@ -66,8 +74,6 @@ def _run_multi_speaker_transcription_sync(
     if hasattr(asr_adapter, "itn"):
         asr_adapter.itn = itn
 
-    transcript = asr_adapter.transcribe(asset)
-
     diarization_adapter = copy.copy(registry.get_diarization(diarization_model_key))
     if hasattr(diarization_adapter, "num_speakers"):
         diarization_adapter.num_speakers = num_speakers
@@ -75,9 +81,19 @@ def _run_multi_speaker_transcription_sync(
         diarization_adapter.min_speakers = min_speakers
     if hasattr(diarization_adapter, "max_speakers"):
         diarization_adapter.max_speakers = max_speakers
-    diarization_segments = diarization_adapter.diarize(asset)
 
-    # 对齐转写文本与说话人标签
+    if PARALLEL_ASR_DIARIZATION:
+        logger.info(f"任务 {job_id} 并行执行 ASR + Diarization")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            asr_future = executor.submit(asr_adapter.transcribe, asset)
+            dia_future = executor.submit(diarization_adapter.diarize, asset)
+            transcript = asr_future.result()
+            diarization_segments = dia_future.result()
+    else:
+        logger.info(f"任务 {job_id} 串行执行 ASR + Diarization")
+        transcript = asr_adapter.transcribe(asset)
+        diarization_segments = diarization_adapter.diarize(asset)
+
     aligned = align_transcript_with_speakers(transcript, diarization_segments)
     exclusive_segments = build_exclusive_speaker_timeline(diarization_segments)
     display_segments = build_display_speaker_timeline(aligned.segments, exclusive_segments or diarization_segments)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from ...services.job_service import job_service
 from ...services import job_db
@@ -14,7 +14,7 @@ from ..schemas import (
     TranscriptResponse,
 )
 
-router = APIRouter(prefix="/transcriptions", tags=["transcriptions"])
+router = APIRouter(prefix="/transcriptions", tags=["音频转写"])
 
 
 def _assert_minutes_supported(job) -> None:
@@ -48,7 +48,13 @@ def _minutes_response(job_id: str, minutes) -> MeetingMinutesResponse:
     )
 
 
-@router.post("", response_model=CreateTranscriptionResponse)
+@router.post(
+    "",
+    response_model=CreateTranscriptionResponse,
+    summary="创建转写任务（核心接口）",
+    description="创建单人或多人转写任务。传入 diarization_model 或说话人数参数时自动切换为多人转写模式（含说话人分离）。"
+    "多人模式下可通过 voiceprint_scope_mode 指定声纹候选范围。",
+)
 def create_transcription(payload: CreateTranscriptionRequest) -> CreateTranscriptionResponse:
     multi_speaker_requested = any(
         value is not None
@@ -82,19 +88,29 @@ def create_transcription(payload: CreateTranscriptionRequest) -> CreateTranscrip
     return CreateTranscriptionResponse(job=job)
 
 
-@router.get("/{job_id}", response_model=TranscriptResponse)
+@router.get(
+    "/{job_id}",
+    response_model=TranscriptResponse,
+    summary="获取转写结果",
+    description="根据任务 ID 获取转写结果，包含全文、分段、时间线等。任务未完成时 transcript 为 null。",
+)
 def get_transcription(job_id: str) -> TranscriptResponse:
     job = job_service.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     return TranscriptResponse(job=job, transcript=job.result)
 
 
-@router.get("/{job_id}/minutes", response_model=MeetingMinutesResponse)
+@router.get(
+    "/{job_id}/minutes",
+    response_model=MeetingMinutesResponse,
+    summary="读取会议纪要（核心接口）",
+    description="只读获取已生成的会议纪要。如果尚未生成，返回 404。需要先调用 POST 生成。",
+)
 def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
     job = job_service.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     _assert_minutes_supported(job)
 
     minutes = get_stored_minutes(job_id)
@@ -103,11 +119,20 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
     return _minutes_response(job.job_id, minutes)
 
 
-@router.post("/{job_id}/minutes", response_model=MeetingMinutesResponse)
-def generate_meeting_minutes(job_id: str, use_llm: bool = True) -> MeetingMinutesResponse:
+@router.post(
+    "/{job_id}/minutes",
+    response_model=MeetingMinutesResponse,
+    summary="生成会议纪要（核心接口）",
+    description="显式触发会议纪要生成并持久化。use_llm=true 调用 LLM 生成，use_llm=false 使用本地规则生成。"
+    "未配置 MINUTES_LLM_API_KEY 时强制使用本地模式。",
+)
+def generate_meeting_minutes(
+    job_id: str,
+    use_llm: bool = Query(default=False, description="是否使用 LLM 生成。默认 false（本地规则）。设为 true 需要配置 MINUTES_LLM_API_KEY。"),
+) -> MeetingMinutesResponse:
     job = job_service.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     _assert_minutes_supported(job)
 
     try:
@@ -121,11 +146,15 @@ def generate_meeting_minutes(job_id: str, use_llm: bool = True) -> MeetingMinute
     return _minutes_response(job.job_id, minutes)
 
 
-@router.get("/{job_id}/speaker-aliases")
+@router.get(
+    "/{job_id}/speaker-aliases",
+    summary="获取 Speaker 别名",
+    description="获取指定任务的 Speaker 别名映射。别名用于在结果页中显示自定义说话人名称。",
+)
 def get_speaker_aliases(job_id: str):
     job = job_service.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     with job_db.session() as db:
         records = (
             db.query(job_db.SpeakerAliasRecord)
@@ -138,11 +167,15 @@ def get_speaker_aliases(job_id: str):
         }
 
 
-@router.put("/{job_id}/speaker-aliases")
+@router.put(
+    "/{job_id}/speaker-aliases",
+    summary="更新 Speaker 别名",
+    description="批量更新指定任务的 Speaker 别名。传入 {speaker_key: display_name} 映射，会 upsert 到服务端。",
+)
 def upsert_speaker_aliases(job_id: str, aliases: dict[str, str]):
     job = job_service.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     with job_db.session() as db:
         for speaker_key, display_name in aliases.items():
             existing = db.get(job_db.SpeakerAliasRecord, (job_id, speaker_key))
