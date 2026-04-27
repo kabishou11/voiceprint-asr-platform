@@ -14,6 +14,7 @@ import type {
   UploadAssetResponse,
   VerifyVoiceprintResponse,
   VoiceprintJobResponse,
+  VoiceprintProfile,
   VoiceprintProfilesResponse,
 } from './types';
 
@@ -113,6 +114,14 @@ export function loadModel(modelKey: string): Promise<ModelLoadResponse> {
 
 export function unloadModel(modelKey: string): Promise<ModelUnloadResponse> {
   return request<ModelUnloadResponse>(`/models/${modelKey}`, { method: 'DELETE' });
+}
+
+export function fetchVoiceprintProfileDetail(profileId: string): Promise<{
+  profile: VoiceprintProfile;
+  samples: Array<{ sample_id: string; asset_name: string; source_job_id: string | null; created_at: string | null }>;
+  history: Array<{ job_id: string; job_type: string; status: string; asset_name: string | null; created_at: string | null }>;
+}> {
+  return request(`/voiceprints/profiles/${profileId}`);
 }
 
 export function fetchVoiceprintProfiles(): Promise<VoiceprintProfilesResponse> {

@@ -66,6 +66,7 @@ export function TranscriptionWorkbenchPage() {
   const [uploadedAssetName, setUploadedAssetName] = useState('');
   const [diarizationModel, setDiarizationModel] = useState('');
   const [language, setLanguage] = useState('zh-cn');
+  const [asrModel, setAsrModel] = useState('funasr-nano');
   const [hotwordsText, setHotwordsText] = useState('');
   const [vadEnabled, setVadEnabled] = useState(true);
   const [itnEnabled, setItnEnabled] = useState(true);
@@ -187,6 +188,7 @@ export function TranscriptionWorkbenchPage() {
       }
       const response = await createTranscription({
         asset_name: assetName,
+        asr_model: asrModel,
         diarization_model: diarizationModel || null,
         hotwords: parsedHotwords.length ? parsedHotwords : null,
         language,
@@ -315,6 +317,20 @@ export function TranscriptionWorkbenchPage() {
                       <MenuItem value="en">英文</MenuItem>
                       <MenuItem value="ja">日文</MenuItem>
                       <MenuItem value="auto">自动检测</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      fullWidth
+                      label="ASR 模型"
+                      value={asrModel}
+                      onChange={(event) => setAsrModel(event.target.value)}
+                    >
+                      {modelItems.filter((m) => m.task === 'transcription').map((m) => (
+                        <MenuItem key={m.key} value={m.key}>{m.display_name}</MenuItem>
+                      ))}
+                      {modelItems.filter((m) => m.task === 'transcription').length === 0 ? (
+                        <MenuItem value="funasr-nano">FunASR Nano</MenuItem>
+                      ) : null}
                     </TextField>
                     <TextField
                       select

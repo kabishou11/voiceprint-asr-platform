@@ -30,6 +30,7 @@ import {
   createVoiceprintProfile,
   enrollVoiceprint,
   fetchVoiceprintJob,
+  fetchVoiceprintProfileDetail,
   fetchVoiceprintProfiles,
   identifyVoiceprint,
   uploadAudio,
@@ -84,6 +85,82 @@ function SectionCard({
         </Stack>
       </CardContent>
     </Card>
+  );
+}
+
+function ProfileDetailSection({ profileId }: { profileId: string }) {
+  const detailState = useAsyncData(() => fetchVoiceprintProfileDetail(profileId), [profileId]);
+  const samples = detailState.data?.samples ?? [];
+  const history = detailState.data?.history ?? [];
+
+  return (
+    <SectionCard title="档案详情" subtitle="样本列表与最近操作记录">
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight={700}>注册样本 ({samples.length})</Typography>
+            {samples.length ? (
+              <Stack spacing={0.8}>
+                {samples.map((s) => (
+                  <Box
+                    key={s.sample_id}
+                    sx={{
+                      px: 1.2,
+                      py: 0.9,
+                      borderRadius: 2.5,
+                      bgcolor: alpha('#ffffff', 0.72),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Typography variant="body2" noWrap>{s.asset_name}</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', flexShrink: 0 }}>
+                        {s.created_at ? new Date(s.created_at).toLocaleDateString('zh-CN') : '—'}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">暂无注册样本。</Typography>
+            )}
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight={700}>最近操作 ({history.length})</Typography>
+            {history.length ? (
+              <Stack spacing={0.8}>
+                {history.slice(0, 8).map((h) => (
+                  <Box
+                    key={h.job_id}
+                    sx={{
+                      px: 1.2,
+                      py: 0.9,
+                      borderRadius: 2.5,
+                      bgcolor: alpha('#ffffff', 0.72),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Stack direction="row" spacing={0.8} alignItems="center">
+                        <Chip size="small" label={h.job_type.replace('voiceprint_', '')} />
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>{h.asset_name ?? h.job_id}</Typography>
+                      </Stack>
+                      <Chip size="small" variant="outlined" label={h.status} color={h.status === 'succeeded' ? 'success' : h.status === 'failed' ? 'error' : 'default'} />
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">暂无操作记录。</Typography>
+            )}
+          </Stack>
+        </Grid>
+      </Grid>
+    </SectionCard>
   );
 }
 
@@ -433,6 +510,10 @@ export function VoiceprintLibraryPage() {
             ) : (
               <Alert severity="info">请选择一个档案开始操作。</Alert>
             )}
+
+            {activeProfile ? (
+              <ProfileDetailSection profileId={activeProfile.profile_id} />
+            ) : null}
 
             <SectionCard title="验证与识别" subtitle="上传待比对音频。">
               <Stack spacing={1.5}>

@@ -98,6 +98,50 @@ def list_profiles():
     return {"items": voiceprint_service.list_profiles()}
 
 
+@router.get("/profiles/{profile_id}")
+def get_profile(profile_id: str):
+    profile = _get_profile_or_404(profile_id)
+    with job_db.session() as db:
+        samples = (
+            db.query(job_db.VoiceprintSampleRecord)
+            .filter(job_db.VoiceprintSampleRecord.profile_id == profile_id)
+            .order_by(job_db.VoiceprintSampleRecord.created_at.desc())
+            .all()
+        )
+        history = (
+            db.query(job_db.JobRecord)
+            .filter(
+                job_db.JobRecord.asset_name.isnot(None),
+                job_db.JobRecord.job_type.in_({"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}),
+            )
+            .order_by(job_db.JobRecord.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        return {
+            "profile": profile,
+            "samples": [
+                {
+                    "sample_id": s.sample_id,
+                    "asset_name": s.asset_name,
+                    "source_job_id": s.source_job_id,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in samples
+            ],
+            "history": [
+                {
+                    "job_id": j.job_id,
+                    "job_type": j.job_type,
+                    "status": j.status,
+                    "asset_name": j.asset_name,
+                    "created_at": j.created_at.isoformat() if j.created_at else None,
+                }
+                for j in history
+            ],
+        }
+
+
 @router.post("/profiles", response_model=CreateVoiceprintProfileResponse)
 def create_profile(payload: CreateVoiceprintProfileRequest) -> CreateVoiceprintProfileResponse:
     profile = voiceprint_service.create_profile(payload.display_name, payload.model_key)
