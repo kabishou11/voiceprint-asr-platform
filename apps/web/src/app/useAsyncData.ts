@@ -76,7 +76,7 @@ export function useAsyncData<T>(
         window.clearTimeout(timeoutRef.current);
       }
     };
-  }, [data, polling?.enabled, polling?.intervalMs, polling?.pauseWhenHidden, polling?.stopWhen]);
+  }, [data, error, polling?.enabled, polling?.intervalMs, polling?.pauseWhenHidden, polling?.stopWhen, polling?.errorBackoffMs]);
 
   const reload = useCallback(() => {
     isPollingRefreshRef.current = false;
