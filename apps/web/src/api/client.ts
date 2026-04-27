@@ -116,6 +116,24 @@ export function unloadModel(modelKey: string): Promise<ModelUnloadResponse> {
   return request<ModelUnloadResponse>(`/models/${modelKey}`, { method: 'DELETE' });
 }
 
+export function fetchVoiceprintGroups(): Promise<{ items: Array<{ group_id: string; display_name: string; profile_ids: string[] }> }> {
+  return request('/voiceprints/groups');
+}
+
+export function createVoiceprintGroup(displayName: string) {
+  return request<{ group_id: string; display_name: string; profile_ids: string[] }>('/voiceprints/groups', {
+    method: 'POST',
+    body: JSON.stringify({ display_name: displayName }),
+  });
+}
+
+export function updateVoiceprintGroup(groupId: string, profileIds: string[]) {
+  return request<{ group_id: string; profile_ids: string[] }>(`/voiceprints/groups/${groupId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ profile_ids: profileIds }),
+  });
+}
+
 export function fetchVoiceprintProfileDetail(profileId: string): Promise<{
   profile: VoiceprintProfile;
   samples: Array<{ sample_id: string; asset_name: string; source_job_id: string | null; created_at: string | null }>;

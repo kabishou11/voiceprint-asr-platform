@@ -225,8 +225,18 @@ export interface VoiceprintProfile {
   sample_count: number;
 }
 
+export interface VoiceprintGroup {
+  group_id: string;
+  display_name: string;
+  profile_ids: string[];
+}
+
 export interface VoiceprintProfilesResponse {
   items: VoiceprintProfile[];
+}
+
+export interface VoiceprintGroupsResponse {
+  items: VoiceprintGroup[];
 }
 
 export interface CreateVoiceprintProfileResponse {

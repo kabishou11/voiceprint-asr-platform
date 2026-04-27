@@ -121,6 +121,26 @@ class VoiceprintSampleRecord(Base):
     )
 
 
+class VoiceprintGroupRecord(Base):
+    __tablename__ = "voiceprint_groups"
+
+    group_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VoiceprintGroupMemberRecord(Base):
+    __tablename__ = "voiceprint_group_members"
+
+    group_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_groups.group_id"), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_profiles.profile_id"), primary_key=True)
+
+
 def _storage_path() -> Path:
     return Path(__file__).resolve().parents[4] / "storage"
 
