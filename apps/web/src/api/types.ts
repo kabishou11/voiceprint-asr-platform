@@ -90,7 +90,7 @@ export interface JobDetail {
   created_at: string;
   updated_at: string;
   asset_name?: string | null;
-  result?: TranscriptResult | null;
+  result?: TranscriptResult | Record<string, unknown> | null;
   error_message?: string | null;
 }
 

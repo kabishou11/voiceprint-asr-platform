@@ -222,6 +222,10 @@ export function JobDetailPage() {
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
+  const isVoiceprintJob =
+    data?.job?.job_type === 'voiceprint_enroll' ||
+    data?.job?.job_type === 'voiceprint_verify' ||
+    data?.job?.job_type === 'voiceprint_identify';
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -508,6 +512,8 @@ export function JobDetailPage() {
             </Alert>
           ) : null}
 
+          {!isVoiceprintJob ? (
+            <>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <StatusChip status={data.job.status} />
             <Chip size="small" variant="outlined" label={`语言 ${data.transcript?.language ?? '未标注'}`} />
@@ -769,6 +775,75 @@ export function JobDetailPage() {
               </Stack>
             </Grid>
           </Grid>
+            </>
+          ) : (
+            <Grid container spacing={2.2}>
+              <Grid size={{ xs: 12, lg: 8 }}>
+                <ScrollCard title="任务结果" subtitle={jobTypeLabels[data.job.job_type]}>
+                  <Stack spacing={1.2}>
+                    <StatusChip status={data.job.status} />
+                    {data.job.job_type === 'voiceprint_enroll' ? (
+                      <Alert severity="success">
+                        注册任务已完成。可前往声纹库继续验证、识别或查看样本历史。
+                      </Alert>
+                    ) : null}
+                    {data.job.job_type === 'voiceprint_verify' && data.job.result ? (
+                      <Stack spacing={1}>
+                        <Typography fontWeight={700}>验证结果</Typography>
+                        <Typography>相似度：{String((data.job.result as Record<string, unknown>).score ?? '—')}</Typography>
+                        <Typography>阈值：{String((data.job.result as Record<string, unknown>).threshold ?? '—')}</Typography>
+                        <Typography>
+                          结论：{(data.job.result as Record<string, unknown>).matched ? '通过验证' : '未通过验证'}
+                        </Typography>
+                      </Stack>
+                    ) : null}
+                    {data.job.job_type === 'voiceprint_identify' && data.job.result ? (
+                      <Stack spacing={1}>
+                        <Typography fontWeight={700}>识别候选</Typography>
+                        {Array.isArray((data.job.result as Record<string, unknown>).candidates)
+                          ? ((data.job.result as Record<string, unknown>).candidates as Array<Record<string, unknown>>).map((item) => (
+                              <Box
+                                key={String(item.profile_id)}
+                                sx={{
+                                  px: 1.2,
+                                  py: 1,
+                                  borderRadius: 2.5,
+                                  bgcolor: alpha('#ffffff', 0.72),
+                                  border: '1px solid',
+                                  borderColor: alpha('#1c2431', 0.06),
+                                }}
+                              >
+                                <Typography variant="body2">
+                                  {String(item.rank)}. {String(item.display_name)} · 相似度 {String(item.score)}
+                                </Typography>
+                              </Box>
+                            ))
+                          : null}
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                </ScrollCard>
+              </Grid>
+              <Grid size={{ xs: 12, lg: 4 }}>
+                <ScrollCard title="后续动作" subtitle="围绕当前声纹任务继续操作">
+                  <Stack spacing={1.2}>
+                    <Button variant="outlined" onClick={() => navigate('/voiceprints')}>前往声纹库</Button>
+                    <Button variant="outlined" onClick={reload}>刷新结果</Button>
+                    {data.job.asset_name ? (
+                      <Button
+                        variant="contained"
+                        onClick={() =>
+                          navigate(`/voiceprints?probe=${encodeURIComponent(data.job.asset_name ?? '')}&jobId=${encodeURIComponent(jobId)}`)
+                        }
+                      >
+                        用当前音频继续声纹操作
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </ScrollCard>
+              </Grid>
+            </Grid>
+          )}
         </Stack>
       ) : null}
     </PageSection>
