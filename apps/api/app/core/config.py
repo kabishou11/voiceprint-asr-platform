@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     )
     enable_pyannote: bool = Field(default=False, alias="ENABLE_PYANNOTE")
     enable_3d_speaker_adaptive_clustering: bool = Field(
-        default=False,
+        default=True,
         alias="ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING",
     )
     minutes_llm_api_key: str | None = Field(default=None, alias="MINUTES_LLM_API_KEY")

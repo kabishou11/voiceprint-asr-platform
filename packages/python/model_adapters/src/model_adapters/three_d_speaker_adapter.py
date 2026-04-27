@@ -1001,11 +1001,17 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         frame_start: float,
         frame_end: float,
     ) -> list[int]:
+        import bisect
+
+        if not chunk_list:
+            return []
+        starts = [c[0] for c in chunk_list]
+        right = bisect.bisect_right(starts, frame_end - 1e-9)
         indices: list[int] = []
-        for index, (chunk_start, chunk_end) in enumerate(chunk_list):
-            if chunk_end <= frame_start or chunk_start >= frame_end:
-                continue
-            indices.append(index)
+        for index in range(max(0, right - len(chunk_list)), right):
+            chunk_start, chunk_end = chunk_list[index]
+            if chunk_end > frame_start and chunk_start < frame_end:
+                indices.append(index)
         return indices
 
     def _speaker_scores_for_window(
