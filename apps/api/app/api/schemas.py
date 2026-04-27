@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from domain.schemas.transcript import JobDetail, TranscriptResult
 from domain.schemas.voiceprint import VoiceprintIdentificationResult, VoiceprintProfile, VoiceprintVerificationResult
@@ -54,9 +54,19 @@ class CreateTranscriptionRequest(BaseModel):
     language: str = "zh-cn"
     vad_enabled: bool = False
     itn: bool = True
-    num_speakers: int | None = None
-    min_speakers: int | None = None
-    max_speakers: int | None = None
+    num_speakers: int | None = Field(default=None, ge=1, le=32)
+    min_speakers: int | None = Field(default=None, ge=1, le=32)
+    max_speakers: int | None = Field(default=None, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def validate_speaker_range(self):
+        if self.min_speakers and self.max_speakers and self.min_speakers > self.max_speakers:
+            raise ValueError("最少说话人数不能大于最多说话人数")
+        if self.num_speakers and self.min_speakers and self.num_speakers < self.min_speakers:
+            raise ValueError("已知说话人数不能小于最少说话人数")
+        if self.num_speakers and self.max_speakers and self.num_speakers > self.max_speakers:
+            raise ValueError("已知说话人数不能大于最多说话人数")
+        return self
 
 
 class CreateTranscriptionResponse(BaseModel):
@@ -132,7 +142,7 @@ class EnrollVoiceprintResponse(BaseModel):
 class VerifyVoiceprintRequest(BaseModel):
     profile_id: str
     probe_asset_name: str
-    threshold: float = 0.7
+    threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class VerifyVoiceprintResponse(BaseModel):
@@ -142,7 +152,7 @@ class VerifyVoiceprintResponse(BaseModel):
 
 class IdentifyVoiceprintRequest(BaseModel):
     probe_asset_name: str
-    top_k: int = 3
+    top_k: int = Field(default=3, ge=1, le=10)
 
 
 class IdentifyVoiceprintResponse(BaseModel):

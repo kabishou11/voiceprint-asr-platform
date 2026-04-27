@@ -155,10 +155,31 @@ export function TranscriptionWorkbenchPage() {
   };
 
   const handleSubmit = async () => {
+    const numSpeakers = parseInteger(numSpeakersText);
+    const minSpeakers = parseInteger(minSpeakersText);
+    const maxSpeakers = parseInteger(maxSpeakersText);
+
     if (!selectedFile && !uploadedAssetName.trim()) {
       setSubmitError('请先选择音频文件');
       return;
     }
+    if (selectedFile && selectedFile.size > 100 * 1024 * 1024) {
+      setSubmitError('上传文件过大，最大支持 100MB');
+      return;
+    }
+    if (minSpeakers && maxSpeakers && minSpeakers > maxSpeakers) {
+      setSubmitError('最少说话人数不能大于最多说话人数');
+      return;
+    }
+    if (numSpeakers && minSpeakers && numSpeakers < minSpeakers) {
+      setSubmitError('已知说话人数不能小于最少说话人数');
+      return;
+    }
+    if (numSpeakers && maxSpeakers && numSpeakers > maxSpeakers) {
+      setSubmitError('已知说话人数不能大于最多说话人数');
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -175,9 +196,9 @@ export function TranscriptionWorkbenchPage() {
         language,
         vad_enabled: vadEnabled,
         itn: itnEnabled,
-        num_speakers: parseInteger(numSpeakersText),
-        min_speakers: parseInteger(minSpeakersText),
-        max_speakers: parseInteger(maxSpeakersText),
+        num_speakers: numSpeakers,
+        min_speakers: minSpeakers,
+        max_speakers: maxSpeakers,
       });
       jobsState.setData((current) => ({
         items: [response.job, ...(current?.items ?? []).filter((job) => job.job_id !== response.job.job_id)],
