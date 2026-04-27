@@ -220,7 +220,14 @@ export function TranscriptionWorkbenchPage() {
           ].slice(0, 8)),
         );
       }
-      navigate(`/jobs/${response.job.job_id}`);
+      const detailParams = new URLSearchParams();
+      if (voiceprintScopeMode !== 'none') {
+        detailParams.set('voiceprintScope', voiceprintScopeMode);
+      }
+      if (voiceprintScopeMode === 'group' && voiceprintGroupId) {
+        detailParams.set('voiceprintGroupId', voiceprintGroupId);
+      }
+      navigate(`/jobs/${response.job.job_id}${detailParams.size ? `?${detailParams.toString()}` : ''}`);
     } catch (reason) {
       setSubmitError(reason instanceof Error ? reason.message : '创建任务失败');
     } finally {

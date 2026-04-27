@@ -226,6 +226,8 @@ export function JobDetailPage() {
     data?.job?.job_type === 'voiceprint_enroll' ||
     data?.job?.job_type === 'voiceprint_verify' ||
     data?.job?.job_type === 'voiceprint_identify';
+  const scopeMode = searchParams.get('voiceprintScope') ?? 'none';
+  const scopeGroupId = searchParams.get('voiceprintGroupId') ?? '';
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -517,6 +519,13 @@ export function JobDetailPage() {
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <StatusChip status={data.job.status} />
             <Chip size="small" variant="outlined" label={`语言 ${data.transcript?.language ?? '未标注'}`} />
+            {scopeMode !== 'none' ? (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={scopeMode === 'group' ? `声纹范围 分组(${scopeGroupId || '未命名'})` : '声纹范围 全库'}
+              />
+            ) : null}
             <Chip size="small" variant="outlined" label={`Speaker ${speakerGroups.length || 0}`} />
             <Chip
               size="small"
@@ -689,7 +698,7 @@ export function JobDetailPage() {
                                       navigate(
                                         `/voiceprints?probe=${encodeURIComponent(
                                           data.job.asset_name ?? '',
-                                        )}&speaker=${encodeURIComponent(group.rawSpeaker || group.speaker)}&jobId=${encodeURIComponent(jobId)}`,
+                                        )}&speaker=${encodeURIComponent(group.rawSpeaker || group.speaker)}&jobId=${encodeURIComponent(jobId)}&voiceprintScope=${encodeURIComponent(scopeMode)}&voiceprintGroupId=${encodeURIComponent(scopeGroupId)}`,
                                       )
                                     }
                                   >
