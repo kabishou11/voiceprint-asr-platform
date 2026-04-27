@@ -34,6 +34,10 @@ interface ExpandedJobs {
   [jobId: string]: boolean;
 }
 
+function isTranscriptResult(result: JobDetail['result']): result is NonNullable<JobDetail['result']> & { text: string; segments: Array<unknown>; language?: string | null } {
+  return !!result && typeof result === 'object' && 'text' in result && 'segments' in result;
+}
+
 function JobCard({
   job,
   expanded,
@@ -52,12 +56,12 @@ function JobCard({
   const navigate = useNavigate();
 
   const resultSummary = useMemo(() => {
-    if (!job.result) return null;
+    if (!isTranscriptResult(job.result)) return null;
     const text = job.result.text ?? '';
     return text.length > 120 ? text.slice(0, 120) + '...' : text;
   }, [job.result]);
 
-  const segmentCount = job.result?.segments.length ?? 0;
+  const segmentCount = isTranscriptResult(job.result) ? job.result.segments.length : 0;
 
   return (
     <Card
@@ -162,7 +166,7 @@ function JobCard({
             {job.status === 'succeeded' && job.result ? (
               <Stack spacing={1}>
                 <Typography variant="subtitle2" color="text.secondary">
-                  转写结果
+                  {isTranscriptResult(job.result) ? '转写结果' : '任务结果'}
                 </Typography>
                 <Box
                   sx={{
@@ -174,14 +178,16 @@ function JobCard({
                   }}
                 >
                   <Stack spacing={0.8}>
-                    {job.result.language ? (
+                    {isTranscriptResult(job.result) && job.result.language ? (
                       <Typography variant="body2" color="text.secondary">
                         语言: {job.result.language}
                       </Typography>
                     ) : null}
-                    <Typography variant="body2" color="text.secondary">
-                      分段数: {segmentCount}
-                    </Typography>
+                    {isTranscriptResult(job.result) ? (
+                      <Typography variant="body2" color="text.secondary">
+                        分段数: {segmentCount}
+                      </Typography>
+                    ) : null}
                     {resultSummary ? (
                       <Typography
                         variant="body2"
@@ -195,7 +201,11 @@ function JobCard({
                       >
                         {resultSummary}
                       </Typography>
-                    ) : null}
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        当前结果类型需要进入详情页查看完整内容。
+                      </Typography>
+                    )}
                   </Stack>
                 </Box>
                 <Button

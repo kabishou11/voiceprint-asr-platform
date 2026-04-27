@@ -4,6 +4,8 @@ from pathlib import Path
 from secrets import token_hex
 from typing import BinaryIO
 
+ALLOWED_SUFFIXES = {'.wav', '.m4a', '.mp3', '.flac'}
+
 
 class AssetStorageService:
     def __init__(self) -> None:
@@ -14,7 +16,7 @@ class AssetStorageService:
             raise ValueError('缺少文件名')
         original_name = Path(filename).name
         suffix = Path(original_name).suffix.lower()
-        if suffix not in {'.wav', '.m4a', '.mp3', '.flac'}:
+        if suffix not in ALLOWED_SUFFIXES:
             raise ValueError('仅支持 wav、m4a、mp3、flac 音频文件')
 
         self._upload_dir.mkdir(parents=True, exist_ok=True)

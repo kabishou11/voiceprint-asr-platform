@@ -27,11 +27,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
+  createVoiceprintGroup,
   createVoiceprintProfile,
   enrollVoiceprint,
+  fetchVoiceprintGroups,
   fetchVoiceprintJob,
+  fetchVoiceprintProfileDetail,
   fetchVoiceprintProfiles,
   identifyVoiceprint,
+  updateVoiceprintGroup,
   uploadAudio,
   verifyVoiceprint,
 } from '../../api/client';
@@ -87,12 +91,90 @@ function SectionCard({
   );
 }
 
+function ProfileDetailSection({ profileId }: { profileId: string }) {
+  const detailState = useAsyncData(() => fetchVoiceprintProfileDetail(profileId), [profileId]);
+  const samples = detailState.data?.samples ?? [];
+  const history = detailState.data?.history ?? [];
+
+  return (
+    <SectionCard title="档案详情" subtitle="样本列表与最近操作记录">
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight={700}>注册样本 ({samples.length})</Typography>
+            {samples.length ? (
+              <Stack spacing={0.8}>
+                {samples.map((s) => (
+                  <Box
+                    key={s.sample_id}
+                    sx={{
+                      px: 1.2,
+                      py: 0.9,
+                      borderRadius: 2.5,
+                      bgcolor: alpha('#ffffff', 0.72),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Typography variant="body2" noWrap>{s.asset_name}</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', flexShrink: 0 }}>
+                        {s.created_at ? new Date(s.created_at).toLocaleDateString('zh-CN') : '—'}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">暂无注册样本。</Typography>
+            )}
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <Typography variant="body2" fontWeight={700}>最近操作 ({history.length})</Typography>
+            {history.length ? (
+              <Stack spacing={0.8}>
+                {history.slice(0, 8).map((h) => (
+                  <Box
+                    key={h.job_id}
+                    sx={{
+                      px: 1.2,
+                      py: 0.9,
+                      borderRadius: 2.5,
+                      bgcolor: alpha('#ffffff', 0.72),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Stack direction="row" spacing={0.8} alignItems="center">
+                        <Chip size="small" label={h.job_type.replace('voiceprint_', '')} />
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>{h.asset_name ?? h.job_id}</Typography>
+                      </Stack>
+                      <Chip size="small" variant="outlined" label={h.status} color={h.status === 'succeeded' ? 'success' : h.status === 'failed' ? 'error' : 'default'} />
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">暂无操作记录。</Typography>
+            )}
+          </Stack>
+        </Grid>
+      </Grid>
+    </SectionCard>
+  );
+}
+
 export function VoiceprintLibraryPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
+  const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   const [displayName, setDisplayName] = useState('');
+  const [groupName, setGroupName] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingJob, setPendingJob] = useState<PendingVoiceprintJob | null>(null);
@@ -241,6 +323,24 @@ export function VoiceprintLibraryPage() {
       setDisplayName('');
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : '创建档案失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      setActionError('请输入分组名称');
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      await createVoiceprintGroup(groupName.trim());
+      await groupsState.reload();
+      setGroupName('');
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : '创建分组失败');
     } finally {
       setBusy(false);
     }
@@ -433,6 +533,50 @@ export function VoiceprintLibraryPage() {
             ) : (
               <Alert severity="info">请选择一个档案开始操作。</Alert>
             )}
+
+            {activeProfile ? (
+              <ProfileDetailSection profileId={activeProfile.profile_id} />
+            ) : null}
+
+            <SectionCard title="声纹分组" subtitle="为后续限定候选范围做准备。">
+              <Stack spacing={1.2}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                  <TextField
+                    fullWidth
+                    label="新建分组"
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                  />
+                  <Button variant="outlined" onClick={handleCreateGroup} disabled={busy}>
+                    创建分组
+                  </Button>
+                </Stack>
+                <Stack spacing={0.8}>
+                  {(groupsState.data?.items ?? []).length ? (
+                    (groupsState.data?.items ?? []).map((group) => (
+                      <Box
+                        key={group.group_id}
+                        sx={{
+                          px: 1.2,
+                          py: 0.9,
+                          borderRadius: 2.5,
+                          bgcolor: alpha('#ffffff', 0.72),
+                          border: '1px solid',
+                          borderColor: alpha('#1c2431', 0.06),
+                        }}
+                      >
+                        <Typography variant="body2" fontWeight={700}>{group.display_name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {group.profile_ids.length} 个档案
+                        </Typography>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">当前还没有分组。</Typography>
+                  )}
+                </Stack>
+              </Stack>
+            </SectionCard>
 
             <SectionCard title="验证与识别" subtitle="上传待比对音频。">
               <Stack spacing={1.5}>

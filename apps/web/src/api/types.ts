@@ -90,7 +90,7 @@ export interface JobDetail {
   created_at: string;
   updated_at: string;
   asset_name?: string | null;
-  result?: TranscriptResult | null;
+  result?: TranscriptResult | Record<string, unknown> | null;
   error_message?: string | null;
 }
 
@@ -111,11 +111,15 @@ export interface CreateTranscriptionResponse {
 
 export interface CreateTranscriptionRequest {
   asset_name: string;
+  asr_model?: string;
   diarization_model?: string | null;
   hotwords?: string[] | null;
   language?: string;
   vad_enabled?: boolean;
   itn?: boolean;
+  voiceprint_scope_mode?: 'none' | 'all' | 'group';
+  voiceprint_group_id?: string | null;
+  voiceprint_profile_ids?: string[] | null;
   num_speakers?: number | null;
   min_speakers?: number | null;
   max_speakers?: number | null;
@@ -224,8 +228,18 @@ export interface VoiceprintProfile {
   sample_count: number;
 }
 
+export interface VoiceprintGroup {
+  group_id: string;
+  display_name: string;
+  profile_ids: string[];
+}
+
 export interface VoiceprintProfilesResponse {
   items: VoiceprintProfile[];
+}
+
+export interface VoiceprintGroupsResponse {
+  items: VoiceprintGroup[];
 }
 
 export interface CreateVoiceprintProfileResponse {

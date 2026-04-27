@@ -98,6 +98,97 @@ def list_profiles():
     return {"items": voiceprint_service.list_profiles()}
 
 
+@router.get("/groups")
+def list_groups():
+    with job_db.session() as db:
+        groups = db.query(job_db.VoiceprintGroupRecord).order_by(job_db.VoiceprintGroupRecord.created_at.desc()).all()
+        result = []
+        for group in groups:
+            members = (
+                db.query(job_db.VoiceprintGroupMemberRecord)
+                .filter(job_db.VoiceprintGroupMemberRecord.group_id == group.group_id)
+                .all()
+            )
+            result.append({
+                "group_id": group.group_id,
+                "display_name": group.display_name,
+                "profile_ids": [m.profile_id for m in members],
+            })
+        return {"items": result}
+
+
+@router.post("/groups")
+def create_group(payload: dict):
+    display_name = str(payload.get("display_name") or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="分组名称不能为空")
+    group_id = f"group-{uuid4().hex[:8]}"
+    with job_db.session() as db:
+        db.add(job_db.VoiceprintGroupRecord(group_id=group_id, display_name=display_name))
+        db.commit()
+    return {"group_id": group_id, "display_name": display_name, "profile_ids": []}
+
+
+@router.put("/groups/{group_id}")
+def update_group(group_id: str, payload: dict):
+    profile_ids = payload.get("profile_ids") or []
+    with job_db.session() as db:
+        group = db.get(job_db.VoiceprintGroupRecord, group_id)
+        if group is None:
+            raise HTTPException(status_code=404, detail="声纹分组不存在")
+        db.query(job_db.VoiceprintGroupMemberRecord).filter(
+            job_db.VoiceprintGroupMemberRecord.group_id == group_id
+        ).delete()
+        for profile_id in profile_ids:
+            db.add(job_db.VoiceprintGroupMemberRecord(group_id=group_id, profile_id=profile_id))
+        db.commit()
+    return {"group_id": group_id, "profile_ids": profile_ids}
+
+
+@router.get("/profiles/{profile_id}")
+def get_profile(profile_id: str):
+    profile = _get_profile_or_404(profile_id)
+    with job_db.session() as db:
+        samples = (
+            db.query(job_db.VoiceprintSampleRecord)
+            .filter(job_db.VoiceprintSampleRecord.profile_id == profile_id)
+            .order_by(job_db.VoiceprintSampleRecord.created_at.desc())
+            .all()
+        )
+        history = (
+            db.query(job_db.JobRecord)
+            .filter(
+                job_db.JobRecord.asset_name.isnot(None),
+                job_db.JobRecord.job_type.in_({"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}),
+            )
+            .order_by(job_db.JobRecord.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        return {
+            "profile": profile,
+            "samples": [
+                {
+                    "sample_id": s.sample_id,
+                    "asset_name": s.asset_name,
+                    "source_job_id": s.source_job_id,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in samples
+            ],
+            "history": [
+                {
+                    "job_id": j.job_id,
+                    "job_type": j.job_type,
+                    "status": j.status,
+                    "asset_name": j.asset_name,
+                    "created_at": j.created_at.isoformat() if j.created_at else None,
+                }
+                for j in history
+            ],
+        }
+
+
 @router.post("/profiles", response_model=CreateVoiceprintProfileResponse)
 def create_profile(payload: CreateVoiceprintProfileRequest) -> CreateVoiceprintProfileResponse:
     profile = voiceprint_service.create_profile(payload.display_name, payload.model_key)

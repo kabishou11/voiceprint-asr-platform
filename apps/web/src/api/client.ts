@@ -14,6 +14,7 @@ import type {
   UploadAssetResponse,
   VerifyVoiceprintResponse,
   VoiceprintJobResponse,
+  VoiceprintProfile,
   VoiceprintProfilesResponse,
 } from './types';
 
@@ -21,28 +22,35 @@ const API_BASE = '/api/v1';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: isFormData
-      ? init?.headers
-      : {
-          'Content-Type': 'application/json',
-          ...(init?.headers ?? {}),
-        },
-    ...init,
-  });
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: isFormData
+        ? init?.headers
+        : {
+            'Content-Type': 'application/json',
+            ...(init?.headers ?? {}),
+          },
+      ...init,
+    });
 
-  const contentType = response.headers.get('content-type') ?? '';
-  const payload = contentType.includes('application/json') ? await response.json() : null;
+    const contentType = response.headers.get('content-type') ?? '';
+    const payload = contentType.includes('application/json') ? await response.json() : null;
 
-  if (!response.ok) {
-    const detail =
-      typeof payload === 'object' && payload !== null && 'detail' in payload
-        ? String(payload.detail)
-        : `服务请求失败（${response.status}）`;
-    throw new Error(detail);
+    if (!response.ok) {
+      const detail =
+        typeof payload === 'object' && payload !== null && 'detail' in payload
+          ? String(payload.detail)
+          : `服务请求失败（${response.status}）`;
+      throw new Error(detail);
+    }
+
+    return payload as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('后端服务未连接，请确认 API 服务是否已启动。');
+    }
+    throw error;
   }
-
-  return payload as T;
 }
 
 export function fetchJobs(params?: {
@@ -113,6 +121,32 @@ export function loadModel(modelKey: string): Promise<ModelLoadResponse> {
 
 export function unloadModel(modelKey: string): Promise<ModelUnloadResponse> {
   return request<ModelUnloadResponse>(`/models/${modelKey}`, { method: 'DELETE' });
+}
+
+export function fetchVoiceprintGroups(): Promise<{ items: Array<{ group_id: string; display_name: string; profile_ids: string[] }> }> {
+  return request('/voiceprints/groups');
+}
+
+export function createVoiceprintGroup(displayName: string) {
+  return request<{ group_id: string; display_name: string; profile_ids: string[] }>('/voiceprints/groups', {
+    method: 'POST',
+    body: JSON.stringify({ display_name: displayName }),
+  });
+}
+
+export function updateVoiceprintGroup(groupId: string, profileIds: string[]) {
+  return request<{ group_id: string; profile_ids: string[] }>(`/voiceprints/groups/${groupId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ profile_ids: profileIds }),
+  });
+}
+
+export function fetchVoiceprintProfileDetail(profileId: string): Promise<{
+  profile: VoiceprintProfile;
+  samples: Array<{ sample_id: string; asset_name: string; source_job_id: string | null; created_at: string | null }>;
+  history: Array<{ job_id: string; job_type: string; status: string; asset_name: string | null; created_at: string | null }>;
+}> {
+  return request(`/voiceprints/profiles/${profileId}`);
 }
 
 export function fetchVoiceprintProfiles(): Promise<VoiceprintProfilesResponse> {

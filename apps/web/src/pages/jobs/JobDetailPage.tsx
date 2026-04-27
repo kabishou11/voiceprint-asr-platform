@@ -42,6 +42,15 @@ const UNLABELED_SPEAKER_KEY = '__unlabeled__';
 const UNLABELED_SPEAKER_LABEL = '未标注说话人';
 const PANEL_MAX_HEIGHT = 720;
 
+const SPEAKER_PALETTE = [
+  '#2f6fed', '#16a34a', '#ea580c', '#7c3aed', '#0891b2',
+  '#be185d', '#ca8a04', '#4f46e5', '#059669', '#dc2626',
+];
+
+function speakerColor(index: number): string {
+  return SPEAKER_PALETTE[index % SPEAKER_PALETTE.length];
+}
+
 type SpeakerMappingStore = Record<string, Record<string, string>>;
 type ExportSpeakerGroup = {
   speaker: string | null;
@@ -194,37 +203,31 @@ export function JobDetailPage() {
   const navigate = useNavigate();
   const { jobId = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const { data, loading, error, reload, setData } = useAsyncData(() => fetchTranscript(jobId), [jobId]);
+  const { data, loading, error, reload } = useAsyncData(
+    () => fetchTranscript(jobId),
+    [jobId],
+    {
+      enabled: true,
+      intervalMs: POLL_INTERVAL_MS,
+      pauseWhenHidden: true,
+      stopWhen: (result) => {
+        const status = result?.job?.status;
+        return status === 'succeeded' || status === 'failed';
+      },
+    },
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
-
-  useEffect(() => {
-    if (!jobId || !isProcessing) {
-      return undefined;
-    }
-
-    let active = true;
-    const timer = window.setInterval(() => {
-      void fetchTranscript(jobId)
-        .then((result) => {
-          if (active) {
-            setData(result);
-          }
-        })
-        .catch(() => {
-          // 保持当前页面状态，用户仍可手动刷新查看具体错误。
-        });
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [isProcessing, jobId, setData]);
+  const isVoiceprintJob =
+    data?.job?.job_type === 'voiceprint_enroll' ||
+    data?.job?.job_type === 'voiceprint_verify' ||
+    data?.job?.job_type === 'voiceprint_identify';
+  const scopeMode = searchParams.get('voiceprintScope') ?? 'none';
+  const scopeGroupId = searchParams.get('voiceprintGroupId') ?? '';
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined') {
@@ -334,6 +337,14 @@ export function JobDetailPage() {
       }))
       .sort((left, right) => right.durationMs - left.durationMs);
   }, [displaySegments]);
+
+  const speakerColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    speakerGroups.forEach((group, index) => {
+      map.set(group.speaker, speakerColor(index));
+    });
+    return map;
+  }, [speakerGroups]);
 
   const filteredSegments = useMemo(
     () =>
@@ -503,9 +514,18 @@ export function JobDetailPage() {
             </Alert>
           ) : null}
 
+          {!isVoiceprintJob ? (
+            <>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <StatusChip status={data.job.status} />
             <Chip size="small" variant="outlined" label={`语言 ${data.transcript?.language ?? '未标注'}`} />
+            {scopeMode !== 'none' ? (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={scopeMode === 'group' ? `声纹范围 分组(${scopeGroupId || '未命名'})` : '声纹范围 全库'}
+              />
+            ) : null}
             <Chip size="small" variant="outlined" label={`Speaker ${speakerGroups.length || 0}`} />
             <Chip
               size="small"
@@ -537,9 +557,14 @@ export function JobDetailPage() {
                 >
                   <Box
                     sx={{
-                      px: { xs: 0, md: 0.5 },
+                      px: { xs: 1.2, md: 2 },
+                      py: 1.6,
                       maxHeight: PANEL_MAX_HEIGHT,
                       overflow: 'auto',
+                      bgcolor: alpha('#fafbfc', 0.92),
+                      border: '1px solid',
+                      borderColor: alpha('#1c2431', 0.06),
+                      borderRadius: 3,
                     }}
                   >
                     <MeasuredPretextBlock
@@ -584,6 +609,7 @@ export function JobDetailPage() {
                                 selectedSpeaker !== 'ALL' && segment.speakerKey === selectedSpeaker
                                   ? alpha('#2f6fed', 0.18)
                                   : alpha('#1c2431', 0.06),
+                              borderLeft: `3px solid ${alpha(speakerColorMap.get(segment.speakerKey) ?? '#64748b', 0.5)}`,
                             }}
                           >
                             <Stack spacing={0.85}>
@@ -592,7 +618,7 @@ export function JobDetailPage() {
                                   <Typography variant="body2" color="text.secondary">
                                     {formatTimelineRange(segment.start_ms, segment.end_ms)}
                                   </Typography>
-                                  <Chip size="small" label={segment.displaySpeaker} />
+                                  <Chip size="small" label={segment.displaySpeaker} sx={{ bgcolor: alpha(speakerColorMap.get(segment.speakerKey) ?? '#64748b', 0.12), color: speakerColorMap.get(segment.speakerKey) ?? '#64748b', fontWeight: 600 }} />
                                   {typeof segment.confidence === 'number' ? (
                                     <Chip size="small" variant="outlined" label={`置信度 ${segment.confidence.toFixed(2)}`} />
                                   ) : null}
@@ -672,7 +698,7 @@ export function JobDetailPage() {
                                       navigate(
                                         `/voiceprints?probe=${encodeURIComponent(
                                           data.job.asset_name ?? '',
-                                        )}&speaker=${encodeURIComponent(group.rawSpeaker || group.speaker)}&jobId=${encodeURIComponent(jobId)}`,
+                                        )}&speaker=${encodeURIComponent(group.rawSpeaker || group.speaker)}&jobId=${encodeURIComponent(jobId)}&voiceprintScope=${encodeURIComponent(scopeMode)}&voiceprintGroupId=${encodeURIComponent(scopeGroupId)}`,
                                       )
                                     }
                                   >
@@ -758,6 +784,75 @@ export function JobDetailPage() {
               </Stack>
             </Grid>
           </Grid>
+            </>
+          ) : (
+            <Grid container spacing={2.2}>
+              <Grid size={{ xs: 12, lg: 8 }}>
+                <ScrollCard title="任务结果" subtitle={jobTypeLabels[data.job.job_type]}>
+                  <Stack spacing={1.2}>
+                    <StatusChip status={data.job.status} />
+                    {data.job.job_type === 'voiceprint_enroll' ? (
+                      <Alert severity="success">
+                        注册任务已完成。可前往声纹库继续验证、识别或查看样本历史。
+                      </Alert>
+                    ) : null}
+                    {data.job.job_type === 'voiceprint_verify' && data.job.result ? (
+                      <Stack spacing={1}>
+                        <Typography fontWeight={700}>验证结果</Typography>
+                        <Typography>相似度：{String((data.job.result as Record<string, unknown>).score ?? '—')}</Typography>
+                        <Typography>阈值：{String((data.job.result as Record<string, unknown>).threshold ?? '—')}</Typography>
+                        <Typography>
+                          结论：{(data.job.result as Record<string, unknown>).matched ? '通过验证' : '未通过验证'}
+                        </Typography>
+                      </Stack>
+                    ) : null}
+                    {data.job.job_type === 'voiceprint_identify' && data.job.result ? (
+                      <Stack spacing={1}>
+                        <Typography fontWeight={700}>识别候选</Typography>
+                        {Array.isArray((data.job.result as Record<string, unknown>).candidates)
+                          ? ((data.job.result as Record<string, unknown>).candidates as Array<Record<string, unknown>>).map((item) => (
+                              <Box
+                                key={String(item.profile_id)}
+                                sx={{
+                                  px: 1.2,
+                                  py: 1,
+                                  borderRadius: 2.5,
+                                  bgcolor: alpha('#ffffff', 0.72),
+                                  border: '1px solid',
+                                  borderColor: alpha('#1c2431', 0.06),
+                                }}
+                              >
+                                <Typography variant="body2">
+                                  {String(item.rank)}. {String(item.display_name)} · 相似度 {String(item.score)}
+                                </Typography>
+                              </Box>
+                            ))
+                          : null}
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                </ScrollCard>
+              </Grid>
+              <Grid size={{ xs: 12, lg: 4 }}>
+                <ScrollCard title="后续动作" subtitle="围绕当前声纹任务继续操作">
+                  <Stack spacing={1.2}>
+                    <Button variant="outlined" onClick={() => navigate('/voiceprints')}>前往声纹库</Button>
+                    <Button variant="outlined" onClick={reload}>刷新结果</Button>
+                    {data.job.asset_name ? (
+                      <Button
+                        variant="contained"
+                        onClick={() =>
+                          navigate(`/voiceprints?probe=${encodeURIComponent(data.job.asset_name ?? '')}&jobId=${encodeURIComponent(jobId)}`)
+                        }
+                      >
+                        用当前音频继续声纹操作
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </ScrollCard>
+              </Grid>
+            </Grid>
+          )}
         </Stack>
       ) : null}
     </PageSection>

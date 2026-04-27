@@ -27,3 +27,7 @@ Thumbs.db
 storage/
 models/
 *.log
+
+# Claude Code / Playwright MCP
+.claude/
+.playwright-mcp/

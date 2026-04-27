@@ -22,7 +22,7 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { createTranscription, fetchJobs, fetchModels, uploadAudio } from '../../api/client';
+import { createTranscription, fetchJobs, fetchModels, fetchVoiceprintGroups, fetchVoiceprintProfiles, uploadAudio } from '../../api/client';
 import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
@@ -64,8 +64,12 @@ export function TranscriptionWorkbenchPage() {
   const [searchParams] = useSearchParams();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedAssetName, setUploadedAssetName] = useState('');
+  const [taskMode, setTaskMode] = useState<'single' | 'multi'>('multi');
   const [diarizationModel, setDiarizationModel] = useState('');
   const [language, setLanguage] = useState('zh-cn');
+  const [asrModel, setAsrModel] = useState('funasr-nano');
+  const [voiceprintScopeMode, setVoiceprintScopeMode] = useState<'none' | 'all' | 'group'>('none');
+  const [voiceprintGroupId, setVoiceprintGroupId] = useState('');
   const [hotwordsText, setHotwordsText] = useState('');
   const [vadEnabled, setVadEnabled] = useState(true);
   const [itnEnabled, setItnEnabled] = useState(true);
@@ -77,7 +81,11 @@ export function TranscriptionWorkbenchPage() {
 
   const modelsState = useAsyncData(() => fetchModels(), []);
   const jobsState = useAsyncData(() => fetchJobs(), []);
+  const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
+  const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
   const modelItems = modelsState.data?.items ?? [];
+  const voiceprintGroups = groupsState.data?.items ?? [];
+  const voiceprintProfiles = profilesState.data?.items ?? [];
   const gpuReady = modelsState.data?.gpu?.cuda_available ?? false;
 
   const resolveRuntimeState = (key: string): RuntimeState => {
@@ -109,10 +117,13 @@ export function TranscriptionWorkbenchPage() {
   const asrLoadable = asrState !== 'unavailable';
 
   useEffect(() => {
-    if (!diarizationModel && diarizationOptions.length > 0) {
+    if (taskMode === 'multi' && !diarizationModel && diarizationOptions.length > 0) {
       setDiarizationModel(diarizationOptions[0].key);
     }
-  }, [diarizationModel, diarizationOptions]);
+    if (taskMode === 'single' && diarizationModel) {
+      setDiarizationModel('');
+    }
+  }, [taskMode, diarizationModel, diarizationOptions]);
 
   useEffect(() => {
     const asset = searchParams.get('asset') ?? '';
@@ -127,10 +138,14 @@ export function TranscriptionWorkbenchPage() {
       setLanguage(incomingLanguage);
     }
     if (mode === 'single') {
+      setTaskMode('single');
       setDiarizationModel('');
     }
-    if (mode === 'multi' && diarizationOptions.length > 0) {
-      setDiarizationModel(diarizationOptions[0].key);
+    if (mode === 'multi') {
+      setTaskMode('multi');
+      if (diarizationOptions.length > 0) {
+        setDiarizationModel(diarizationOptions[0].key);
+      }
     }
   }, [diarizationOptions, searchParams]);
 
@@ -155,10 +170,27 @@ export function TranscriptionWorkbenchPage() {
   };
 
   const handleSubmit = async () => {
+    const numSpeakers = parseInteger(numSpeakersText);
+    const minSpeakers = parseInteger(minSpeakersText);
+    const maxSpeakers = parseInteger(maxSpeakersText);
+
     if (!selectedFile && !uploadedAssetName.trim()) {
       setSubmitError('请先选择音频文件');
       return;
     }
+    if (minSpeakers && maxSpeakers && minSpeakers > maxSpeakers) {
+      setSubmitError('最少说话人数不能大于最多说话人数');
+      return;
+    }
+    if (numSpeakers && minSpeakers && numSpeakers < minSpeakers) {
+      setSubmitError('已知说话人数不能小于最少说话人数');
+      return;
+    }
+    if (numSpeakers && maxSpeakers && numSpeakers > maxSpeakers) {
+      setSubmitError('已知说话人数不能大于最多说话人数');
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -170,14 +202,17 @@ export function TranscriptionWorkbenchPage() {
       }
       const response = await createTranscription({
         asset_name: assetName,
-        diarization_model: diarizationModel || null,
+        asr_model: asrModel,
+        diarization_model: taskMode === 'multi' ? diarizationModel || null : null,
         hotwords: parsedHotwords.length ? parsedHotwords : null,
         language,
         vad_enabled: vadEnabled,
         itn: itnEnabled,
-        num_speakers: parseInteger(numSpeakersText),
-        min_speakers: parseInteger(minSpeakersText),
-        max_speakers: parseInteger(maxSpeakersText),
+        voiceprint_scope_mode: voiceprintScopeMode,
+        voiceprint_group_id: voiceprintScopeMode === 'group' ? voiceprintGroupId || null : null,
+        num_speakers: numSpeakers,
+        min_speakers: minSpeakers,
+        max_speakers: maxSpeakers,
       });
       jobsState.setData((current) => ({
         items: [response.job, ...(current?.items ?? []).filter((job) => job.job_id !== response.job.job_id)],
@@ -193,7 +228,14 @@ export function TranscriptionWorkbenchPage() {
           ].slice(0, 8)),
         );
       }
-      navigate(`/jobs/${response.job.job_id}`);
+      const detailParams = new URLSearchParams();
+      if (voiceprintScopeMode !== 'none') {
+        detailParams.set('voiceprintScope', voiceprintScopeMode);
+      }
+      if (voiceprintScopeMode === 'group' && voiceprintGroupId) {
+        detailParams.set('voiceprintGroupId', voiceprintGroupId);
+      }
+      navigate(`/jobs/${response.job.job_id}${detailParams.size ? `?${detailParams.toString()}` : ''}`);
     } catch (reason) {
       setSubmitError(reason instanceof Error ? reason.message : '创建任务失败');
     } finally {
@@ -205,8 +247,8 @@ export function TranscriptionWorkbenchPage() {
     <PageSection
       compact
       title="开始任务"
-      description="上传音频、选择模式并快速进入结果审阅。"
-      loading={modelsState.loading || jobsState.loading}
+      description="上传音频，选择单人或多人转写；多人模式默认包含说话人分离，可选限定声纹分组。"
+      loading={(modelsState.loading && !modelsState.data) || (jobsState.loading && !jobsState.data)}
       error={modelsState.error ?? jobsState.error}
       actions={
         <Stack direction="row" spacing={1}>
@@ -302,20 +344,58 @@ export function TranscriptionWorkbenchPage() {
                     <TextField
                       select
                       fullWidth
+                      label="ASR 模型"
+                      value={asrModel}
+                      onChange={(event) => setAsrModel(event.target.value)}
+                    >
+                      {modelItems.filter((m) => m.task === 'transcription').map((m) => (
+                        <MenuItem key={m.key} value={m.key}>{m.display_name}</MenuItem>
+                      ))}
+                      {modelItems.filter((m) => m.task === 'transcription').length === 0 ? (
+                        <MenuItem value="funasr-nano">FunASR Nano</MenuItem>
+                      ) : null}
+                    </TextField>
+                    <TextField
+                      select
+                      fullWidth
                       label="任务模式"
-                      value={diarizationModel ? 'multi' : 'single'}
+                      value={taskMode}
                       onChange={(event) => {
-                        if (event.target.value === 'single') {
-                          setDiarizationModel('');
-                        } else if (diarizationOptions.length > 0) {
-                          setDiarizationModel(diarizationOptions[0].key);
-                        }
+                        const nextMode = event.target.value as 'single' | 'multi';
+                        setTaskMode(nextMode);
                       }}
                     >
                       <MenuItem value="single">单人转写</MenuItem>
                       <MenuItem value="multi">多人转写</MenuItem>
                     </TextField>
+                    {taskMode === 'multi' ? (
+                      <TextField
+                        select
+                        fullWidth
+                        label="多人转写声纹分组"
+                        value={voiceprintScopeMode}
+                        onChange={(event) => setVoiceprintScopeMode(event.target.value as 'none' | 'all' | 'group')}
+                      >
+                        <MenuItem value="none">不限制</MenuItem>
+                        <MenuItem value="all">全库</MenuItem>
+                        <MenuItem value="group">指定分组</MenuItem>
+                      </TextField>
+                    ) : null}
                   </Stack>
+
+                  {taskMode === 'multi' && voiceprintScopeMode === 'group' ? (
+                    <TextField
+                      select
+                      fullWidth
+                      label="声纹分组"
+                      value={voiceprintGroupId}
+                      onChange={(event) => setVoiceprintGroupId(event.target.value)}
+                    >
+                      {voiceprintGroups.map((group) => (
+                        <MenuItem key={group.group_id} value={group.group_id}>{group.display_name}</MenuItem>
+                      ))}
+                    </TextField>
+                  ) : null}
 
                   <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}>
                     <AccordionSummary expandIcon={<ExpandMoreRounded />}>

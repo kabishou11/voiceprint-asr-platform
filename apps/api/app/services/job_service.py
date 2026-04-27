@@ -93,7 +93,8 @@ class JobService:
                 .limit(page_size)
                 .all()
             )
-            return [record.to_job_detail() for record in records], total
+            details = [record.to_job_detail() for record in records]
+            return [d for d in details if d is not None], total
 
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:
@@ -114,11 +115,15 @@ class JobService:
         asset_name: str,
         job_type: str = "transcription",
         *,
+        asr_model: str = "funasr-nano",
         diarization_model: str | None = None,
         hotwords: list[str] | None = None,
         language: str = "zh-cn",
         vad_enabled: bool = True,
         itn: bool = True,
+        voiceprint_scope_mode: str = "none",
+        voiceprint_group_id: str | None = None,
+        voiceprint_profile_ids: list[str] | None = None,
         num_speakers: int | None = None,
         min_speakers: int | None = None,
         max_speakers: int | None = None,
@@ -186,7 +191,7 @@ class JobService:
                 if job_type == "transcription":
                     # run_transcription_task 在 celery 可用时是 Celery task 对象，否则是同步 wrapper
                     run_transcription_task.apply_async(
-                        args=[job_id, asset_name, "funasr-nano"],
+                        args=[job_id, asset_name, asr_model],
                         kwargs={
                             "hotwords": hotwords,
                             "language": language,
@@ -197,7 +202,7 @@ class JobService:
                     logger.info(f"任务 {job_id} 已提交到队列（转写）")
                 elif job_type == "multi_speaker_transcription":
                     run_multi_speaker_transcription_task.apply_async(
-                        args=[job_id, asset_name, "funasr-nano", diarization_model or "3dspeaker-diarization"],
+                        args=[job_id, asset_name, asr_model, diarization_model or "3dspeaker-diarization"],
                         kwargs={
                             "hotwords": hotwords,
                             "language": language,
@@ -223,6 +228,7 @@ class JobService:
             job_id=job_id,
             asset_name=asset_name,
             job_type=job_type,
+            asr_model=asr_model,
             diarization_model=diarization_model,
             hotwords=hotwords,
             language=language,
@@ -238,6 +244,7 @@ class JobService:
         job_id: str,
         asset_name: str,
         job_type: str,
+        asr_model: str = "funasr-nano",
         diarization_model: str | None = None,
         hotwords: list[str] | None = None,
         language: str = "zh-cn",

@@ -1,15 +1,31 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
-export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []) {
+interface PollingOptions<T> {
+  enabled?: boolean;
+  intervalMs: number;
+  stopWhen?: (data: T | null) => boolean;
+  pauseWhenHidden?: boolean;
+  errorBackoffMs?: number;
+}
+
+export function useAsyncData<T>(
+  loader: () => Promise<T>,
+  deps: unknown[] = [],
+  polling?: PollingOptions<T>,
+) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const timeoutRef = useRef<number | null>(null);
+  const isPollingRefreshRef = useRef(false);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    if (!isPollingRefreshRef.current || data === null) {
+      setLoading(true);
+    }
     setError(null);
 
     loader()
@@ -26,6 +42,7 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []) 
       .finally(() => {
         if (active) {
           setLoading(false);
+          isPollingRefreshRef.current = false;
         }
       });
 
@@ -34,7 +51,35 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []) 
     };
   }, [...deps, version]);
 
+  useEffect(() => {
+    if (!polling?.enabled) {
+      return undefined;
+    }
+
+    const tick = () => {
+      const nextInterval = error && polling.errorBackoffMs ? polling.errorBackoffMs : polling.intervalMs;
+      if (polling.pauseWhenHidden && typeof document !== 'undefined' && document.hidden) {
+        timeoutRef.current = window.setTimeout(tick, nextInterval);
+        return;
+      }
+      if (polling.stopWhen?.(data ?? null)) {
+        return;
+      }
+      isPollingRefreshRef.current = true;
+      setVersion((current) => current + 1);
+      timeoutRef.current = window.setTimeout(tick, nextInterval);
+    };
+
+    timeoutRef.current = window.setTimeout(tick, polling.intervalMs);
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [data, polling?.enabled, polling?.intervalMs, polling?.pauseWhenHidden, polling?.stopWhen]);
+
   const reload = useCallback(() => {
+    isPollingRefreshRef.current = false;
     setVersion((current) => current + 1);
   }, []);
 

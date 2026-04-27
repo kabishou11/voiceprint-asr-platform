@@ -28,12 +28,24 @@ import { StatCard } from '../../components/StatCard';
 
 const PANEL_MAX_HEIGHT = 520;
 
+const COLUMN_COLORS: Record<string, string> = {
+  '核心要点': '#2f6fed',
+  '决策': '#16a34a',
+  '行动项': '#ea580c',
+  '风险与阻塞': '#dc2626',
+  '议题': '#7c3aed',
+};
+
 function MinutesColumn({ title, items }: { title: string; items: string[] }) {
+  const accentColor = COLUMN_COLORS[title] ?? '#64748b';
   return (
     <Card>
       <CardContent>
         <Stack spacing={1.2}>
-          <Typography variant="h6">{title}</Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Box sx={{ width: 4, height: 18, borderRadius: 2, bgcolor: accentColor, flexShrink: 0 }} />
+            <Typography variant="h6">{title}</Typography>
+          </Stack>
           {items.length ? (
             <Stack spacing={0.9}>
               {items.map((item, index) => (
@@ -46,6 +58,7 @@ function MinutesColumn({ title, items }: { title: string; items: string[] }) {
                     bgcolor: alpha('#ffffff', 0.7),
                     border: '1px solid',
                     borderColor: alpha('#1c2431', 0.06),
+                    borderLeft: `3px solid ${alpha(accentColor, 0.5)}`,
                   }}
                 >
                   <Typography variant="body2" sx={{ textWrap: 'pretty', lineHeight: 1.6 }}>
