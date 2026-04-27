@@ -304,3 +304,117 @@ def test_voiceprint_identify_api_accepts_probe_asset_name() -> None:
         assert response.json()['result']['candidates'][0]['profile_id'] == 'sample-female-1'
     else:
         assert response.status_code == 409
+
+
+# ─── 声纹分组 CRUD ─────────────────────────────────────────────────────────────
+
+
+def test_voiceprint_group_crud() -> None:
+    create = client.post('/api/v1/voiceprints/groups', json={'display_name': '测试分组'})
+    assert create.status_code == 200
+    group_id = create.json()['group_id']
+    assert create.json()['display_name'] == '测试分组'
+
+    profiles = client.get('/api/v1/voiceprints/profiles').json()['items']
+    if profiles:
+        pid = profiles[0]['profile_id']
+        update = client.put(f'/api/v1/voiceprints/groups/{group_id}', json={'profile_ids': [pid]})
+        assert update.status_code == 200
+        assert pid in update.json()['profile_ids']
+
+    groups = client.get('/api/v1/voiceprints/groups').json()['items']
+    assert any(g['group_id'] == group_id for g in groups)
+
+
+def test_voiceprint_group_rejects_empty_name() -> None:
+    response = client.post('/api/v1/voiceprints/groups', json={'display_name': ''})
+    assert response.status_code == 400
+
+
+# ─── Jobs 分页与过滤 ───────────────────────────────────────────────────────────
+
+
+def test_jobs_pagination_returns_meta() -> None:
+    response = client.get('/api/v1/jobs?page=1&page_size=5')
+    assert response.status_code == 200
+    payload = response.json()
+    assert 'meta' in payload
+    assert payload['meta']['page'] == 1
+    assert payload['meta']['page_size'] == 5
+    assert isinstance(payload['meta']['total'], int)
+
+
+def test_jobs_filter_by_status() -> None:
+    response = client.get('/api/v1/jobs?status=succeeded&page=1&page_size=100')
+    assert response.status_code == 200
+    for item in response.json()['items']:
+        assert item['status'] == 'succeeded'
+
+
+def test_jobs_filter_by_job_type() -> None:
+    response = client.get('/api/v1/jobs?job_type=transcription&page=1&page_size=100')
+    assert response.status_code == 200
+    for item in response.json()['items']:
+        assert item['job_type'] == 'transcription'
+
+
+def test_jobs_keyword_search() -> None:
+    response = client.get('/api/v1/jobs?keyword=nonexistent_keyword_xyz&page=1&page_size=100')
+    assert response.status_code == 200
+    assert len(response.json()['items']) == 0
+
+
+# ─── Speaker 别名 ─────────────────────────────────────────────────────────────
+
+
+def test_speaker_alias_crud() -> None:
+    jobs = client.get('/api/v1/jobs?page=1&page_size=1').json()['items']
+    if not jobs:
+        return
+    job_id = jobs[0]['job_id']
+
+    put = client.put(f'/api/v1/transcriptions/{job_id}/speaker-aliases', json={'speaker_0': '张三'})
+    assert put.status_code == 200
+    assert put.json()['updated'] == 1
+
+    get = client.get(f'/api/v1/transcriptions/{job_id}/speaker-aliases')
+    assert get.status_code == 200
+    assert get.json()['aliases'].get('speaker_0') == '张三'
+
+
+# ─── 声纹档案详情 ──────────────────────────────────────────────────────────────
+
+
+def test_voiceprint_profile_detail_returns_samples_and_history() -> None:
+    profiles = client.get('/api/v1/voiceprints/profiles').json()['items']
+    if not profiles:
+        return
+    pid = profiles[0]['profile_id']
+
+    response = client.get(f'/api/v1/voiceprints/profiles/{pid}')
+    assert response.status_code == 200
+    payload = response.json()
+    assert 'profile' in payload
+    assert 'samples' in payload
+    assert 'history' in payload
+    assert isinstance(payload['samples'], list)
+    assert isinstance(payload['history'], list)
+
+
+# ─── 接口规范验证 ──────────────────────────────────────────────────────────────
+
+
+def test_openapi_schema_has_chinese_summaries() -> None:
+    response = client.get('/openapi.json')
+    assert response.status_code == 200
+    schema = response.json()
+    paths_with_summary = 0
+    paths_total = 0
+    for path, methods in schema['paths'].items():
+        for method, spec in methods.items():
+            if method in ('get', 'post', 'put', 'delete'):
+                paths_total += 1
+                if spec.get('summary'):
+                    paths_with_summary += 1
+    assert paths_with_summary == paths_total, f"接口中文 summary 覆盖率: {paths_with_summary}/{paths_total}"
+
