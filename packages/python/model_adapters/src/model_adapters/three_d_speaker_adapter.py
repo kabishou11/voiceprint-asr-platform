@@ -533,7 +533,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         from sklearn.metrics.pairwise import cosine_similarity
 
         merged = labels.copy()
-        while True:
+        max_iterations = max(1, np.unique(merged).size)
+        for _ in range(max_iterations):
             speaker_ids = np.unique(merged)
             if speaker_ids.size <= 1:
                 return self._arrange_labels(merged)
@@ -545,6 +546,7 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
                 return self._arrange_labels(merged)
             left, right = speaker_ids[np.array(best_pair)]
             merged[merged == right] = left
+        return self._arrange_labels(merged)
 
     def _arrange_labels(self, labels: np.ndarray) -> np.ndarray:
         unique_labels = np.unique(labels)
@@ -999,11 +1001,17 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         frame_start: float,
         frame_end: float,
     ) -> list[int]:
+        import bisect
+
+        if not chunk_list:
+            return []
+        starts = [c[0] for c in chunk_list]
+        right = bisect.bisect_right(starts, frame_end - 1e-9)
         indices: list[int] = []
-        for index, (chunk_start, chunk_end) in enumerate(chunk_list):
-            if chunk_end <= frame_start or chunk_start >= frame_end:
-                continue
-            indices.append(index)
+        for index in range(max(0, right - len(chunk_list)), right):
+            chunk_start, chunk_end = chunk_list[index]
+            if chunk_end > frame_start and chunk_start < frame_end:
+                indices.append(index)
         return indices
 
     def _speaker_scores_for_window(
@@ -1533,6 +1541,9 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         self._profile_vectors: dict[str, np.ndarray] = {}
         self._profile_assets: dict[str, str] = {}
         self._sv_model = None
+        self._vector_dir = Path(__file__).resolve().parents[5] / "storage" / "voiceprint_vectors"
+        self._vector_dir.mkdir(parents=True, exist_ok=True)
+        self._load_persisted_assets()
 
     @property
     def availability(self) -> str:
@@ -1542,6 +1553,33 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         if not has_local_model:
             return "unavailable"
         return "available" if has_torch and has_modelscope and has_cuda_runtime() else "unavailable"
+
+    def _load_persisted_assets(self) -> None:
+        """从磁盘恢复已注册的声纹音频路径映射。"""
+        import json
+        manifest = self._vector_dir / "manifest.json"
+        if manifest.exists():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                for profile_id, asset_path in data.items():
+                    if Path(asset_path).exists():
+                        self._profile_assets[profile_id] = asset_path
+            except Exception:
+                pass
+
+    def _persist_asset(self, profile_id: str, asset_path: str) -> None:
+        """将声纹音频路径持久化到磁盘。"""
+        import json
+        self._profile_assets[profile_id] = asset_path
+        manifest = self._vector_dir / "manifest.json"
+        try:
+            existing = {}
+            if manifest.exists():
+                existing = json.loads(manifest.read_text(encoding="utf-8"))
+            existing[profile_id] = asset_path
+            manifest.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _ensure_sv_pipeline(self):
         if self._sv_model is not None:
@@ -1572,7 +1610,7 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
 
     def enroll(self, asset: AudioAsset, profile_id: str) -> dict:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹注册")
-        self._profile_assets[profile_id] = asset.path
+        self._persist_asset(profile_id, asset.path)
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
             raise RuntimeError("3D-Speaker CAM++ CUDA 声纹推理管道初始化失败。")
@@ -1599,7 +1637,7 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             matched=score >= threshold,
         )
 
-    def identify(self, asset: AudioAsset, top_k: int) -> VoiceprintIdentificationResult:
+    def identify(self, asset: AudioAsset, top_k: int, min_score: float = 0.5) -> VoiceprintIdentificationResult:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹识别")
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
@@ -1610,14 +1648,15 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         candidates = []
         for index, (profile_id, value) in enumerate(known_profiles.items(), start=1):
             score = round(self._run_sv_score(sv_pipeline, str(value), asset.path), 5)
-            candidates.append(
-                VoiceprintIdentificationCandidate(
-                    profile_id=profile_id,
-                    display_name=profile_id,
-                    score=score,
-                    rank=index,
+            if score >= min_score:
+                candidates.append(
+                    VoiceprintIdentificationCandidate(
+                        profile_id=profile_id,
+                        display_name=profile_id,
+                        score=score,
+                        rank=index,
+                    )
                 )
-            )
         candidates.sort(key=lambda item: item.score, reverse=True)
         reranked = [candidate.model_copy(update={"rank": idx + 1}) for idx, candidate in enumerate(candidates[:top_k])]
         _clear_cuda_cache()
