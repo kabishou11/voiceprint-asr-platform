@@ -1,0 +1,122 @@
+from scripts.core_pipeline_metrics import (
+    TranscriptArtifact,
+    TranscriptSegment,
+    build_core_pipeline_report,
+    character_error_rate,
+    hotword_recall,
+    minutes_coverage_diagnostics,
+    speaker_diagnostics,
+    voiceprint_diagnostics,
+)
+from scripts.core_pipeline_metrics import _parse_readable_transcript
+
+
+def test_character_error_rate_normalizes_chinese_punctuation() -> None:
+    assert character_error_rate("分类分级准确率超过百分之九十。", "分类分级准确率超过百分之九十") == 0.0
+    assert character_error_rate("分类分级", "分类评级") == 0.25
+
+
+def test_hotword_recall_reports_missing_terms() -> None:
+    result = hotword_recall(["联社", "分类分级", "江南"], "联社分类分级准确率超过九十。")
+
+    assert result["available"] is True
+    assert result["matched"] == 2
+    assert result["recall"] == 2 / 3
+    assert result["missing"] == ["江南"]
+
+
+def test_parse_readable_transcript_extracts_segments_and_language() -> None:
+    artifact = _parse_readable_transcript(
+        "\n".join(
+            [
+                "文件: demo",
+                "语言: unknown",
+                "=== 分段 ===",
+                "0001. [00:00:00.000 - 00:00:02.500 | 00:00:02.500] SPEAKER_00",
+                "第一句话。",
+                "0002. [00:00:02.500 - 00:00:04.000 | 00:00:01.500] SPEAKER_01",
+                "第二句话。",
+            ]
+        )
+    )
+
+    assert artifact.language == "unknown"
+    assert len(artifact.segments) == 2
+    assert artifact.segments[0].end_ms == 2500
+    assert artifact.segments[1].speaker == "SPEAKER_01"
+    assert "第二句话" in artifact.text
+
+
+def test_speaker_diagnostics_flags_fragments_and_turns() -> None:
+    segments = [
+        TranscriptSegment(start_ms=0, end_ms=1000, text="短段", speaker="SPEAKER_00"),
+        TranscriptSegment(start_ms=1000, end_ms=4000, text="正常段", speaker="SPEAKER_01"),
+        TranscriptSegment(start_ms=4000, end_ms=22000, text="长段", speaker="SPEAKER_01"),
+    ]
+
+    result = speaker_diagnostics(segments, short_fragment_ms=1500, long_segment_ms=15000)
+
+    assert result["speaker_count"] == 2
+    assert result["short_fragment_count"] == 1
+    assert result["long_segment_count"] == 1
+    assert result["speaker_turn_count"] == 1
+
+
+def test_voiceprint_diagnostics_uses_metadata_matches() -> None:
+    metadata = {
+        "voiceprint_matches": [
+            {
+                "speaker": "SPEAKER_00",
+                "matched": True,
+                "candidates": [{"profile_id": "p1", "score": 0.91}],
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "matched": False,
+                "candidates": [{"profile_id": "p2", "score": 0.42}],
+            },
+        ]
+    }
+
+    result = voiceprint_diagnostics(metadata, low_confidence_threshold=0.65)
+
+    assert result["matched_speaker_count"] == 1
+    assert result["unmatched_speaker_count"] == 1
+    assert result["low_confidence_speakers"] == ["SPEAKER_01"]
+
+
+def test_minutes_coverage_finds_evidence_in_transcript() -> None:
+    minutes = {
+        "decisions": ["决定先做日志分类分级"],
+        "action_items": ["李四负责上线确认"],
+        "risks": ["外部文档未覆盖"],
+    }
+    transcript = "会议决定先做日志分类分级。后续李四负责上线确认。"
+
+    result = minutes_coverage_diagnostics(minutes, transcript)
+
+    assert result["decisions"]["coverage"] == 1.0
+    assert result["action_items"]["coverage"] == 1.0
+    assert result["risks"]["coverage"] == 0.0
+
+
+def test_build_core_pipeline_report_combines_all_sections() -> None:
+    artifact = TranscriptArtifact(
+        text="联社分类分级准确率超过九十。",
+        language="zh-cn",
+        segments=[
+            TranscriptSegment(start_ms=0, end_ms=2000, text="联社分类分级", speaker="SPEAKER_00"),
+        ],
+        metadata={},
+    )
+
+    report = build_core_pipeline_report(
+        transcript=artifact,
+        reference_text="联社分类分级准确率超过九十。",
+        hotwords=["联社"],
+        minutes_payload=None,
+    )
+
+    assert report["asr"]["cer"] == 0.0
+    assert report["speakers"]["speaker_count"] == 1
+    assert report["voiceprint"]["available"] is False
