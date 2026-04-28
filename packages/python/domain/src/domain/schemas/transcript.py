@@ -27,10 +27,28 @@ class TranscriptTimeline(BaseModel):
     segments: list[Segment] = Field(default_factory=list)
 
 
+class VoiceprintMatchCandidate(BaseModel):
+    profile_id: str
+    display_name: str
+    score: float = Field(ge=0.0, le=1.0)
+    rank: int = Field(ge=1)
+
+
+class VoiceprintSpeakerMatch(BaseModel):
+    speaker: str
+    scope_mode: Literal["none", "all", "group"] = "none"
+    scope_group_id: str | None = None
+    candidate_profile_ids: list[str] = Field(default_factory=list)
+    candidates: list[VoiceprintMatchCandidate] = Field(default_factory=list)
+    matched: bool = False
+    error: str | None = None
+
+
 class TranscriptMetadata(BaseModel):
     timelines: list[TranscriptTimeline] = Field(default_factory=list)
     diarization_model: str | None = None
     alignment_source: str | None = None
+    voiceprint_matches: list[VoiceprintSpeakerMatch] = Field(default_factory=list)
 
 
 class TranscriptResult(BaseModel):

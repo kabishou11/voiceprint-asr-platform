@@ -8,10 +8,20 @@ from __future__ import annotations
 import copy
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from domain.schemas.transcript import TranscriptMetadata, TranscriptResult, TranscriptTimeline
-from model_adapters import resolve_audio_asset_path
+from domain.schemas.transcript import (
+    Segment,
+    TranscriptMetadata,
+    TranscriptResult,
+    TranscriptTimeline,
+    VoiceprintMatchCandidate,
+    VoiceprintSpeakerMatch,
+)
+from model_adapters import AudioAsset, resolve_audio_asset_path
 
 from ..celery_app import get_celery_app, is_async_available
 from ..pipelines.alignment import (
@@ -41,6 +51,9 @@ def _run_multi_speaker_transcription_sync(
     num_speakers: int | None = None,
     min_speakers: int | None = None,
     max_speakers: int | None = None,
+    voiceprint_scope_mode: str = "none",
+    voiceprint_group_id: str | None = None,
+    voiceprint_profile_ids: list[str] | None = None,
 ) -> TranscriptResult:
     """同步执行多人转写任务（内部实现）。
 
@@ -97,9 +110,18 @@ def _run_multi_speaker_transcription_sync(
     aligned = align_transcript_with_speakers(transcript, diarization_segments)
     exclusive_segments = build_exclusive_speaker_timeline(diarization_segments)
     display_segments = build_display_speaker_timeline(aligned.segments, exclusive_segments or diarization_segments)
+    voiceprint_matches = _build_voiceprint_matches(
+        registry=registry,
+        asset=asset,
+        segments=aligned.segments,
+        scope_mode=voiceprint_scope_mode,
+        group_id=voiceprint_group_id,
+        profile_ids=voiceprint_profile_ids,
+    )
     metadata = TranscriptMetadata(
         diarization_model=diarization_model_key,
         alignment_source="exclusive" if exclusive_segments else "regular",
+        voiceprint_matches=voiceprint_matches,
         timelines=[
             TranscriptTimeline(label="Regular diarization", source="regular", segments=diarization_segments),
             TranscriptTimeline(
@@ -115,6 +137,189 @@ def _run_multi_speaker_transcription_sync(
         ],
     )
     return aligned.model_copy(update={"metadata": metadata})
+
+
+def _build_voiceprint_matches(
+    *,
+    registry,
+    asset: AudioAsset,
+    segments: list[Segment],
+    scope_mode: str,
+    group_id: str | None,
+    profile_ids: list[str] | None,
+) -> list[VoiceprintSpeakerMatch]:
+    if scope_mode == "none":
+        return []
+
+    candidate_ids, display_names = _resolve_voiceprint_candidates(scope_mode, group_id, profile_ids)
+    if not candidate_ids:
+        return []
+
+    speakers = sorted({segment.speaker for segment in segments if segment.speaker})
+    if not speakers:
+        return []
+
+    try:
+        registry.require_available("3dspeaker-embedding")
+        adapter = registry.get_voiceprint("3dspeaker-embedding")
+    except Exception as exc:
+        return [
+            VoiceprintSpeakerMatch(
+                speaker=speaker,
+                scope_mode=scope_mode,  # type: ignore[arg-type]
+                scope_group_id=group_id,
+                candidate_profile_ids=candidate_ids,
+                error=str(exc),
+            )
+            for speaker in speakers
+        ]
+
+    matches: list[VoiceprintSpeakerMatch] = []
+    tmpdir = Path(tempfile.mkdtemp(prefix="voiceprint-speaker-"))
+    try:
+        try:
+            probe_assets = _build_speaker_probe_assets(asset, segments, speakers, tmpdir)
+        except Exception as exc:
+            return [
+                VoiceprintSpeakerMatch(
+                    speaker=speaker,
+                    scope_mode=scope_mode,  # type: ignore[arg-type]
+                    scope_group_id=group_id,
+                    candidate_profile_ids=candidate_ids,
+                    error=str(exc),
+                )
+                for speaker in speakers
+            ]
+
+        probe_asset_by_speaker = dict(probe_assets)
+        for speaker in speakers:
+            probe_asset = probe_asset_by_speaker.get(speaker)
+            if probe_asset is None:
+                matches.append(
+                    VoiceprintSpeakerMatch(
+                        speaker=speaker,
+                        scope_mode=scope_mode,  # type: ignore[arg-type]
+                        scope_group_id=group_id,
+                        candidate_profile_ids=candidate_ids,
+                        error="未能构建该说话人的声纹探针音频",
+                    )
+                )
+                continue
+
+            try:
+                identified = adapter.identify(
+                    asset=probe_asset,
+                    top_k=min(3, len(candidate_ids)),
+                    profile_ids=candidate_ids,
+                )
+                candidates = [
+                    VoiceprintMatchCandidate(
+                        profile_id=candidate.profile_id,
+                        display_name=display_names.get(candidate.profile_id, candidate.display_name),
+                        score=candidate.score,
+                        rank=candidate.rank,
+                    )
+                    for candidate in identified.candidates
+                ]
+                matches.append(
+                    VoiceprintSpeakerMatch(
+                        speaker=speaker,
+                        scope_mode=scope_mode,  # type: ignore[arg-type]
+                        scope_group_id=group_id,
+                        candidate_profile_ids=candidate_ids,
+                        candidates=candidates,
+                        matched=identified.matched,
+                    )
+                )
+            except Exception as exc:
+                matches.append(
+                    VoiceprintSpeakerMatch(
+                        speaker=speaker,
+                        scope_mode=scope_mode,  # type: ignore[arg-type]
+                        scope_group_id=group_id,
+                        candidate_profile_ids=candidate_ids,
+                        error=str(exc),
+                    )
+                )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return matches
+
+
+def _resolve_voiceprint_candidates(
+    scope_mode: str,
+    group_id: str | None,
+    profile_ids: list[str] | None,
+) -> tuple[list[str], dict[str, str]]:
+    from apps.api.app.services import job_db
+
+    requested_ids = [profile_id for profile_id in (profile_ids or []) if profile_id]
+    with job_db.session() as db:
+        query = db.query(job_db.VoiceprintProfileRecord).filter(
+            job_db.VoiceprintProfileRecord.sample_count > 0
+        )
+        if requested_ids:
+            query = query.filter(job_db.VoiceprintProfileRecord.profile_id.in_(requested_ids))
+        elif scope_mode == "group":
+            if not group_id:
+                return [], {}
+            member_ids = [
+                item.profile_id
+                for item in db.query(job_db.VoiceprintGroupMemberRecord)
+                .filter(job_db.VoiceprintGroupMemberRecord.group_id == group_id)
+                .all()
+            ]
+            if not member_ids:
+                return [], {}
+            query = query.filter(job_db.VoiceprintProfileRecord.profile_id.in_(member_ids))
+        elif scope_mode != "all":
+            return [], {}
+
+        records = query.order_by(job_db.VoiceprintProfileRecord.created_at.desc()).all()
+        ids = [record.profile_id for record in records]
+        return ids, {record.profile_id: record.display_name for record in records}
+
+
+def _build_speaker_probe_assets(
+    asset: AudioAsset,
+    segments: list[Segment],
+    speakers: list[str],
+    tmpdir: Path,
+    *,
+    max_probe_seconds: float = 60.0,
+) -> list[tuple[str, AudioAsset]]:
+    import numpy as np
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(asset.path, dtype="float32", always_2d=False)
+    audio = np.asarray(audio, dtype=np.float32)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=1)
+
+    built: list[tuple[str, AudioAsset]] = []
+    max_samples = int(max_probe_seconds * sample_rate)
+    for speaker in speakers:
+        chunks = []
+        total_samples = 0
+        for segment in segments:
+            if segment.speaker != speaker or segment.end_ms <= segment.start_ms:
+                continue
+            start = max(0, int(segment.start_ms * sample_rate / 1000))
+            end = min(len(audio), int(segment.end_ms * sample_rate / 1000))
+            if end <= start:
+                continue
+            chunk = audio[start:end]
+            remaining = max_samples - total_samples
+            if remaining <= 0:
+                break
+            chunks.append(chunk[:remaining])
+            total_samples += min(len(chunk), remaining)
+        if total_samples <= 0 or not chunks:
+            continue
+        target = tmpdir / f"{speaker}.wav"
+        sf.write(target, np.concatenate(chunks), sample_rate)
+        built.append((speaker, AudioAsset(path=str(target), sample_rate=sample_rate, channels=1)))
+    return built
 
 
 def _adapter_asset(asset_name: str):
@@ -136,6 +341,9 @@ def execute_multi_speaker_transcription_task(
     num_speakers: int | None = None,
     min_speakers: int | None = None,
     max_speakers: int | None = None,
+    voiceprint_scope_mode: str = "none",
+    voiceprint_group_id: str | None = None,
+    voiceprint_profile_ids: list[str] | None = None,
 ) -> TranscriptResult:
     """执行多人转写任务（Celery Worker 入口）。
 
@@ -158,6 +366,9 @@ def execute_multi_speaker_transcription_task(
             num_speakers=num_speakers,
             min_speakers=min_speakers,
             max_speakers=max_speakers,
+            voiceprint_scope_mode=voiceprint_scope_mode,
+            voiceprint_group_id=voiceprint_group_id,
+            voiceprint_profile_ids=voiceprint_profile_ids,
         )
         update_job_result(job_id, result=result, status="succeeded")
         return result
@@ -213,6 +424,9 @@ def run_multi_speaker_transcription(
     num_speakers: int | None = None,
     min_speakers: int | None = None,
     max_speakers: int | None = None,
+    voiceprint_scope_mode: str = "none",
+    voiceprint_group_id: str | None = None,
+    voiceprint_profile_ids: list[str] | None = None,
 ) -> TranscriptResult:
     """运行多人转写任务。
 
@@ -253,6 +467,9 @@ def run_multi_speaker_transcription(
                         "num_speakers": num_speakers,
                         "min_speakers": min_speakers,
                         "max_speakers": max_speakers,
+                        "voiceprint_scope_mode": voiceprint_scope_mode,
+                        "voiceprint_group_id": voiceprint_group_id,
+                        "voiceprint_profile_ids": voiceprint_profile_ids,
                     },
                 )
                 logger.info(f"多人转写任务 {job_id} 已提交到队列")
@@ -275,6 +492,9 @@ def run_multi_speaker_transcription(
         num_speakers=num_speakers,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        voiceprint_scope_mode=voiceprint_scope_mode,
+        voiceprint_group_id=voiceprint_group_id,
+        voiceprint_profile_ids=voiceprint_profile_ids,
     )
 
 

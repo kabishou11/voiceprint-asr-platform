@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -1539,7 +1540,7 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
     def __init__(self, model_name: str = "models/3D-Speaker/campplus") -> None:
         self.model_name = resolve_model_reference(model_name)
         self._profile_vectors: dict[str, np.ndarray] = {}
-        self._profile_assets: dict[str, str] = {}
+        self._profile_assets: dict[str, list[str]] = {}
         self._sv_model = None
         self._vector_dir = Path(__file__).resolve().parents[5] / "storage" / "voiceprint_vectors"
         self._vector_dir.mkdir(parents=True, exist_ok=True)
@@ -1561,25 +1562,46 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
         if manifest.exists():
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
-                for profile_id, asset_path in data.items():
-                    if Path(asset_path).exists():
-                        self._profile_assets[profile_id] = asset_path
+                for profile_id, asset_paths in data.items():
+                    if isinstance(asset_paths, str):
+                        asset_paths = [asset_paths]
+                    if not isinstance(asset_paths, list):
+                        continue
+                    valid_paths = [str(path) for path in asset_paths if Path(str(path)).exists()]
+                    if valid_paths:
+                        self._profile_assets[profile_id] = valid_paths
             except Exception:
                 pass
 
-    def _persist_asset(self, profile_id: str, asset_path: str) -> None:
+    def _persist_asset(
+        self,
+        profile_id: str,
+        asset_path: str,
+        mode: str = "replace",
+    ) -> None:
         """将声纹音频路径持久化到磁盘。"""
         import json
-        self._profile_assets[profile_id] = asset_path
+
+        current = [] if mode == "replace" else list(self._profile_assets.get(profile_id, []))
+        if asset_path not in current:
+            current.append(asset_path)
+        self._profile_assets[profile_id] = current
         manifest = self._vector_dir / "manifest.json"
         try:
             existing = {}
             if manifest.exists():
                 existing = json.loads(manifest.read_text(encoding="utf-8"))
-            existing[profile_id] = asset_path
+            existing[profile_id] = current
             manifest.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
+
+    def _profile_sample_assets(self, profile_id: str) -> list[str]:
+        return [
+            path
+            for path in self._profile_assets.get(profile_id, [])
+            if Path(path).exists()
+        ]
 
     def _ensure_sv_pipeline(self):
         if self._sv_model is not None:
@@ -1599,7 +1621,8 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             return None
 
     def _run_sv_score(self, sv_pipeline, enroll_path: str, probe_path: str) -> float:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tempfile.mkdtemp(prefix="voiceprint-score-"))
+        try:
             normalized_enroll = _normalize_audio_for_sv(enroll_path, Path(tmpdir) / "enroll.wav")
             normalized_probe = _normalize_audio_for_sv(probe_path, Path(tmpdir) / "probe.wav")
             result = sv_pipeline([normalized_enroll, normalized_probe])
@@ -1607,29 +1630,33 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             if isinstance(result, dict):
                 return float(result.get("score", 0.0))
             return 0.0
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def enroll(self, asset: AudioAsset, profile_id: str) -> dict:
+    def enroll(self, asset: AudioAsset, profile_id: str, mode: str = "replace") -> dict:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹注册")
-        self._persist_asset(profile_id, asset.path)
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
             raise RuntimeError("3D-Speaker CAM++ CUDA 声纹推理管道初始化失败。")
+        self._persist_asset(profile_id, asset.path, mode=mode)
         return {
             "profile_id": profile_id,
             "asset": asset.path,
             "model_key": self.key,
             "model_name": self.model_name,
             "status": "enrolled",
+            "mode": mode,
+            "sample_count": len(self._profile_sample_assets(profile_id)),
             "embedding_ref": f"embedding:{profile_id}:{Path(asset.path).stem}",
         }
 
     def verify(self, asset: AudioAsset, profile_id: str, threshold: float) -> VoiceprintVerificationResult:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹验证")
         sv_pipeline = self._ensure_sv_pipeline()
-        enrolled_asset = self._profile_assets.get(profile_id)
-        if sv_pipeline is None or enrolled_asset is None:
+        enrolled_assets = self._profile_sample_assets(profile_id)
+        if sv_pipeline is None or not enrolled_assets:
             raise RuntimeError("3D-Speaker CAM++ CUDA 声纹验证未就绪，或档案尚未完成真实注册。")
-        score = round(self._run_sv_score(sv_pipeline, enrolled_asset, asset.path), 5)
+        score = round(max(self._run_sv_score(sv_pipeline, enrolled_asset, asset.path) for enrolled_asset in enrolled_assets), 5)
         return VoiceprintVerificationResult(
             profile_id=profile_id,
             score=score,
@@ -1637,17 +1664,35 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             matched=score >= threshold,
         )
 
-    def identify(self, asset: AudioAsset, top_k: int, min_score: float = 0.5) -> VoiceprintIdentificationResult:
+    def identify(
+        self,
+        asset: AudioAsset,
+        top_k: int,
+        profile_ids: list[str] | None = None,
+        min_score: float = 0.5,
+    ) -> VoiceprintIdentificationResult:
         require_available_model(self.availability, model_label=self.display_name, purpose="声纹识别")
         sv_pipeline = self._ensure_sv_pipeline()
         if sv_pipeline is None:
             raise RuntimeError("3D-Speaker CAM++ CUDA 声纹识别管道未就绪。")
-        known_profiles = self._profile_assets
+        allowed_profiles = set(profile_ids or [])
+        known_profiles = {
+            profile_id: paths
+            for profile_id, paths in self._profile_assets.items()
+            if not allowed_profiles or profile_id in allowed_profiles
+        }
         if not known_profiles:
             return VoiceprintIdentificationResult(candidates=[], matched=False)
         candidates = []
-        for index, (profile_id, value) in enumerate(known_profiles.items(), start=1):
-            score = round(self._run_sv_score(sv_pipeline, str(value), asset.path), 5)
+        for index, (profile_id, values) in enumerate(known_profiles.items(), start=1):
+            sample_scores = [
+                self._run_sv_score(sv_pipeline, str(value), asset.path)
+                for value in values
+                if Path(str(value)).exists()
+            ]
+            if not sample_scores:
+                continue
+            score = round(max(sample_scores), 5)
             if score >= min_score:
                 candidates.append(
                     VoiceprintIdentificationCandidate(

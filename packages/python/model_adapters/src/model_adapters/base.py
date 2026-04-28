@@ -108,7 +108,7 @@ class VoiceprintAdapter(ABC):
         return "available"
 
     @abstractmethod
-    def enroll(self, asset: AudioAsset, profile_id: str) -> dict:
+    def enroll(self, asset: AudioAsset, profile_id: str, mode: Literal["replace", "append"] = "replace") -> dict:
         raise NotImplementedError
 
     @abstractmethod
@@ -116,5 +116,10 @@ class VoiceprintAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def identify(self, asset: AudioAsset, top_k: int) -> VoiceprintIdentificationResult:
+    def identify(
+        self,
+        asset: AudioAsset,
+        top_k: int,
+        profile_ids: list[str] | None = None,
+    ) -> VoiceprintIdentificationResult:
         raise NotImplementedError

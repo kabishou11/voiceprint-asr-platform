@@ -211,6 +211,9 @@ class JobService:
                             "num_speakers": num_speakers,
                             "min_speakers": min_speakers,
                             "max_speakers": max_speakers,
+                            "voiceprint_scope_mode": voiceprint_scope_mode,
+                            "voiceprint_group_id": voiceprint_group_id,
+                            "voiceprint_profile_ids": voiceprint_profile_ids,
                         },
                     )
                     logger.info(f"任务 {job_id} 已提交到队列（多人转写）")
@@ -237,6 +240,9 @@ class JobService:
             num_speakers=num_speakers,
             min_speakers=min_speakers,
             max_speakers=max_speakers,
+            voiceprint_scope_mode=voiceprint_scope_mode,
+            voiceprint_group_id=voiceprint_group_id,
+            voiceprint_profile_ids=voiceprint_profile_ids,
         )
 
     def _execute_transcription_sync(
@@ -253,6 +259,9 @@ class JobService:
         num_speakers: int | None = None,
         min_speakers: int | None = None,
         max_speakers: int | None = None,
+        voiceprint_scope_mode: str = "none",
+        voiceprint_group_id: str | None = None,
+        voiceprint_profile_ids: list[str] | None = None,
     ) -> JobDetail:
         """同步执行转写任务（回退模式）。
 
@@ -286,6 +295,9 @@ class JobService:
                     num_speakers=num_speakers,
                     min_speakers=min_speakers,
                     max_speakers=max_speakers,
+                    voiceprint_scope_mode=voiceprint_scope_mode,
+                    voiceprint_group_id=voiceprint_group_id,
+                    voiceprint_profile_ids=voiceprint_profile_ids,
                 )
         except RuntimeError:
             raise

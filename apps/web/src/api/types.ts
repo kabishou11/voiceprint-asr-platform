@@ -81,6 +81,15 @@ export interface TranscriptMetadata {
   timelines: TranscriptTimeline[];
   diarization_model?: string | null;
   alignment_source?: string | null;
+  voiceprint_matches?: Array<{
+    speaker: string;
+    scope_mode: 'none' | 'all' | 'group';
+    scope_group_id?: string | null;
+    candidate_profile_ids: string[];
+    candidates: VoiceprintIdentificationCandidate[];
+    matched: boolean;
+    error?: string | null;
+  }>;
 }
 
 export interface JobDetail {

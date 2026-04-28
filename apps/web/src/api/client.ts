@@ -160,10 +160,10 @@ export function createVoiceprintProfile(displayName: string, modelKey: string) {
   });
 }
 
-export function enrollVoiceprint(profileId: string, assetName: string): Promise<EnrollVoiceprintResponse> {
+export function enrollVoiceprint(profileId: string, assetName: string, mode: 'replace' | 'append' = 'replace'): Promise<EnrollVoiceprintResponse> {
   return request<EnrollVoiceprintResponse>(`/voiceprints/profiles/${profileId}/enroll`, {
     method: 'POST',
-    body: JSON.stringify({ asset_name: assetName }),
+    body: JSON.stringify({ asset_name: assetName, mode }),
   });
 }
 

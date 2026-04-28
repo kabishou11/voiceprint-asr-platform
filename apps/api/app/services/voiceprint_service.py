@@ -29,7 +29,7 @@ class VoiceprintService:
 
         for profile_id in ("sample-female-1", "demo-user"):
             try:
-                self._do_enroll(profile_id, "声纹-女1.wav", mode="replace")
+                self.enroll_profile(profile_id, "声纹-女1.wav", mode="replace")
             except Exception:
                 pass
 
@@ -94,9 +94,9 @@ class VoiceprintService:
         self,
         profile_id: str,
         asset_name: str,
-        mode: str = "append",
+        mode: str = "replace",
         source_job_id: str | None = None,
-    ) -> tuple[VoiceprintProfile, dict[str, str]]:
+    ) -> tuple[VoiceprintProfile, dict[str, object]]:
         profile = self.get_profile(profile_id)
         if profile is None:
             raise KeyError("声纹档案不存在")
@@ -105,10 +105,17 @@ class VoiceprintService:
         if not Path(asset.path).exists():
             raise ValueError("音频资产不存在")
 
+        if mode not in {"replace", "append"}:
+            raise ValueError("声纹注册模式仅支持 replace 或 append")
+
         self._do_enroll(profile_id, asset_name, mode=mode)
 
         sample_id = f"sample-{uuid4().hex[:8]}"
         with job_db.session() as db:
+            if mode == "replace":
+                db.query(job_db.VoiceprintSampleRecord).filter(
+                    job_db.VoiceprintSampleRecord.profile_id == profile_id
+                ).delete()
             db.add(job_db.VoiceprintSampleRecord(
                 sample_id=sample_id,
                 profile_id=profile_id,
@@ -117,7 +124,11 @@ class VoiceprintService:
             ))
             record = db.get(job_db.VoiceprintProfileRecord, profile_id)
             if record is not None:
-                record.sample_count = record.sample_count + 1
+                record.sample_count = (
+                    db.query(job_db.VoiceprintSampleRecord)
+                    .filter(job_db.VoiceprintSampleRecord.profile_id == profile_id)
+                    .count()
+                )
             db.commit()
 
         updated_profile = self.get_profile(profile_id)
@@ -136,7 +147,7 @@ class VoiceprintService:
         registry = get_model_registry()
         registry.require_available(profile.model_key)
         adapter = registry.get_voiceprint(profile.model_key)
-        adapter.enroll(asset=self._build_asset(asset_name), profile_id=profile_id)
+        adapter.enroll(asset=self._build_asset(asset_name), profile_id=profile_id, mode=mode)
 
     def verify(
         self,
@@ -159,12 +170,13 @@ class VoiceprintService:
         self,
         probe_asset_name: str = "5分钟.wav",
         top_k: int = 3,
+        profile_ids: list[str] | None = None,
     ) -> VoiceprintIdentificationResult:
         registry = get_model_registry()
         registry.require_available("3dspeaker-embedding")
         asset = self._build_asset(probe_asset_name)
         adapter = registry.get_voiceprint("3dspeaker-embedding")
-        identified = adapter.identify(asset=asset, top_k=top_k)
+        identified = adapter.identify(asset=asset, top_k=top_k, profile_ids=profile_ids)
         profile_map = {p.profile_id: p.display_name for p in self.list_profiles()}
         candidates = [
             VoiceprintIdentificationCandidate(
