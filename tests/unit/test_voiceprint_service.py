@@ -38,10 +38,13 @@ def test_voiceprint_enroll_replace_and_append_update_sample_count(monkeypatch) -
     updated, first = voiceprint_service.enroll_profile(profile.profile_id, "声纹-女1.wav", mode="replace")
     assert updated.sample_count == 1
     assert first["mode"] == "replace"
+    assert first["quality"]["available"] is True
+    assert first["quality"]["duration_seconds"] >= 3.0
 
     updated, second = voiceprint_service.enroll_profile(profile.profile_id, "5分钟.wav", mode="append")
     assert updated.sample_count == 2
     assert second["mode"] == "append"
+    assert second["quality"]["warnings"]
 
     updated, third = voiceprint_service.enroll_profile(profile.profile_id, "声纹-女1.wav", mode="replace")
     assert updated.sample_count == 1

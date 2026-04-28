@@ -260,6 +260,7 @@ export interface VoiceprintEnrollmentResult {
   asset_name: string;
   status: string;
   mode: string;
+  quality?: Record<string, unknown> | null;
 }
 
 export interface VoiceprintAsyncReceipt {

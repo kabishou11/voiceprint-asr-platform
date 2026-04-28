@@ -125,6 +125,7 @@ class VoiceprintEnrollmentResult(BaseModel):
     asset_name: str
     status: str
     mode: str
+    quality: dict[str, Any] | None = None
 
 
 class VoiceprintAsyncReceipt(BaseModel):
