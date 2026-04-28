@@ -83,6 +83,14 @@ def test_merge_chunk_texts_removes_overlap_from_adjacent_chunks() -> None:
     assert merged == "平台功能已经通了，没什么问题"
 
 
+def test_merge_chunk_texts_removes_overlap_while_ignoring_punctuation_and_spaces() -> None:
+    adapter = FunASRTranscribeAdapter()
+
+    merged = adapter._merge_chunk_texts(["平台功能已经通了", "功能 已经通了，没什么问题"])
+
+    assert merged == "平台功能已经通了，没什么问题"
+
+
 def test_ensure_timed_segments_backfills_sentence_timestamps_when_model_does_not_return_them() -> None:
     adapter = FunASRTranscribeAdapter()
     transcript = TranscriptResult(
