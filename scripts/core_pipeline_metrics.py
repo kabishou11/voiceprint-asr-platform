@@ -440,6 +440,292 @@ def build_core_pipeline_report(
     }
 
 
+def load_dataset_manifest(path: str | Path) -> dict[str, Any]:
+    manifest_path = Path(path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("评测样本集 manifest 必须是 JSON 对象")
+    samples = data.get("samples")
+    if not isinstance(samples, list) or not samples:
+        raise ValueError("评测样本集 manifest 必须包含非空 samples 数组")
+
+    base_dir = manifest_path.parent
+    resolved_samples: list[dict[str, Any]] = []
+    for index, sample in enumerate(samples, start=1):
+        if not isinstance(sample, dict):
+            raise ValueError(f"samples[{index}] 必须是对象")
+        name = str(sample.get("name") or "").strip()
+        transcript = str(sample.get("transcript") or "").strip()
+        if not name:
+            raise ValueError(f"samples[{index}] 缺少 name")
+        if not transcript:
+            raise ValueError(f"samples[{index}] 缺少 transcript")
+
+        resolved = dict(sample)
+        resolved["name"] = name
+        for key in (
+            "transcript",
+            "reference_text",
+            "reference_speakers",
+            "hotwords_file",
+            "minutes_json",
+            "voiceprint_labels",
+        ):
+            value = sample.get(key)
+            resolved[key] = str(_resolve_manifest_path(base_dir, value)) if value else None
+        resolved_samples.append(resolved)
+
+    manifest = dict(data)
+    manifest["samples"] = resolved_samples
+    return manifest
+
+
+def build_core_pipeline_dataset_report(
+    manifest: dict[str, Any],
+    *,
+    low_confidence_threshold: float = 0.65,
+    speaker_frame_step_ms: int = 100,
+) -> dict[str, Any]:
+    samples: list[dict[str, Any]] = []
+    for sample in manifest.get("samples") or []:
+        report = _build_manifest_sample_report(
+            sample,
+            low_confidence_threshold=low_confidence_threshold,
+            speaker_frame_step_ms=speaker_frame_step_ms,
+        )
+        samples.append(report)
+
+    return {
+        "suite": {
+            "name": manifest.get("suite_name") or manifest.get("name") or "core_pipeline_dataset",
+            "version": manifest.get("version"),
+            "description": manifest.get("description"),
+            "sample_count": len(samples),
+        },
+        "aggregate": aggregate_core_pipeline_reports(samples),
+        "samples": samples,
+    }
+
+
+def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "sample_count": len(samples),
+        "asr": {
+            "available_count": _available_count(samples, "asr"),
+            "mean_cer": _mean_metric(samples, "asr", "cer"),
+            "mean_sequence_ratio": _mean_metric(samples, "asr", "sequence_ratio"),
+            "mean_hotword_recall": _mean_nested_metric(
+                samples,
+                "asr",
+                "hotword_recall",
+                "recall",
+            ),
+        },
+        "speakers": {
+            "available_count": _available_count(samples, "speakers"),
+            "mean_speaker_count": _mean_metric(samples, "speakers", "speaker_count"),
+            "mean_short_fragment_ratio": _mean_metric(
+                samples,
+                "speakers",
+                "short_fragment_ratio",
+            ),
+            "mean_turns_per_minute": _mean_metric(
+                samples,
+                "speakers",
+                "speaker_turns_per_minute",
+            ),
+        },
+        "speaker_reference": {
+            "available_count": _available_count(samples, "speaker_reference"),
+            "mean_der": _mean_metric(samples, "speaker_reference", "der"),
+            "mean_jer": _mean_metric(samples, "speaker_reference", "jer"),
+        },
+        "voiceprint": {
+            "available_count": _available_count(samples, "voiceprint"),
+            "mean_matched_speaker_count": _mean_metric(
+                samples,
+                "voiceprint",
+                "matched_speaker_count",
+            ),
+            "mean_low_confidence_count": _mean_metric(
+                samples,
+                "voiceprint",
+                "low_confidence_count",
+            ),
+        },
+        "voiceprint_threshold_scan": {
+            "available_count": _available_count(samples, "voiceprint_threshold_scan"),
+            "mean_approx_eer": _mean_nested_metric(
+                samples,
+                "voiceprint_threshold_scan",
+                "approx_eer",
+                "eer",
+            ),
+        },
+        "minutes": {
+            "available_count": _available_count(samples, "minutes"),
+            "mean_decision_coverage": _mean_nested_metric(
+                samples,
+                "minutes",
+                "decisions",
+                "coverage",
+            ),
+            "mean_action_item_coverage": _mean_nested_metric(
+                samples,
+                "minutes",
+                "action_items",
+                "coverage",
+            ),
+            "mean_risk_coverage": _mean_nested_metric(
+                samples,
+                "minutes",
+                "risks",
+                "coverage",
+            ),
+        },
+    }
+
+
+def render_dataset_markdown_report(report: dict[str, Any]) -> str:
+    suite = report.get("suite") or {}
+    aggregate = report.get("aggregate") or {}
+    samples = report.get("samples") or []
+    asr = aggregate.get("asr") or {}
+    speakers = aggregate.get("speakers") or {}
+    speaker_reference = aggregate.get("speaker_reference") or {}
+    voiceprint_scan = aggregate.get("voiceprint_threshold_scan") or {}
+    minutes = aggregate.get("minutes") or {}
+
+    lines = [
+        "# 核心流水线样本集基线报告",
+        "",
+        f"- 样本集: {suite.get('name', 'N/A')}",
+        f"- 版本: {suite.get('version') or 'N/A'}",
+        f"- 样本数: {suite.get('sample_count', 0)}",
+        "",
+        "## 聚合指标",
+        f"- 平均 CER: {_format_percent(asr.get('mean_cer'))}",
+        f"- 平均文本相似度: {_format_percent(asr.get('mean_sequence_ratio'))}",
+        f"- 平均热词召回: {_format_percent(asr.get('mean_hotword_recall'))}",
+        f"- 平均 Speaker 数: {_format_number(speakers.get('mean_speaker_count'))}",
+        f"- 平均短碎片率: {_format_percent(speakers.get('mean_short_fragment_ratio'))}",
+        f"- 平均 DER: {_format_percent(speaker_reference.get('mean_der'))}",
+        f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
+        f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
+        f"- 平均决策覆盖: {_format_percent(minutes.get('mean_decision_coverage'))}",
+        f"- 平均行动项覆盖: {_format_percent(minutes.get('mean_action_item_coverage'))}",
+        f"- 平均风险覆盖: {_format_percent(minutes.get('mean_risk_coverage'))}",
+        "",
+        "## 样本明细",
+        "| 样本 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for sample in samples:
+        sample_asr = sample.get("asr") or {}
+        sample_speaker_reference = sample.get("speaker_reference") or {}
+        sample_voiceprint_scan = sample.get("voiceprint_threshold_scan") or {}
+        sample_minutes = sample.get("minutes") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str((sample.get("sample") or {}).get("name") or "N/A"),
+                    _format_percent(sample_asr.get("cer")),
+                    _format_percent(sample_speaker_reference.get("der")),
+                    _format_percent(sample_speaker_reference.get("jer")),
+                    _format_percent((sample_voiceprint_scan.get("approx_eer") or {}).get("eer")),
+                    _format_percent((sample_minutes.get("decisions") or {}).get("coverage")),
+                    _format_percent((sample_minutes.get("action_items") or {}).get("coverage")),
+                    _format_percent((sample_minutes.get("risks") or {}).get("coverage")),
+                ]
+            )
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def build_baseline_comparison_report(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    baselines = [_baseline_summary(report) for report in reports]
+    reference = baselines[0] if baselines else None
+    for baseline in baselines:
+        baseline["delta_from_first"] = _baseline_delta(reference, baseline) if reference else {}
+    return {
+        "comparison": {
+            "baseline_count": len(baselines),
+            "reference": reference["name"] if reference else None,
+        },
+        "baselines": baselines,
+    }
+
+
+def load_baseline_report(path: str | Path) -> dict[str, Any]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("aggregate"), dict):
+        raise ValueError(f"不是有效的核心流水线 baseline JSON: {path}")
+    return data
+
+
+def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
+    baselines = report.get("baselines") or []
+    lines = [
+        "# 核心流水线基线对比报告",
+        "",
+        f"- 基线数: {(report.get('comparison') or {}).get('baseline_count', 0)}",
+        f"- 参考基线: {(report.get('comparison') or {}).get('reference') or 'N/A'}",
+        "",
+        "## 指标对比",
+        "| 基线 | 样本数 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for baseline in baselines:
+        metrics = baseline.get("metrics") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(baseline.get("name") or "N/A"),
+                    str(baseline.get("sample_count", 0)),
+                    _format_percent(metrics.get("mean_cer")),
+                    _format_percent(metrics.get("mean_der")),
+                    _format_percent(metrics.get("mean_jer")),
+                    _format_percent(metrics.get("mean_approx_eer")),
+                    _format_percent(metrics.get("mean_decision_coverage")),
+                    _format_percent(metrics.get("mean_action_item_coverage")),
+                    _format_percent(metrics.get("mean_risk_coverage")),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 相对首个基线变化",
+            "| 基线 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for baseline in baselines:
+        delta = baseline.get("delta_from_first") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(baseline.get("name") or "N/A"),
+                    _format_signed_percent(delta.get("mean_cer")),
+                    _format_signed_percent(delta.get("mean_der")),
+                    _format_signed_percent(delta.get("mean_jer")),
+                    _format_signed_percent(delta.get("mean_approx_eer")),
+                    _format_signed_percent(delta.get("mean_decision_coverage")),
+                    _format_signed_percent(delta.get("mean_action_item_coverage")),
+                    _format_signed_percent(delta.get("mean_risk_coverage")),
+                ]
+            )
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def load_transcript_artifact(path: str | Path) -> TranscriptArtifact:
     source = Path(path)
     payload = source.read_text(encoding="utf-8")
@@ -651,6 +937,126 @@ def _parse_rttm_speakers(payload: str) -> list[TranscriptSegment]:
     return segments
 
 
+def _build_manifest_sample_report(
+    sample: dict[str, Any],
+    *,
+    low_confidence_threshold: float,
+    speaker_frame_step_ms: int,
+) -> dict[str, Any]:
+    transcript_path = Path(str(sample["transcript"]))
+    reference_text = (
+        Path(str(sample["reference_text"])).read_text(encoding="utf-8")
+        if sample.get("reference_text")
+        else None
+    )
+    report = build_core_pipeline_report(
+        transcript=load_transcript_artifact(transcript_path),
+        reference_text=reference_text,
+        reference_speaker_segments=load_speaker_reference(sample.get("reference_speakers")),
+        hotwords=load_hotwords(sample.get("hotwords_file")),
+        minutes_payload=load_minutes_payload(sample.get("minutes_json")),
+        low_confidence_threshold=low_confidence_threshold,
+        voiceprint_ground_truth=load_voiceprint_labels(sample.get("voiceprint_labels")),
+        speaker_frame_step_ms=speaker_frame_step_ms,
+    )
+    report["sample"] = {
+        "name": sample["name"],
+        "tags": sample.get("tags") or [],
+        "notes": sample.get("notes"),
+    }
+    report["inputs"] = {
+        "transcript": str(transcript_path),
+        "reference_text": sample.get("reference_text"),
+        "reference_speakers": sample.get("reference_speakers"),
+        "hotwords_file": sample.get("hotwords_file"),
+        "minutes_json": sample.get("minutes_json"),
+        "voiceprint_labels": sample.get("voiceprint_labels"),
+    }
+    return report
+
+
+def _resolve_manifest_path(base_dir: Path, value: Any) -> Path:
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve()
+
+
+def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
+    suite = report.get("suite") or {}
+    aggregate = report.get("aggregate") or {}
+    return {
+        "name": suite.get("name") or "N/A",
+        "version": suite.get("version"),
+        "sample_count": suite.get("sample_count") or aggregate.get("sample_count") or 0,
+        "metrics": {
+            "mean_cer": ((aggregate.get("asr") or {}).get("mean_cer")),
+            "mean_sequence_ratio": ((aggregate.get("asr") or {}).get("mean_sequence_ratio")),
+            "mean_hotword_recall": ((aggregate.get("asr") or {}).get("mean_hotword_recall")),
+            "mean_speaker_count": ((aggregate.get("speakers") or {}).get("mean_speaker_count")),
+            "mean_short_fragment_ratio": (
+                (aggregate.get("speakers") or {}).get("mean_short_fragment_ratio")
+            ),
+            "mean_der": ((aggregate.get("speaker_reference") or {}).get("mean_der")),
+            "mean_jer": ((aggregate.get("speaker_reference") or {}).get("mean_jer")),
+            "mean_approx_eer": (
+                (aggregate.get("voiceprint_threshold_scan") or {}).get("mean_approx_eer")
+            ),
+            "mean_decision_coverage": ((aggregate.get("minutes") or {}).get("mean_decision_coverage")),
+            "mean_action_item_coverage": (
+                (aggregate.get("minutes") or {}).get("mean_action_item_coverage")
+            ),
+            "mean_risk_coverage": ((aggregate.get("minutes") or {}).get("mean_risk_coverage")),
+        },
+    }
+
+
+def _baseline_delta(
+    reference: dict[str, Any] | None,
+    baseline: dict[str, Any],
+) -> dict[str, float | None]:
+    if not reference:
+        return {}
+    reference_metrics = reference.get("metrics") or {}
+    baseline_metrics = baseline.get("metrics") or {}
+    delta: dict[str, float | None] = {}
+    for key, value in baseline_metrics.items():
+        reference_value = reference_metrics.get(key)
+        delta[key] = (
+            float(value) - float(reference_value)
+            if value is not None and reference_value is not None
+            else None
+        )
+    return delta
+
+
+def _available_count(samples: list[dict[str, Any]], section: str) -> int:
+    return sum(1 for sample in samples if (sample.get(section) or {}).get("available"))
+
+
+def _mean_metric(samples: list[dict[str, Any]], section: str, key: str) -> float | None:
+    values = [
+        float(value)
+        for sample in samples
+        if (value := (sample.get(section) or {}).get(key)) is not None
+    ]
+    return sum(values) / len(values) if values else None
+
+
+def _mean_nested_metric(
+    samples: list[dict[str, Any]],
+    section: str,
+    nested: str,
+    key: str,
+) -> float | None:
+    values = [
+        float(value)
+        for sample in samples
+        if (value := ((sample.get(section) or {}).get(nested) or {}).get(key)) is not None
+    ]
+    return sum(values) / len(values) if values else None
+
+
 def _parse_time_ms(value: str) -> int:
     hours, minutes, seconds = value.split(":")
     return int(
@@ -811,3 +1217,9 @@ def _format_number(value: Any) -> str:
     if value is None:
         return "N/A"
     return f"{float(value):.2f}"
+
+
+def _format_signed_percent(value: Any) -> str:
+    if value is None:
+        return "N/A"
+    return f"{float(value) * 100:+.2f}%"

@@ -405,6 +405,60 @@ Content-Type: application/json
 
 当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计和会议纪要证据覆盖率。
 
+如果要把多个固定样本做成可横向比较的版本基线，先维护一个样本集 manifest。
+示例 manifest 已指向本地 15 分钟参考稿切片；首次运行前，先用完整参考稿导出这个切片：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\export_reference_slice.py `
+  "G:\desktop\通用语音识别_标准录音 1.mp3.txt" `
+  storage\experiments\standard_recording_1_15min_refbench\standard_recording_1_15min_reference_slice.txt `
+  --audio storage\experiments\standard_recording_1\standard_recording_1_16k.wav `
+  --max-seconds 900 `
+  --metadata-json storage\experiments\standard_recording_1_15min_refbench\standard_recording_1_15min_reference_slice.json
+```
+
+manifest 每个样本支持：
+
+- `transcript`：必填，TranscriptResult JSON 或 readable txt
+- `reference_text`：参考稿，用于 CER / 文本相似度
+- `reference_speakers`：RTTM、TranscriptResult JSON 或 readable txt，用于轻量 DER / JER
+- `hotwords_file`：热词 txt 或 `{hotwords: []}` JSON
+- `voiceprint_labels`：`{speaker: profile_id}` JSON，用于阈值扫描与近似 EER
+- `minutes_json`：人工纪要基准，用于决策、行动项、风险覆盖率
+
+批量评测会输出：
+
+- `*_baseline.json`：样本明细 + 聚合指标
+- `*_baseline.md`：适合人工复核的基线报告
+
+然后执行样本集评测：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_core_pipeline_dataset.py configs\evaluation\core_pipeline_dataset.example.json
+```
+
+剩余标注可以先从当前转写结果生成草稿模板，再人工复核：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_evaluation_annotation_templates.py `
+  storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_readable_v20_hotwords.txt `
+  --sample-id standard_recording_1_15min `
+  --output-dir storage\experiments\standard_recording_1_15min_refbench `
+  --prefix standard_recording_1_15min
+```
+
+该命令会生成 RTTM、声纹标签 JSON、人工纪要 JSON 与复核清单。它们只是从模型结果转换来的草稿，必须人工校正后再写入 manifest 的 `reference_speakers` / `voiceprint_labels` / `minutes_json`。
+
+有多个版本的 baseline 后，可以横向比较：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\compare_core_pipeline_baselines.py `
+  storage\experiments\core_pipeline_baseline_example\core_pipeline_baseline_example_baseline.json `
+  storage\experiments\core_pipeline_baseline_example\core_pipeline_baseline_example_baseline.json
+```
+
+对比报告会列出每个 baseline 的核心指标，并给出相对首个 baseline 的变化值。
+
 ## 常见问题
 
 ### 1. 机器有显卡，但任务还是报 CUDA 不可用

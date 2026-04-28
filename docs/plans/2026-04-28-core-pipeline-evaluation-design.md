@@ -90,3 +90,6 @@
 - 第二阶段接入真实 DER/JER 标注格式。已落地：`evaluate_core_pipeline.py --reference-speakers` 支持 RTTM、TranscriptResult JSON 与 readable txt，并输出轻量 DER/JER 近似指标。
 - 第三阶段加入阈值扫描，输出声纹识别 ROC/EER 近似报告。已落地：`--voiceprint-labels` 支持 `{speaker: profile_id}` JSON，并输出阈值扫描点与近似 EER。
 - 第四阶段把报告接入前端任务详情页，形成可视化质检面板。已落地第一版：`GET /api/v1/transcriptions/{job_id}/evaluation` 基于当前任务结果生成轻量评测摘要，任务详情页展示 speaker、声纹与纪要覆盖诊断。
+- 第五阶段形成真实样本集评测闭环。已落地第一版：`evaluate_core_pipeline_dataset.py` 读取样本集 manifest，批量生成样本明细与聚合基线报告；`compare_core_pipeline_baselines.py` 支持多个 baseline JSON 横向比较，并输出相对首个基线的变化值。下一步补齐 15min/长会议样本的参考文本、RTTM、声纹标签和人工纪要基准，即可横向比较 DER、EER、ASR 与纪要覆盖率。
+- 第六阶段固化真实参考稿窗口。已落地第一版：`export_reference_slice.py` 可以把完整参考稿按音频时长比例导出固定窗口切片，供样本集 manifest 作为 `reference_text` 使用，避免每次评测依赖外部桌面文件。
+- 第七阶段降低人工标注启动成本。已落地第一版：`generate_evaluation_annotation_templates.py` 可从当前转写结果生成 RTTM、声纹标签、人工纪要和复核清单草稿；这些草稿必须人工修正后才可作为 manifest 的参考标注。
