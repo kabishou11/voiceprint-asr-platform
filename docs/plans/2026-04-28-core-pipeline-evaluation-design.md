@@ -87,6 +87,6 @@
 
 ## 后续演进
 
-- 第二阶段接入真实 DER/JER 标注格式。
-- 第三阶段加入阈值扫描，输出声纹识别 ROC/EER 近似报告。
-- 第四阶段把报告接入前端任务详情页，形成可视化质检面板。
+- 第二阶段接入真实 DER/JER 标注格式。已落地：`evaluate_core_pipeline.py --reference-speakers` 支持 RTTM、TranscriptResult JSON 与 readable txt，并输出轻量 DER/JER 近似指标。
+- 第三阶段加入阈值扫描，输出声纹识别 ROC/EER 近似报告。已落地：`--voiceprint-labels` 支持 `{speaker: profile_id}` JSON，并输出阈值扫描点与近似 EER。
+- 第四阶段把报告接入前端任务详情页，形成可视化质检面板。已落地第一版：`GET /api/v1/transcriptions/{job_id}/evaluation` 基于当前任务结果生成轻量评测摘要，任务详情页展示 speaker、声纹与纪要覆盖诊断。

@@ -23,10 +23,11 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchSpeakerAliases, fetchTranscript } from '../../api/client';
+import { fetchCorePipelineEvaluation, fetchSpeakerAliases, fetchTranscript } from '../../api/client';
 import {
   formatDateTime,
   jobTypeLabels,
+  type CorePipelineEvaluationResponse,
   type Segment,
   type TranscriptResult,
 } from '../../api/types';
@@ -132,6 +133,83 @@ function formatTimelineRange(startMs: number, endMs: number) {
   return `${formatDuration(startMs)} - ${formatDuration(endMs)}`;
 }
 
+function metricNumber(source: Record<string, unknown> | undefined | null, key: string): number | null {
+  const value = source?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatPercentMetric(value: number | null) {
+  return value === null ? '—' : `${(value * 100).toFixed(1)}%`;
+}
+
+function QualityDiagnosticsCard({
+  evaluation,
+  error,
+}: {
+  evaluation: CorePipelineEvaluationResponse | null;
+  error: string | null;
+}) {
+  const speakers = evaluation?.speakers;
+  const voiceprint = evaluation?.voiceprint;
+  const minutes = evaluation?.minutes;
+  const shortFragmentRatio = metricNumber(speakers, 'short_fragment_ratio');
+  const turnsPerMinute = metricNumber(speakers, 'speaker_turns_per_minute');
+  const speakerCount = metricNumber(speakers, 'speaker_count');
+  const matchedSpeakerCount = metricNumber(voiceprint, 'matched_speaker_count');
+  const lowConfidenceCount = metricNumber(voiceprint, 'low_confidence_count');
+  const decisionCoverage = metricNumber(minutes?.decisions as Record<string, unknown> | undefined, 'coverage');
+  const actionCoverage = metricNumber(minutes?.action_items as Record<string, unknown> | undefined, 'coverage');
+
+  return (
+    <Card data-testid="quality-diagnostics-card">
+      <CardContent>
+        <Stack spacing={1.4}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
+            <Stack spacing={0.35}>
+              <Typography variant="h6">质检诊断</Typography>
+              <Typography variant="body2" color="text.secondary">
+                基于当前任务结果生成的轻量 ASR/Speaker/声纹/纪要质量摘要。
+              </Typography>
+            </Stack>
+            {evaluation ? <Chip size="small" label="已生成" color="success" /> : <Chip size="small" label="待生成" />}
+          </Stack>
+          {error ? <Alert severity="warning">{error}</Alert> : null}
+          <Grid container spacing={1.2}>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard label="Speaker 数" value={speakerCount ?? '—'} icon={<GroupsRounded fontSize="small" />} color="warning" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard label="短碎片率" value={formatPercentMetric(shortFragmentRatio)} icon={<SegmentRounded fontSize="small" />} color="success" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard label="每分钟换人" value={turnsPerMinute === null ? '—' : turnsPerMinute.toFixed(2)} icon={<GraphicEqRounded fontSize="small" />} color="primary" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard label="声纹低置信" value={lowConfidenceCount ?? '—'} icon={<ArticleRounded fontSize="small" />} color="warning" />
+            </Grid>
+          </Grid>
+          <Stack spacing={0.8}>
+            <Stack direction="row" justifyContent="space-between" spacing={1}>
+              <Typography variant="body2" color="text.secondary">声纹成功匹配 speaker</Typography>
+              <Typography variant="body2" fontWeight={700}>{matchedSpeakerCount ?? '—'}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" spacing={1}>
+              <Typography variant="body2" color="text.secondary">会议决策证据覆盖</Typography>
+              <Typography variant="body2" fontWeight={700}>{formatPercentMetric(decisionCoverage)}</Typography>
+            </Stack>
+            {decisionCoverage !== null ? <LinearProgress variant="determinate" value={Math.min(100, decisionCoverage * 100)} /> : null}
+            <Stack direction="row" justifyContent="space-between" spacing={1}>
+              <Typography variant="body2" color="text.secondary">行动项证据覆盖</Typography>
+              <Typography variant="body2" fontWeight={700}>{formatPercentMetric(actionCoverage)}</Typography>
+            </Stack>
+            {actionCoverage !== null ? <LinearProgress variant="determinate" value={Math.min(100, actionCoverage * 100)} /> : null}
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 function TranscriptStatGrid({
   segmentCount,
   speakerCount,
@@ -219,6 +297,8 @@ export function JobDetailPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [speakerAliases, setSpeakerAliases] = useState<Record<string, string>>({});
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('ALL');
+  const [evaluation, setEvaluation] = useState<CorePipelineEvaluationResponse | null>(null);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
   const isProcessing =
     data?.job?.status === 'pending' || data?.job?.status === 'queued' || data?.job?.status === 'running';
   const isFailed = data?.job?.status === 'failed';
@@ -269,6 +349,29 @@ export function JobDetailPage() {
       active = false;
     };
   }, [jobId, searchParams]);
+
+  useEffect(() => {
+    if (!jobId || !data?.job || data.job.status !== 'succeeded' || isVoiceprintJob) {
+      setEvaluation(null);
+      setEvaluationError(null);
+      return;
+    }
+    let active = true;
+    fetchCorePipelineEvaluation(jobId)
+      .then((result) => {
+        if (!active) return;
+        setEvaluation(result);
+        setEvaluationError(null);
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setEvaluation(null);
+        setEvaluationError(reason instanceof Error ? reason.message : '质检诊断加载失败');
+      });
+    return () => {
+      active = false;
+    };
+  }, [jobId, data?.job, isVoiceprintJob]);
 
   const segments = data?.transcript?.segments ?? [];
   const transcriptMetadata = data?.transcript?.metadata ?? null;
@@ -470,7 +573,9 @@ export function JobDetailPage() {
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button variant="outlined" onClick={reload}>刷新</Button>
           <Button variant="outlined" startIcon={<ContentCopyRounded />} onClick={handleCopy} disabled={!data?.job}>复制结果</Button>
-          <Button variant="outlined" startIcon={<DownloadRounded />} onClick={handleExport} disabled={!data?.job}>导出 JSON</Button>
+          <Button variant="outlined" startIcon={<DownloadRounded />} onClick={handleExport} disabled={!data?.job}>
+            {selectedSpeakerGroup ? '导出当前 Speaker JSON' : '导出 JSON'}
+          </Button>
           <Button variant="outlined" startIcon={<ArticleRounded />} onClick={() => navigate(`/minutes/${jobId}`)} disabled={!data?.job}>会议纪要</Button>
           <Button variant="contained" startIcon={<ReplayRounded />} onClick={handleRetry} disabled={!data?.job}>快速重跑</Button>
         </Stack>
@@ -543,6 +648,8 @@ export function JobDetailPage() {
             totalDurationMs={totalDurationMs}
             alignmentSource={transcriptMetadata?.alignment_source === 'exclusive' ? 'Exclusive' : 'Regular'}
           />
+
+          <QualityDiagnosticsCard evaluation={evaluation} error={evaluationError} />
 
           <Grid container spacing={2.2}>
             <Grid size={{ xs: 12, lg: 8 }}>

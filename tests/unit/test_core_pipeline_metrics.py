@@ -3,9 +3,11 @@ from scripts.core_pipeline_metrics import (
     TranscriptSegment,
     build_core_pipeline_report,
     character_error_rate,
+    diarization_error_metrics,
     hotword_recall,
     minutes_coverage_diagnostics,
     speaker_diagnostics,
+    voiceprint_threshold_scan,
     voiceprint_diagnostics,
 )
 from scripts.core_pipeline_metrics import _parse_readable_transcript
@@ -85,6 +87,68 @@ def test_voiceprint_diagnostics_uses_metadata_matches() -> None:
     assert result["low_confidence_speakers"] == ["SPEAKER_01"]
 
 
+def test_diarization_error_metrics_maps_speaker_labels() -> None:
+    reference = [
+        TranscriptSegment(start_ms=0, end_ms=1000, text="", speaker="alice"),
+        TranscriptSegment(start_ms=1000, end_ms=2000, text="", speaker="bob"),
+    ]
+    hypothesis = [
+        TranscriptSegment(start_ms=0, end_ms=1000, text="", speaker="SPEAKER_01"),
+        TranscriptSegment(start_ms=1000, end_ms=2000, text="", speaker="SPEAKER_00"),
+    ]
+
+    result = diarization_error_metrics(reference, hypothesis, frame_step_ms=500)
+
+    assert result["available"] is True
+    assert result["der"] == 0.0
+    assert result["jer"] == 0.0
+    assert result["speaker_mapping"] == {"SPEAKER_01": "alice", "SPEAKER_00": "bob"}
+
+
+def test_diarization_error_metrics_counts_miss_and_false_alarm() -> None:
+    reference = [TranscriptSegment(start_ms=0, end_ms=1000, text="", speaker="alice")]
+    hypothesis = [TranscriptSegment(start_ms=1000, end_ms=2000, text="", speaker="SPEAKER_00")]
+
+    result = diarization_error_metrics(reference, hypothesis, frame_step_ms=500)
+
+    assert result["der"] == 2.0
+    assert result["miss_rate"] == 1.0
+    assert result["false_alarm_rate"] == 1.0
+
+
+def test_voiceprint_threshold_scan_estimates_eer() -> None:
+    metadata = {
+        "voiceprint_matches": [
+            {
+                "speaker": "SPEAKER_00",
+                "candidates": [
+                    {"profile_id": "alice", "display_name": "Alice", "score": 0.9},
+                    {"profile_id": "bob", "display_name": "Bob", "score": 0.4},
+                ],
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "candidates": [
+                    {"profile_id": "bob", "display_name": "Bob", "score": 0.8},
+                    {"profile_id": "alice", "display_name": "Alice", "score": 0.3},
+                ],
+            },
+        ]
+    }
+
+    result = voiceprint_threshold_scan(
+        metadata,
+        {"SPEAKER_00": "alice", "SPEAKER_01": "bob"},
+        thresholds=[0.5, 0.85],
+    )
+
+    assert result["available"] is True
+    assert result["positive_count"] == 2
+    assert result["negative_count"] == 2
+    assert result["approx_eer"]["threshold"] == 0.5
+    assert result["approx_eer"]["eer"] == 0.0
+
+
 def test_minutes_coverage_finds_evidence_in_transcript() -> None:
     minutes = {
         "decisions": ["决定先做日志分类分级"],
@@ -115,8 +179,12 @@ def test_build_core_pipeline_report_combines_all_sections() -> None:
         reference_text="联社分类分级准确率超过九十。",
         hotwords=["联社"],
         minutes_payload=None,
+        reference_speaker_segments=[
+            TranscriptSegment(start_ms=0, end_ms=2000, text="", speaker="SPEAKER_00"),
+        ],
     )
 
     assert report["asr"]["cer"] == 0.0
     assert report["speakers"]["speaker_count"] == 1
+    assert report["speaker_reference"]["der"] == 0.0
     assert report["voiceprint"]["available"] is False

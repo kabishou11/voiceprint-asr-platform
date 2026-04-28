@@ -2,6 +2,7 @@ import type {
   CreateTranscriptionRequest,
   CreateTranscriptionResponse,
   CreateVoiceprintProfileResponse,
+  CorePipelineEvaluationResponse,
   HealthResponse,
   EnrollVoiceprintResponse,
   IdentifyVoiceprintResponse,
@@ -87,6 +88,10 @@ export function fetchTranscript(jobId: string): Promise<TranscriptResponse> {
 
 export function fetchMeetingMinutes(jobId: string): Promise<MeetingMinutesResponse> {
   return request<MeetingMinutesResponse>(`/transcriptions/${jobId}/minutes`);
+}
+
+export function fetchCorePipelineEvaluation(jobId: string): Promise<CorePipelineEvaluationResponse> {
+  return request<CorePipelineEvaluationResponse>(`/transcriptions/${jobId}/evaluation`);
 }
 
 export function generateMeetingMinutes(jobId: string, useLlm = true): Promise<MeetingMinutesResponse> {

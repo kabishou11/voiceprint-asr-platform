@@ -92,6 +92,17 @@ export interface TranscriptMetadata {
   }>;
 }
 
+export interface CorePipelineEvaluationResponse {
+  job_id?: string;
+  summary?: Record<string, unknown>;
+  asr?: Record<string, unknown>;
+  speakers?: Record<string, unknown>;
+  speaker_reference?: Record<string, unknown>;
+  voiceprint?: Record<string, unknown>;
+  voiceprint_threshold_scan?: Record<string, unknown>;
+  minutes?: Record<string, unknown>;
+}
+
 export interface JobDetail {
   job_id: string;
   job_type: JobType;

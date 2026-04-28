@@ -179,6 +179,77 @@ def speaker_diagnostics(
     }
 
 
+def diarization_error_metrics(
+    reference_segments: list[TranscriptSegment],
+    hypothesis_segments: list[TranscriptSegment],
+    *,
+    frame_step_ms: int = 100,
+) -> dict[str, Any]:
+    """Compute lightweight DER/JER-style diagnostics from speaker annotations.
+
+    The implementation samples the timeline at a fixed frame step and applies a
+    greedy speaker-label mapping. It intentionally stays dependency-free so the
+    evaluation script works on Windows without pyannote-metrics.
+    """
+    reference = _valid_speaker_segments(reference_segments)
+    hypothesis = _valid_speaker_segments(hypothesis_segments)
+    if not reference:
+        return {"available": False, "reason": "missing_reference_speakers"}
+
+    frame_step_ms = max(10, int(frame_step_ms))
+    start_ms = min(
+        [segment.start_ms for segment in reference]
+        + [segment.start_ms for segment in hypothesis]
+    )
+    end_ms = max(
+        [segment.end_ms for segment in reference]
+        + [segment.end_ms for segment in hypothesis]
+    )
+    if end_ms <= start_ms:
+        return {"available": False, "reason": "empty_timeline"}
+
+    reference_labels = _frame_speaker_labels(reference, start_ms, end_ms, frame_step_ms)
+    hypothesis_labels = _frame_speaker_labels(hypothesis, start_ms, end_ms, frame_step_ms)
+    mapping = _greedy_speaker_mapping(reference_labels, hypothesis_labels)
+
+    miss = 0
+    false_alarm = 0
+    confusion = 0
+    reference_speech = 0
+    for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
+        if reference_label is not None:
+            reference_speech += 1
+        if reference_label is not None and hypothesis_label is None:
+            miss += 1
+            continue
+        if reference_label is None and hypothesis_label is not None:
+            false_alarm += 1
+            continue
+        if reference_label is None and hypothesis_label is None:
+            continue
+        mapped_hypothesis = mapping.get(str(hypothesis_label), hypothesis_label)
+        if mapped_hypothesis != reference_label:
+            confusion += 1
+
+    denominator = max(1, reference_speech)
+    return {
+        "available": True,
+        "frame_step_ms": frame_step_ms,
+        "reference_speaker_count": len({segment.speaker for segment in reference}),
+        "hypothesis_speaker_count": len({segment.speaker for segment in hypothesis}),
+        "speaker_mapping": mapping,
+        "der": (miss + false_alarm + confusion) / denominator,
+        "miss_rate": miss / denominator,
+        "false_alarm_rate": false_alarm / denominator,
+        "confusion_rate": confusion / denominator,
+        "jer": _jaccard_error_rate(reference_labels, hypothesis_labels, mapping),
+        "miss_ms": miss * frame_step_ms,
+        "false_alarm_ms": false_alarm * frame_step_ms,
+        "confusion_ms": confusion * frame_step_ms,
+        "reference_speech_ms": reference_speech * frame_step_ms,
+    }
+
+
 def voiceprint_diagnostics(
     metadata: dict[str, Any],
     *,
@@ -222,6 +293,78 @@ def voiceprint_diagnostics(
     }
 
 
+def voiceprint_threshold_scan(
+    metadata: dict[str, Any],
+    ground_truth: dict[str, str] | None,
+    *,
+    thresholds: list[float] | None = None,
+) -> dict[str, Any]:
+    matches = metadata.get("voiceprint_matches") or []
+    if not isinstance(matches, list) or not matches:
+        return {"available": False, "reason": "missing_voiceprint_matches"}
+    if not ground_truth:
+        return {"available": False, "reason": "missing_voiceprint_ground_truth"}
+
+    score_rows = _voiceprint_score_rows(matches, ground_truth)
+    if not score_rows:
+        return {"available": False, "reason": "missing_candidate_scores"}
+
+    thresholds = thresholds or [round(index / 100, 2) for index in range(0, 101)]
+    points = []
+    best_eer: dict[str, Any] | None = None
+    for threshold in sorted(set(float(item) for item in thresholds)):
+        tp = fp = tn = fn = 0
+        for row in score_rows:
+            predicted = row["score"] >= threshold
+            actual = bool(row["is_match"])
+            if predicted and actual:
+                tp += 1
+            elif predicted and not actual:
+                fp += 1
+            elif not predicted and actual:
+                fn += 1
+            else:
+                tn += 1
+
+        tpr = tp / max(1, tp + fn)
+        fpr = fp / max(1, fp + tn)
+        fnr = fn / max(1, fn + tp)
+        precision = tp / max(1, tp + fp)
+        point = {
+            "threshold": threshold,
+            "tp": tp,
+            "fp": fp,
+            "tn": tn,
+            "fn": fn,
+            "tpr": tpr,
+            "fpr": fpr,
+            "fnr": fnr,
+            "precision": precision,
+            "recall": tpr,
+        }
+        points.append(point)
+        gap = abs(fpr - fnr)
+        if best_eer is None or gap < best_eer["gap"]:
+            best_eer = {
+                "threshold": threshold,
+                "eer": (fpr + fnr) / 2,
+                "gap": gap,
+                "fpr": fpr,
+                "fnr": fnr,
+            }
+
+    positive_count = sum(1 for row in score_rows if row["is_match"])
+    return {
+        "available": True,
+        "label_count": len(ground_truth),
+        "sample_count": len(score_rows),
+        "positive_count": positive_count,
+        "negative_count": len(score_rows) - positive_count,
+        "approx_eer": best_eer,
+        "roc_points": points,
+    }
+
+
 def minutes_coverage_diagnostics(minutes_payload: dict[str, Any] | None, transcript_text: str) -> dict[str, Any]:
     if not minutes_payload:
         return {"available": False}
@@ -258,9 +401,13 @@ def build_core_pipeline_report(
     *,
     transcript: TranscriptArtifact,
     reference_text: str | None = None,
+    reference_speaker_segments: list[TranscriptSegment] | None = None,
     hotwords: list[str] | None = None,
     minutes_payload: dict[str, Any] | None = None,
     low_confidence_threshold: float = 0.65,
+    voiceprint_ground_truth: dict[str, str] | None = None,
+    voiceprint_thresholds: list[float] | None = None,
+    speaker_frame_step_ms: int = 100,
 ) -> dict[str, Any]:
     transcript_text = transcript.text or "\n".join(segment.text for segment in transcript.segments)
     return {
@@ -275,9 +422,19 @@ def build_core_pipeline_report(
             hotwords=hotwords or [],
         ),
         "speakers": speaker_diagnostics(transcript.segments),
+        "speaker_reference": diarization_error_metrics(
+            reference_speaker_segments or [],
+            transcript.segments,
+            frame_step_ms=speaker_frame_step_ms,
+        ) if reference_speaker_segments is not None else {"available": False},
         "voiceprint": voiceprint_diagnostics(
             transcript.metadata,
             low_confidence_threshold=low_confidence_threshold,
+        ),
+        "voiceprint_threshold_scan": voiceprint_threshold_scan(
+            transcript.metadata,
+            voiceprint_ground_truth,
+            thresholds=voiceprint_thresholds,
         ),
         "minutes": minutes_coverage_diagnostics(minutes_payload, transcript_text),
     }
@@ -306,6 +463,42 @@ def load_minutes_payload(path: str | Path | None) -> dict[str, Any] | None:
     raise ValueError("会议纪要 JSON 必须是对象或序列化后的对象字符串")
 
 
+def load_speaker_reference(path: str | Path | None) -> list[TranscriptSegment] | None:
+    if not path:
+        return None
+    source = Path(path)
+    payload = source.read_text(encoding="utf-8")
+    if source.suffix.lower() == ".rttm":
+        return _parse_rttm_speakers(payload)
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return _parse_readable_transcript(payload).segments
+    if isinstance(data, dict):
+        return _parse_json_transcript(data).segments
+    raise ValueError("speaker 标注文件必须是 RTTM、TranscriptResult JSON 或 readable txt")
+
+
+def load_voiceprint_labels(path: str | Path | None) -> dict[str, str] | None:
+    if not path:
+        return None
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(data, dict) and isinstance(data.get("speakers"), dict):
+        data = data["speakers"]
+    if not isinstance(data, dict):
+        raise ValueError("声纹标签文件必须是 {speaker: profile_id} 或 {speakers: {...}} JSON")
+
+    labels: dict[str, str] = {}
+    for speaker, value in data.items():
+        if isinstance(value, dict):
+            label = value.get("profile_id") or value.get("display_name") or value.get("label")
+        else:
+            label = value
+        if str(speaker).strip() and str(label or "").strip():
+            labels[str(speaker).strip()] = str(label).strip()
+    return labels
+
+
 def load_hotwords(path: str | Path | None) -> list[str]:
     if not path:
         return []
@@ -320,7 +513,9 @@ def load_hotwords(path: str | Path | None) -> list[str]:
 def render_markdown_report(report: dict[str, Any]) -> str:
     asr = report.get("asr") or {}
     speakers = report.get("speakers") or {}
+    speaker_reference = report.get("speaker_reference") or {}
     voiceprint = report.get("voiceprint") or {}
+    voiceprint_scan = report.get("voiceprint_threshold_scan") or {}
     minutes = report.get("minutes") or {}
 
     lines = [
@@ -340,10 +535,24 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 每分钟换人次数: {_format_number(speakers.get('speaker_turns_per_minute'))}",
         f"- 过长段数量: {speakers.get('long_segment_count', 'N/A')}",
         "",
+        "## Speaker 标注对比",
+        f"- 可用: {bool(speaker_reference.get('available'))}",
+        f"- DER: {_format_percent(speaker_reference.get('der'))}",
+        f"- JER: {_format_percent(speaker_reference.get('jer'))}",
+        f"- Miss: {_format_percent(speaker_reference.get('miss_rate'))}",
+        f"- False Alarm: {_format_percent(speaker_reference.get('false_alarm_rate'))}",
+        f"- Confusion: {_format_percent(speaker_reference.get('confusion_rate'))}",
+        "",
         "## 声纹识别",
         f"- 可用: {bool(voiceprint.get('available'))}",
         f"- 成功匹配 speaker: {voiceprint.get('matched_speaker_count', 'N/A')}",
         f"- 低置信 speaker: {voiceprint.get('low_confidence_count', 'N/A')}",
+        "",
+        "## 声纹阈值扫描",
+        f"- 可用: {bool(voiceprint_scan.get('available'))}",
+        f"- 样本数: {voiceprint_scan.get('sample_count', 'N/A')}",
+        f"- 近似 EER: {_format_percent((voiceprint_scan.get('approx_eer') or {}).get('eer'))}",
+        f"- EER 阈值: {_format_number((voiceprint_scan.get('approx_eer') or {}).get('threshold'))}",
         "",
         "## 会议纪要覆盖",
         f"- 可用: {bool(minutes.get('available'))}",
@@ -419,6 +628,29 @@ def _parse_readable_transcript(payload: str) -> TranscriptArtifact:
     return TranscriptArtifact(text=text, language=language, segments=segments, metadata={})
 
 
+def _parse_rttm_speakers(payload: str) -> list[TranscriptSegment]:
+    segments: list[TranscriptSegment] = []
+    for line in payload.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        if len(parts) < 8 or parts[0].upper() != "SPEAKER":
+            continue
+        start_ms = round(float(parts[3]) * 1000)
+        duration_ms = round(float(parts[4]) * 1000)
+        speaker = parts[7]
+        segments.append(
+            TranscriptSegment(
+                start_ms=start_ms,
+                end_ms=start_ms + duration_ms,
+                text="",
+                speaker=speaker,
+            )
+        )
+    return segments
+
+
 def _parse_time_ms(value: str) -> int:
     hours, minutes, seconds = value.split(":")
     return int(
@@ -441,6 +673,132 @@ def _has_text_evidence(item: str, transcript_normalized: str) -> bool:
         return False
     matched = sum(1 for token in tokens if token in transcript_normalized)
     return matched / len(tokens) >= 0.6
+
+
+def _valid_speaker_segments(segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
+    return [
+        segment
+        for segment in segments
+        if segment.speaker and segment.end_ms > segment.start_ms
+    ]
+
+
+def _frame_speaker_labels(
+    segments: list[TranscriptSegment],
+    start_ms: int,
+    end_ms: int,
+    frame_step_ms: int,
+) -> list[str | None]:
+    labels: list[str | None] = []
+    ordered = sorted(segments, key=lambda item: (item.start_ms, item.end_ms, item.speaker or ""))
+    for frame_start in range(start_ms, end_ms, frame_step_ms):
+        midpoint = frame_start + frame_step_ms / 2
+        active = [
+            segment
+            for segment in ordered
+            if segment.start_ms <= midpoint < segment.end_ms
+        ]
+        if not active:
+            labels.append(None)
+            continue
+        # If annotations overlap, choose the longest active segment for this
+        # lightweight single-label metric.
+        winner = max(active, key=lambda item: item.end_ms - item.start_ms)
+        labels.append(winner.speaker)
+    return labels
+
+
+def _greedy_speaker_mapping(
+    reference_labels: list[str | None],
+    hypothesis_labels: list[str | None],
+) -> dict[str, str]:
+    overlaps: dict[tuple[str, str], int] = {}
+    for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
+        if reference_label is None or hypothesis_label is None:
+            continue
+        key = (str(hypothesis_label), str(reference_label))
+        overlaps[key] = overlaps.get(key, 0) + 1
+
+    mapping: dict[str, str] = {}
+    used_references: set[str] = set()
+    for (hypothesis_label, reference_label), _ in sorted(
+        overlaps.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    ):
+        if hypothesis_label in mapping or reference_label in used_references:
+            continue
+        mapping[hypothesis_label] = reference_label
+        used_references.add(reference_label)
+    return mapping
+
+
+def _jaccard_error_rate(
+    reference_labels: list[str | None],
+    hypothesis_labels: list[str | None],
+    mapping: dict[str, str],
+) -> float | None:
+    reference_speakers = sorted({label for label in reference_labels if label is not None})
+    if not reference_speakers:
+        return None
+    errors: list[float] = []
+    for speaker in reference_speakers:
+        intersection = 0
+        union = 0
+        for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
+            mapped_hypothesis = mapping.get(str(hypothesis_label), hypothesis_label) if hypothesis_label else None
+            reference_active = reference_label == speaker
+            hypothesis_active = mapped_hypothesis == speaker
+            if reference_active or hypothesis_active:
+                union += 1
+            if reference_active and hypothesis_active:
+                intersection += 1
+        errors.append(1.0 - (intersection / max(1, union)))
+    return sum(errors) / len(errors)
+
+
+def _voiceprint_score_rows(
+    matches: list[Any],
+    ground_truth: dict[str, str],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in matches:
+        if not isinstance(item, dict):
+            continue
+        speaker = str(item.get("speaker") or "").strip()
+        expected = ground_truth.get(speaker)
+        if not expected:
+            continue
+        candidates = item.get("candidates") or []
+        found_positive = False
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            profile_id = str(candidate.get("profile_id") or "")
+            display_name = str(candidate.get("display_name") or "")
+            score = float(candidate.get("score") or 0.0)
+            is_match = expected in {profile_id, display_name}
+            found_positive = found_positive or is_match
+            rows.append(
+                {
+                    "speaker": speaker,
+                    "profile_id": profile_id,
+                    "display_name": display_name,
+                    "score": score,
+                    "is_match": is_match,
+                }
+            )
+        if not found_positive:
+            rows.append(
+                {
+                    "speaker": speaker,
+                    "profile_id": expected,
+                    "display_name": expected,
+                    "score": 0.0,
+                    "is_match": True,
+                }
+            )
+    return rows
 
 
 def _format_percent(value: Any) -> str:
