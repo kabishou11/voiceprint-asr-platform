@@ -84,7 +84,10 @@ def _run_sync_voiceprint_job(job_id: str, runner):
         update_job_result(job_id, status="failed", error_message=str(exc))
         raise
 
-    stored_result = result.model_dump() if hasattr(result, "model_dump") else result
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
+        stored_result = result[1]
+    else:
+        stored_result = result.model_dump() if hasattr(result, "model_dump") else result
     update_job_result(job_id, result=stored_result, status="succeeded")
     return result
 
@@ -257,6 +260,7 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
                 job_id=job_id,
                 asset_name=payload.asset_name,
                 profile_id=profile_id,
+                mode=payload.mode,
             )
             return EnrollVoiceprintResponse(profile=profile, job=_job_receipt(job_id))
         except Exception as exc:
@@ -264,7 +268,7 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
 
     enrolled_profile, enrollment = _run_sync_voiceprint_job(
         job_id,
-        lambda: voiceprint_service.enroll_profile(profile_id, payload.asset_name),
+        lambda: voiceprint_service.enroll_profile(profile_id, payload.asset_name, mode=payload.mode),
     )
     return EnrollVoiceprintResponse(
         profile=enrolled_profile,

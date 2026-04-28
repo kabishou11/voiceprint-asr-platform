@@ -31,6 +31,21 @@ class _DummyDiarizationAdapter:
         ]
 
 
+class _DummyVoiceprintAdapter:
+    def identify(self, asset: AudioAsset, top_k: int, profile_ids: list[str] | None = None):
+        from domain.schemas.voiceprint import VoiceprintIdentificationCandidate, VoiceprintIdentificationResult
+
+        candidates = [
+            VoiceprintIdentificationCandidate(
+                profile_id=(profile_ids or ["profile-a"])[0],
+                display_name="profile-a",
+                score=0.88,
+                rank=1,
+            )
+        ]
+        return VoiceprintIdentificationResult(candidates=candidates, matched=True)
+
+
 class _DummyRegistry:
     def require_available(self, model_key: str) -> None:
         return None
@@ -41,11 +56,14 @@ class _DummyRegistry:
     def get_diarization(self, model_key: str) -> _DummyDiarizationAdapter:
         return _DummyDiarizationAdapter()
 
+    def get_voiceprint(self, model_key: str) -> _DummyVoiceprintAdapter:
+        return _DummyVoiceprintAdapter()
+
 
 def test_run_multi_speaker_transcription_attaches_timeline_metadata(monkeypatch) -> None:
     monkeypatch.setattr(multi_speaker, "get_worker_registry", lambda: _DummyRegistry())
     monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
-    monkeypatch.setattr(multi_speaker, "adapter_asset", lambda asset_name: AudioAsset(path=asset_name))
+    monkeypatch.setattr(multi_speaker, "_adapter_asset", lambda asset_name: AudioAsset(path=asset_name))
 
     result = multi_speaker.run_multi_speaker_transcription(job_id="job-1", asset_name="demo.wav")
 
@@ -56,3 +74,44 @@ def test_run_multi_speaker_transcription_attaches_timeline_metadata(monkeypatch)
     assert result.metadata.timelines[0].source == "regular"
     assert result.metadata.timelines[1].source == "exclusive"
     assert result.metadata.timelines[2].source == "display"
+
+
+def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch) -> None:
+    from apps.api.app.services import job_db
+
+    profile_id = "unit-profile-scope"
+    group_id = "unit-group-scope"
+    with job_db.session() as db:
+        db.merge(job_db.VoiceprintProfileRecord(
+            profile_id=profile_id,
+            display_name="测试候选人",
+            model_key="3dspeaker-embedding",
+            sample_count=1,
+        ))
+        db.merge(job_db.VoiceprintGroupRecord(group_id=group_id, display_name="测试分组"))
+        db.merge(job_db.VoiceprintGroupMemberRecord(group_id=group_id, profile_id=profile_id))
+        db.commit()
+
+    monkeypatch.setattr(multi_speaker, "get_worker_registry", lambda: _DummyRegistry())
+    monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
+    monkeypatch.setattr(multi_speaker, "_adapter_asset", lambda asset_name: AudioAsset(path=asset_name))
+    monkeypatch.setattr(
+        multi_speaker,
+        "_build_speaker_probe_assets",
+        lambda asset, segments, speakers, tmpdir: [
+            (speaker, AudioAsset(path=f"{speaker}.wav"))
+            for speaker in speakers
+        ],
+    )
+
+    result = multi_speaker.run_multi_speaker_transcription(
+        job_id="job-voiceprint",
+        asset_name="demo.wav",
+        voiceprint_scope_mode="group",
+        voiceprint_group_id=group_id,
+    )
+
+    assert result.metadata is not None
+    assert result.metadata.voiceprint_matches
+    assert result.metadata.voiceprint_matches[0].candidate_profile_ids == [profile_id]
+    assert result.metadata.voiceprint_matches[0].candidates[0].display_name == "测试候选人"

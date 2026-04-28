@@ -22,13 +22,18 @@ def _enroll_voiceprint_sync(
     asset_name: str,
     profile_id: str,
     model_key: str = "3dspeaker-embedding",
+    mode: str = "replace",
 ) -> dict:
     """同步执行声纹注册任务（内部实现）。"""
-    registry = get_worker_registry()
-    registry.require_available(model_key)
-    adapter = registry.get_voiceprint(model_key)
-    asset = preprocess_audio(_adapter_asset(asset_name))
-    return adapter.enroll(asset=asset, profile_id=profile_id)
+    from apps.api.app.services.voiceprint_service import voiceprint_service
+
+    _, enrollment = voiceprint_service.enroll_profile(
+        profile_id=profile_id,
+        asset_name=asset_name,
+        mode=mode,
+        source_job_id=job_id,
+    )
+    return enrollment
 
 
 def _verify_voiceprint_sync(
@@ -74,6 +79,7 @@ def execute_enroll_voiceprint_task(
     asset_name: str,
     profile_id: str,
     model_key: str = "3dspeaker-embedding",
+    mode: str = "replace",
 ) -> dict:
     """执行声纹注册任务（Celery Worker 入口）。"""
     update_job_status(job_id, "running")
@@ -84,6 +90,7 @@ def execute_enroll_voiceprint_task(
             asset_name=asset_name,
             profile_id=profile_id,
             model_key=model_key,
+            mode=mode,
         )
         update_job_result(job_id, result=result, status="succeeded")
         return result
@@ -218,6 +225,7 @@ def enroll_voiceprint(
     asset_name: str,
     profile_id: str,
     model_key: str = "3dspeaker-embedding",
+    mode: str = "replace",
 ) -> dict:
     """执行声纹注册任务。
 
@@ -233,17 +241,23 @@ def enroll_voiceprint(
     _init_wrapper()
 
     if is_async_available() and _enroll_task is not None:
-        _enroll_task.apply_async(args=[job_id, asset_name, profile_id, model_key])
+        _enroll_task.apply_async(args=[job_id, asset_name, profile_id, model_key, mode])
         logger.info(f"声纹注册任务 {job_id} 已提交到队列")
         return {
             "profile_id": profile_id,
             "asset_name": asset_name,
             "status": "queued",
-            "mode": "async",
+            "mode": mode,
         }
 
     logger.info(f"声纹注册任务 {job_id} 同步执行")
-    return _enroll_voiceprint_sync(job_id=job_id, asset_name=asset_name, profile_id=profile_id, model_key=model_key)
+    return _enroll_voiceprint_sync(
+        job_id=job_id,
+        asset_name=asset_name,
+        profile_id=profile_id,
+        model_key=model_key,
+        mode=mode,
+    )
 
 
 def verify_voiceprint(

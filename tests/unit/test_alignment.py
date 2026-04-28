@@ -33,6 +33,28 @@ def test_align_transcript_splits_segment_by_diarization_timeline() -> None:
     assert "乙方" in result.segments[1].text
 
 
+def test_align_transcript_prefers_sentence_boundaries_when_speaker_changes() -> None:
+    transcript = TranscriptResult(
+        text="第一句已经说完。第二句继续说明。",
+        language="zh-cn",
+        segments=[
+            Segment(start_ms=0, end_ms=4000, text="第一句已经说完。第二句继续说明。", speaker=None),
+        ],
+    )
+    diarization_segments = [
+        Segment(start_ms=0, end_ms=1300, text="", speaker="SPEAKER_00"),
+        Segment(start_ms=1300, end_ms=4000, text="", speaker="SPEAKER_01"),
+    ]
+
+    result = align_transcript_with_speakers(transcript, diarization_segments)
+
+    assert len(result.segments) == 2
+    assert result.segments[0].text == "第一句已经说完。"
+    assert result.segments[1].text == "第二句继续说明。"
+    assert result.segments[0].speaker == "SPEAKER_00"
+    assert result.segments[1].speaker == "SPEAKER_01"
+
+
 def test_align_transcript_smooths_tiny_alternating_speaker_fragments() -> None:
     transcript = TranscriptResult(
         text="第一句。第二句。第三句。",

@@ -135,6 +135,7 @@ class VoiceprintAsyncReceipt(BaseModel):
 
 class EnrollVoiceprintRequest(BaseModel):
     asset_name: str
+    mode: Literal["replace", "append"] = "replace"
 
 
 class EnrollVoiceprintResponse(BaseModel):

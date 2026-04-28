@@ -212,16 +212,24 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         best = _best_overlap_speaker(seg_start, seg_end, overlaps)
         return [seg.model_copy(update={"speaker": best or "SPEAKER_00"})]
 
-    pieces: list[Segment] = []
-    total_duration = max(1, seg_end - seg_start)
-    text = seg.text or ""
-    consumed = 0
+    intervals = []
     for left, right in zip(ordered, ordered[1:]):
         if right <= left:
             continue
         speaker = _best_overlap_speaker(left, right, overlaps)
         if speaker is None:
             speaker = _nearest_speaker(left, diar_segments) or "SPEAKER_00"
+        intervals.append((left, right, speaker))
+
+    sentence_aligned = _split_text_by_sentence_units(seg, intervals)
+    if sentence_aligned:
+        return sentence_aligned
+
+    pieces: list[Segment] = []
+    total_duration = max(1, seg_end - seg_start)
+    text = seg.text or ""
+    consumed = 0
+    for left, right, speaker in intervals:
         piece_duration = right - left
         start_idx = round(consumed / total_duration * len(text))
         consumed += piece_duration
@@ -238,6 +246,52 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         )
 
     return [piece for piece in pieces if piece.end_ms > piece.start_ms]
+
+
+def _split_text_by_sentence_units(seg: Segment, intervals: list[tuple[int, int, str]]) -> list[Segment]:
+    text = _cleanup_segment_text(seg.text)
+    if not text or len(intervals) <= 1:
+        return []
+    units = [item.strip() for item in re.split(r"(?<=[。！？!?；;，,])", text) if item.strip()]
+    if len(units) <= 1:
+        return []
+
+    total_chars = max(1, sum(len(unit) for unit in units))
+    total_duration = max(1, seg.end_ms - seg.start_ms)
+    assigned: dict[int, list[str]] = {}
+    consumed = 0
+    for unit in units:
+        unit_start = consumed
+        consumed += len(unit)
+        unit_mid_ms = seg.start_ms + round(((unit_start + consumed) / 2) / total_chars * total_duration)
+        interval_index = _interval_index_for_timestamp(unit_mid_ms, intervals)
+        assigned.setdefault(interval_index, []).append(unit)
+
+    pieces: list[Segment] = []
+    for index, (left, right, speaker) in enumerate(intervals):
+        piece_text = _cleanup_segment_text("".join(assigned.get(index, [])))
+        if not piece_text:
+            continue
+        pieces.append(
+            Segment(
+                start_ms=left,
+                end_ms=right,
+                text=piece_text,
+                speaker=speaker,
+                confidence=seg.confidence,
+            )
+        )
+    return pieces
+
+
+def _interval_index_for_timestamp(ts_ms: int, intervals: list[tuple[int, int, str]]) -> int:
+    for index, (left, right, _) in enumerate(intervals):
+        if left <= ts_ms < right:
+            return index
+    return min(
+        range(len(intervals)),
+        key=lambda index: min(abs(ts_ms - intervals[index][0]), abs(ts_ms - intervals[index][1])),
+    )
 
 
 def _best_overlap_speaker(start_ms: int, end_ms: int, diar_segments: list[Segment]) -> str | None:

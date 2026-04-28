@@ -1,7 +1,16 @@
+from pathlib import Path
+
 import numpy as np
 import torch
 
+from model_adapters import AudioAsset
+from model_adapters import three_d_speaker_adapter as speaker_module
 from model_adapters.three_d_speaker_adapter import ThreeDSpeakerDiarizationAdapter
+from model_adapters.three_d_speaker_adapter import ThreeDSpeakerVoiceprintAdapter
+
+FIXTURE_ENROLL_A = Path("tests/声纹-女1.wav").resolve()
+FIXTURE_ENROLL_B = Path("tests/5分钟.wav").resolve()
+FIXTURE_PROBE = Path("tests/罗大佑 - 光阴的故事(片头曲).wav").resolve()
 
 
 def test_smoothing_preserves_expected_speaker_count_when_exact_count_is_known():
@@ -480,3 +489,41 @@ def test_reassign_chunk_label_runs_keeps_stable_middle_speaker_when_embedding_ma
     refined = adapter._reassign_chunk_label_runs(chunk_list, labels, embeddings)
 
     assert np.array_equal(refined, labels)
+
+
+def test_voiceprint_adapter_aggregates_multiple_samples_for_identify(monkeypatch):
+    enroll_a = FIXTURE_ENROLL_A
+    enroll_b = FIXTURE_ENROLL_B
+    probe = FIXTURE_PROBE
+    adapter = ThreeDSpeakerVoiceprintAdapter()
+    adapter._profile_assets = {"profile-a": [str(enroll_a), str(enroll_b)]}
+    monkeypatch.setattr(speaker_module, "require_available_model", lambda *args, **kwargs: None)
+    monkeypatch.setattr(type(adapter), "availability", property(lambda self: "available"))
+    adapter._ensure_sv_pipeline = lambda: object()
+    adapter._run_sv_score = lambda pipeline, enroll_path, probe_path: 0.91 if Path(enroll_path) == enroll_b else 0.42
+
+    result = adapter.identify(AudioAsset(path=str(probe)), top_k=1, profile_ids=["profile-a"])
+
+    assert result.matched is True
+    assert result.candidates[0].profile_id == "profile-a"
+    assert result.candidates[0].score == 0.91
+
+
+def test_voiceprint_adapter_replace_and_append_persist_sample_lists(monkeypatch):
+    enroll_a = FIXTURE_ENROLL_A
+    enroll_b = FIXTURE_ENROLL_B
+    vector_dir = Path("storage/test_voiceprint_vectors").resolve()
+    vector_dir.mkdir(parents=True, exist_ok=True)
+    adapter = ThreeDSpeakerVoiceprintAdapter()
+    adapter._vector_dir = vector_dir
+    adapter._profile_assets = {}
+    monkeypatch.setattr(speaker_module, "require_available_model", lambda *args, **kwargs: None)
+    monkeypatch.setattr(type(adapter), "availability", property(lambda self: "available"))
+    adapter._ensure_sv_pipeline = lambda: object()
+
+    adapter.enroll(AudioAsset(path=str(enroll_a)), "profile-a", mode="replace")
+    adapter.enroll(AudioAsset(path=str(enroll_b)), "profile-a", mode="append")
+    assert adapter._profile_assets["profile-a"] == [str(enroll_a), str(enroll_b)]
+
+    adapter.enroll(AudioAsset(path=str(enroll_b)), "profile-a", mode="replace")
+    assert adapter._profile_assets["profile-a"] == [str(enroll_b)]
