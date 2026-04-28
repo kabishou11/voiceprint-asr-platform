@@ -8,10 +8,14 @@ import { appTheme } from '../../theme/appTheme';
 
 const fetchTranscript = vi.fn();
 const fetchMeetingMinutes = vi.fn();
+const fetchCorePipelineEvaluation = vi.fn();
+const fetchSpeakerAliases = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchTranscript: (...args: unknown[]) => fetchTranscript(...args),
   fetchMeetingMinutes: (...args: unknown[]) => fetchMeetingMinutes(...args),
+  fetchCorePipelineEvaluation: (...args: unknown[]) => fetchCorePipelineEvaluation(...args),
+  fetchSpeakerAliases: (...args: unknown[]) => fetchSpeakerAliases(...args),
 }));
 
 function LocationProbe() {
@@ -81,6 +85,28 @@ describe('JobDetailPage', () => {
       speaker_stats: [{ speaker: 'SPEAKER_00', segment_count: 1, duration_ms: 6000 }],
       markdown: '# meeting.wav\n\n## 摘要\nSPEAKER_00: 我们开始开会。',
     });
+    fetchSpeakerAliases.mockResolvedValue({
+      job_id: 'job-1',
+      aliases: {},
+    });
+    fetchCorePipelineEvaluation.mockResolvedValue({
+      summary: { segment_count: 2 },
+      speakers: {
+        speaker_count: 2,
+        short_fragment_ratio: 0.5,
+        speaker_turns_per_minute: 8,
+      },
+      voiceprint: {
+        available: true,
+        matched_speaker_count: 1,
+        low_confidence_count: 0,
+      },
+      minutes: {
+        available: true,
+        decisions: { coverage: 1 },
+        action_items: { coverage: 0.5 },
+      },
+    });
   });
 
   afterEach(() => {
@@ -94,7 +120,7 @@ describe('JobDetailPage', () => {
       expect(fetchTranscript).toHaveBeenCalledWith('job-1');
     });
 
-    expect(screen.getAllByText('Speaker 2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Speaker 1').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '会议纪要' })).toBeInTheDocument();
     const buttons = await screen.findAllByRole('button', { name: '对这个 Speaker 做声纹处理' });
     fireEvent.click(buttons[0]);
@@ -129,19 +155,23 @@ describe('JobDetailPage', () => {
   it('supports filtering segments by speaker in review workspace', async () => {
     renderPage();
 
-    expect((await screen.findAllByText('Speaker 2')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('未标注说话人')).not.toBeInTheDocument();
+    expect((await screen.findAllByText('Speaker 1')).length).toBeGreaterThan(0);
+    expect(await screen.findByTestId('quality-diagnostics-card')).toBeInTheDocument();
+    expect(screen.getByText('质检诊断')).toBeInTheDocument();
+    expect(screen.getAllByText('50.0%').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('未标注说话人').length).toBeGreaterThan(0);
     expect(screen.getByText('Exclusive')).toBeInTheDocument();
     expect(screen.getByText('exclusive 2 段')).toBeInTheDocument();
     expect(screen.getByText('display 2 段')).toBeInTheDocument();
     expect(screen.getAllByTestId('speaker-timeline-row')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Speaker 2 · 1 段' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker 1 · 1 段' }));
 
-    expect((await screen.findAllByText('Speaker 2')).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Speaker 2 · 6\.0 秒 · 1 段/)).toBeInTheDocument();
+    expect((await screen.findAllByText('Speaker 1')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Speaker 1 全文')).toBeInTheDocument();
+    expect(screen.getByText(/总时长 00:06 · 平均置信度 0\.93/)).toBeInTheDocument();
     expect(screen.getAllByText('我们开始开会。').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('speaker-timeline-row')).toHaveLength(1);
-    expect(screen.getAllByText('2000ms - 8000ms').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('00:02 - 00:08').length).toBeGreaterThan(0);
   });
 
   it('exports filtered speaker payload when a speaker is selected', async () => {
@@ -170,8 +200,8 @@ describe('JobDetailPage', () => {
 
     renderPage();
 
-    expect((await screen.findAllByText('Speaker 2')).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Speaker 2 · 1 段' }));
+    expect((await screen.findAllByText('Speaker 1')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker 1 · 1 段' }));
     fireEvent.click(screen.getByRole('button', { name: '导出当前 Speaker JSON' }));
 
     const payload = buildJobExportDocument({

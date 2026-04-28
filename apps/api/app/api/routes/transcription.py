@@ -1,8 +1,18 @@
+import json
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
+from domain.schemas.transcript import TranscriptResult
+from scripts.core_pipeline_metrics import (
+    TranscriptArtifact,
+    TranscriptSegment,
+    build_core_pipeline_report,
+)
 
 from ...services.job_service import job_service
 from ...services import job_db
 from ...services.meeting_minutes import (
+    serialize_minutes,
     generate_and_store_minutes,
     get_stored_minutes,
     meeting_minutes_supported,
@@ -47,6 +57,33 @@ def _minutes_response(job_id: str, minutes) -> MeetingMinutesResponse:
         reasoning=minutes.reasoning,
         evidence=minutes.evidence,
     )
+
+
+def _transcript_artifact(result: TranscriptResult) -> TranscriptArtifact:
+    metadata = result.metadata.model_dump(mode="json") if result.metadata is not None else {}
+    return TranscriptArtifact(
+        text=result.text,
+        language=result.language,
+        segments=[
+            TranscriptSegment(
+                start_ms=segment.start_ms,
+                end_ms=segment.end_ms,
+                text=segment.text,
+                speaker=segment.speaker,
+                confidence=segment.confidence,
+            )
+            for segment in result.segments
+        ],
+        metadata=metadata,
+    )
+
+
+def _minutes_payload(job_id: str) -> dict[str, Any] | None:
+    minutes = get_stored_minutes(job_id)
+    if minutes is None:
+        return None
+    payload = json.loads(serialize_minutes(minutes))
+    return payload if isinstance(payload, dict) else None
 
 
 @router.post(
@@ -118,6 +155,27 @@ def get_meeting_minutes(job_id: str) -> MeetingMinutesResponse:
     if minutes is None:
         raise HTTPException(status_code=404, detail="尚未生成会议纪要，请先调用 POST 生成。")
     return _minutes_response(job.job_id, minutes)
+
+
+@router.get(
+    "/{job_id}/evaluation",
+    response_model=dict[str, Any],
+    summary="读取核心流水线评测摘要",
+    description="基于当前任务结果生成轻量 ASR/Speaker/声纹/会议纪要诊断，用于任务详情页质检面板。",
+)
+def get_transcription_evaluation(job_id: str) -> dict[str, Any]:
+    job = job_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.result is None:
+        raise HTTPException(status_code=409, detail="任务尚无可评测的转写结果")
+
+    report = build_core_pipeline_report(
+        transcript=_transcript_artifact(job.result),
+        minutes_payload=_minutes_payload(job_id),
+    )
+    report["job_id"] = job.job_id
+    return report
 
 
 @router.post(
