@@ -35,6 +35,7 @@ class MeetingMinutes:
     mode: str
     model: str | None = None
     reasoning: str | None = None
+    evidence: dict[str, list[dict[str, Any]]] | None = None
 
 
 _SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[。！？!?])\s*|[\n\r]+")
@@ -99,6 +100,7 @@ def serialize_minutes(minutes: MeetingMinutes) -> str:
             "mode": minutes.mode,
             "model": minutes.model,
             "reasoning": minutes.reasoning,
+            "evidence": minutes.evidence,
         },
         ensure_ascii=False,
     )
@@ -127,6 +129,7 @@ def deserialize_minutes(payload: str) -> MeetingMinutes:
         mode=str(data["mode"]),
         model=str(data["model"]) if data.get("model") is not None else None,
         reasoning=str(data["reasoning"]) if data.get("reasoning") is not None else None,
+        evidence=data.get("evidence") if isinstance(data.get("evidence"), dict) else None,
     )
 
 
@@ -272,6 +275,74 @@ def _build_local_minutes_payload(segments: list[Segment], fallback_text: str = "
     }
 
 
+def _build_minutes_evidence(
+    segments: list[Segment],
+    *,
+    decisions: list[str],
+    action_items: list[str],
+    risks: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "decisions": [_evidence_for_item(item, segments) for item in decisions],
+        "action_items": [_evidence_for_item(item, segments) for item in action_items],
+        "risks": [_evidence_for_item(item, segments) for item in risks],
+    }
+
+
+def _evidence_for_item(item: str, segments: list[Segment]) -> dict[str, Any]:
+    best_segment = _best_evidence_segment(item, segments)
+    if best_segment is None:
+        return {"item": item, "matched": False}
+    return {
+        "item": item,
+        "matched": True,
+        "speaker": best_segment.speaker or "未标注说话人",
+        "start_ms": best_segment.start_ms,
+        "end_ms": best_segment.end_ms,
+        "text": best_segment.text,
+    }
+
+
+def _best_evidence_segment(item: str, segments: list[Segment]) -> Segment | None:
+    normalized_item = _normalize_evidence_text(item)
+    if not normalized_item:
+        return None
+    best: tuple[float, Segment] | None = None
+    for segment in segments:
+        normalized_segment = _normalize_evidence_text(segment.text)
+        if not normalized_segment:
+            continue
+        score = _evidence_score(normalized_item, normalized_segment)
+        if best is None or score > best[0]:
+            best = (score, segment)
+    if best is None or best[0] < 0.45:
+        return None
+    return best[1]
+
+
+def _evidence_score(item: str, segment: str) -> float:
+    if item in segment:
+        return 1.0
+    tokens = [
+        token
+        for token in re.findall(r"[\w一-鿿]{2,}", item)
+        if len(token) >= 2
+    ]
+    if not tokens:
+        return 0.0
+    matched = sum(1 for token in tokens if token in segment)
+    return matched / len(tokens)
+
+
+def _normalize_evidence_text(text: str | None) -> str:
+    cleaned = (text or "").strip().lower()
+    cleaned = re.sub(r"^[^:：]{1,24}[:：]\s*", "", cleaned)
+    cleaned = re.sub(r"\[[^\]]+\]", "", cleaned)
+    cleaned = re.sub(r"\s+", "", cleaned)
+    cleaned = re.sub(r"[，。！？；：、“”‘’,.!?;:~\-—_\(\)\[\]{}<>《》/\\|]", "", cleaned)
+    return cleaned
+
+
 def _build_markdown(
     *,
     title: str,
@@ -283,6 +354,7 @@ def _build_markdown(
     risks: list[str],
     keywords: list[str],
     speaker_stats: list[SpeakerMinuteStats],
+    evidence: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
     def section(name: str, items: list[str]) -> list[str]:
         if not items:
@@ -293,6 +365,7 @@ def _build_markdown(
         f"- {item.speaker}: {item.segment_count} 段，{item.duration_ms / 1000:.1f} 秒"
         for item in speaker_stats
     ] or ["- 暂无"]
+    evidence_lines = _format_evidence_lines(evidence)
 
     lines = [
         f"# {title}",
@@ -315,8 +388,37 @@ def _build_markdown(
         "",
         "## Speaker 统计",
         *speaker_lines,
+        "",
+        "## 证据引用",
+        *evidence_lines,
     ]
     return "\n".join(lines)
+
+
+def _format_evidence_lines(evidence: dict[str, list[dict[str, Any]]] | None) -> list[str]:
+    if not evidence:
+        return ["- 暂无"]
+    labels = {
+        "decisions": "决策",
+        "action_items": "行动项",
+        "risks": "风险",
+    }
+    lines: list[str] = []
+    for key, label in labels.items():
+        items = evidence.get(key) or []
+        lines.append(f"### {label}")
+        if not items:
+            lines.append("- 暂无")
+            continue
+        for item in items:
+            if not item.get("matched"):
+                lines.append(f"- {item.get('item', '')}（未匹配到原文证据）")
+                continue
+            lines.append(
+                f"- {item.get('item', '')} -> {item.get('speaker')} "
+                f"[{item.get('start_ms')}ms-{item.get('end_ms')}ms]"
+            )
+    return lines
 
 
 def _transcript_payload(job: JobDetail) -> str:
@@ -528,6 +630,13 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
     action_items = _as_list(parsed.get("action_items")) or baseline.action_items
     risks = _as_list(parsed.get("risks")) or baseline.risks
     keywords = _as_list(parsed.get("keywords")) or baseline.keywords
+    segments = job.result.segments if job.result is not None else []
+    evidence = _build_minutes_evidence(
+        segments,
+        decisions=decisions,
+        action_items=action_items,
+        risks=risks,
+    )
 
     return MeetingMinutes(
         title=title,
@@ -549,10 +658,12 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
             risks=risks,
             keywords=keywords,
             speaker_stats=baseline.speaker_stats,
+            evidence=evidence,
         ),
         mode="llm",
         model=settings.minutes_llm_model,
         reasoning="\n".join(reasoning_parts) or None,
+        evidence=evidence,
     )
 
 
@@ -582,6 +693,12 @@ def build_meeting_minutes(job: JobDetail) -> MeetingMinutes:
     keywords = _as_list(payload.get("keywords"))
     speaker_stats = _build_speaker_stats(segments)
     title = job.asset_name or f"会议纪要 {job.job_id}"
+    evidence = _build_minutes_evidence(
+        segments,
+        decisions=decisions,
+        action_items=action_items,
+        risks=risks,
+    )
 
     return MeetingMinutes(
         title=title,
@@ -603,6 +720,8 @@ def build_meeting_minutes(job: JobDetail) -> MeetingMinutes:
             risks=risks,
             keywords=keywords,
             speaker_stats=speaker_stats,
+            evidence=evidence,
         ),
         mode="local",
+        evidence=evidence,
     )

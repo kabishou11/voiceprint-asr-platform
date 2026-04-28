@@ -160,6 +160,7 @@ export interface MeetingMinutesResponse {
   mode?: 'local' | 'llm';
   model?: string | null;
   reasoning?: string | null;
+  evidence?: Record<string, Array<Record<string, unknown>>> | null;
 }
 
 export interface ModelInfo {

@@ -103,6 +103,7 @@ class MeetingMinutesResponse(BaseModel):
     mode: Literal["local", "llm"] = "local"
     model: str | None = None
     reasoning: str | None = None
+    evidence: dict[str, list[dict[str, Any]]] | None = None
 
 
 class UploadAssetResponse(BaseModel):
