@@ -2,9 +2,27 @@ from apps.worker.app.pipelines.alignment import (
     align_transcript_with_speakers,
     build_display_speaker_timeline,
     build_exclusive_speaker_timeline,
+    canonicalize_speaker_labels,
     merge_short_segments,
 )
 from domain.schemas.transcript import Segment, TranscriptResult
+
+
+def test_canonicalize_speaker_labels_orders_by_first_appearance() -> None:
+    segments = [
+        Segment(start_ms=5000, end_ms=7000, text="", speaker="SPEAKER_01"),
+        Segment(start_ms=0, end_ms=3000, text="", speaker="SPEAKER_02"),
+        Segment(start_ms=3000, end_ms=5000, text="", speaker="speaker-A"),
+    ]
+
+    canonicalized = canonicalize_speaker_labels(segments)
+
+    assert [segment.speaker for segment in canonicalized] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+        "SPEAKER_02",
+    ]
+    assert [segment.start_ms for segment in canonicalized] == [0, 3000, 5000]
 
 
 def test_align_transcript_splits_segment_by_diarization_timeline() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from domain.schemas.voiceprint import (
@@ -108,6 +109,7 @@ class VoiceprintService:
         if mode not in {"replace", "append"}:
             raise ValueError("声纹注册模式仅支持 replace 或 append")
 
+        quality = self._inspect_enrollment_audio_quality(asset.path)
         self._do_enroll(profile_id, asset_name, mode=mode)
 
         sample_id = f"sample-{uuid4().hex[:8]}"
@@ -137,8 +139,63 @@ class VoiceprintService:
             "asset_name": asset_name,
             "status": "enrolled",
             "mode": mode,
+            "quality": quality,
         }
         return updated_profile or profile, enrollment
+
+    def _inspect_enrollment_audio_quality(self, asset_path: str) -> dict[str, Any]:
+        try:
+            import numpy as np
+            import soundfile as sf
+        except Exception as exc:
+            return {
+                "available": False,
+                "warnings": [f"无法读取音频质量指标: {exc}"],
+            }
+
+        warnings: list[str] = []
+        try:
+            info = sf.info(asset_path)
+            sample_count = 0
+            sum_squares = 0.0
+            peak = 0.0
+            with sf.SoundFile(asset_path) as audio_file:
+                for block in audio_file.blocks(blocksize=16000, dtype="float32", always_2d=False):
+                    audio = np.asarray(block, dtype=np.float32)
+                    if getattr(audio, "ndim", 1) > 1:
+                        audio = audio.mean(axis=1)
+                    if audio.size <= 0:
+                        continue
+                    sample_count += int(audio.size)
+                    sum_squares += float(np.sum(np.square(audio)))
+                    peak = max(peak, float(np.max(np.abs(audio))))
+            duration_seconds = float(info.frames) / float(info.samplerate) if info.samplerate else 0.0
+            rms = (sum_squares / max(1, sample_count)) ** 0.5
+        except Exception as exc:
+            return {
+                "available": False,
+                "warnings": [f"无法读取音频质量指标: {exc}"],
+            }
+
+        if duration_seconds < 3.0:
+            warnings.append("声纹样本短于 3 秒，建议使用更长的清晰人声。")
+        if duration_seconds > 180.0:
+            warnings.append("声纹样本超过 3 分钟，建议裁剪为更聚焦的单人片段。")
+        if rms < 0.005:
+            warnings.append("声纹样本音量过低，可能影响识别稳定性。")
+        if peak >= 0.999:
+            warnings.append("声纹样本可能存在削波，建议降低录音增益后重新注册。")
+
+        return {
+            "available": True,
+            "duration_seconds": round(duration_seconds, 3),
+            "sample_rate": int(info.samplerate),
+            "channels": int(info.channels),
+            "rms": round(float(rms), 6),
+            "peak": round(float(peak), 6),
+            "warnings": warnings,
+            "recommended": not warnings,
+        }
 
     def _do_enroll(self, profile_id: str, asset_name: str, mode: str = "replace") -> None:
         profile = self.get_profile(profile_id)

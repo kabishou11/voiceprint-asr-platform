@@ -379,6 +379,32 @@ Content-Type: application/json
 
 根目录只保留工程文件，不再放样本产物。
 
+## 核心流水线评测
+
+可以用离线评测脚本直接检查现有转写产物，不需要重新跑模型：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_core_pipeline.py `
+  storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_readable_v20_hotwords.txt `
+  --sample-name standard_recording_1_15min_eval
+```
+
+如果有参考稿、热词或会议纪要 JSON，可以追加：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_core_pipeline.py result.json `
+  --reference-text reference.txt `
+  --hotwords-file hotwords.txt `
+  --minutes-json minutes.json
+```
+
+脚本会输出：
+
+- `*_evaluation.json`：结构化指标，便于后续自动对比
+- `*_evaluation.md`：可读报告，包含 ASR、Speaker、声纹和会议纪要诊断
+
+当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计和会议纪要证据覆盖率。
+
 ## 常见问题
 
 ### 1. 机器有显卡，但任务还是报 CUDA 不可用

@@ -550,7 +550,22 @@ class FunASRTranscribeAdapter(ASRAdapter):
         for size in range(max_len, min_overlap - 1, -1):
             if left_clean[-size:] == right_clean[:size]:
                 return size
+        left_tail = self._normalize_overlap_text(left_clean[-max_window:])
+        if len(left_tail) < min_overlap:
+            return 0
+        for size in range(max_len, min_overlap - 1, -1):
+            right_prefix = right_clean[:size]
+            normalized_prefix = self._normalize_overlap_text(right_prefix)
+            if len(normalized_prefix) < min_overlap:
+                continue
+            if left_tail.endswith(normalized_prefix):
+                return size
         return 0
+
+    def _normalize_overlap_text(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", "", text or "")
+        cleaned = re.sub(r"[，。！？；：、“”‘’,.!?;:~\-—_\(\)\[\]{}<>《》/\\|]", "", cleaned)
+        return cleaned.lower()
 
     def _append_chunk_segments(
         self,

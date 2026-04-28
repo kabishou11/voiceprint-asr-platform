@@ -73,6 +73,9 @@ def test_llm_meeting_minutes_uses_late_long_transcript_content(monkeypatch) -> N
 
     assert "后半段行动项" in minutes.action_items
     assert "后半段决策" in minutes.decisions
+    assert minutes.evidence is not None
+    assert minutes.evidence["action_items"][0]["matched"] is True
+    assert minutes.evidence["action_items"][0]["speaker"] == "SPEAKER_01"
 
 
 def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
@@ -108,3 +111,5 @@ def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
     minutes = meeting_minutes.build_meeting_minutes(job)
 
     assert any("后半段行动项" in item for item in minutes.action_items)
+    assert minutes.evidence is not None
+    assert any(item["matched"] for item in minutes.evidence["action_items"])

@@ -5,6 +5,26 @@ import re
 from domain.schemas.transcript import Segment, TranscriptResult
 
 
+def canonicalize_speaker_labels(segments: list[Segment]) -> list[Segment]:
+    """按首次出现顺序规范化 speaker 标签。
+
+    聚类模型输出的 speaker id 天然无序，同一段会议的首位说话人可能是
+    SPEAKER_02。这里统一重排为 SPEAKER_00、SPEAKER_01...，让导出、
+    metadata 和声纹回写更稳定。
+    """
+    mapping: dict[str, str] = {}
+    canonicalized: list[Segment] = []
+    for segment in sorted(segments, key=lambda item: (item.start_ms, item.end_ms, item.speaker or "")):
+        speaker = segment.speaker
+        if speaker is None:
+            canonicalized.append(segment)
+            continue
+        if speaker not in mapping:
+            mapping[speaker] = f"SPEAKER_{len(mapping):02d}"
+        canonicalized.append(segment.model_copy(update={"speaker": mapping[speaker]}))
+    return canonicalized
+
+
 def align_transcript_with_speakers(
     transcript: TranscriptResult,
     diarization_segments: list[Segment],

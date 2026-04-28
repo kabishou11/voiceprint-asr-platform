@@ -45,6 +45,7 @@ def _minutes_response(job_id: str, minutes) -> MeetingMinutesResponse:
         mode=minutes.mode,
         model=minutes.model,
         reasoning=minutes.reasoning,
+        evidence=minutes.evidence,
     )
 
 
