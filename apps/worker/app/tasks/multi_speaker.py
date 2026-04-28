@@ -28,6 +28,7 @@ from ..pipelines.alignment import (
     align_transcript_with_speakers,
     build_display_speaker_timeline,
     build_exclusive_speaker_timeline,
+    canonicalize_speaker_labels,
 )
 from ..pipelines.audio_preprocess import preprocess_audio
 from ..worker_runtime import get_worker_registry
@@ -107,6 +108,7 @@ def _run_multi_speaker_transcription_sync(
         transcript = asr_adapter.transcribe(asset)
         diarization_segments = diarization_adapter.diarize(asset)
 
+    diarization_segments = canonicalize_speaker_labels(diarization_segments)
     aligned = align_transcript_with_speakers(transcript, diarization_segments)
     exclusive_segments = build_exclusive_speaker_timeline(diarization_segments)
     display_segments = build_display_speaker_timeline(aligned.segments, exclusive_segments or diarization_segments)
