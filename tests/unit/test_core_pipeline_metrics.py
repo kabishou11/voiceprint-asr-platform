@@ -9,6 +9,7 @@ from scripts.core_pipeline_metrics import (
     minutes_coverage_diagnostics,
     speaker_diagnostics,
     voiceprint_diagnostics,
+    voiceprint_identification_metrics,
     voiceprint_threshold_scan,
 )
 
@@ -178,6 +179,39 @@ def test_voiceprint_threshold_scan_counts_missing_positive_as_false_negative() -
     assert result["missing_positive_count"] == 2
     assert result["approx_eer"]["eer"] > 0.0
     assert result["roc_points"][0]["fn"] == 2
+
+
+def test_voiceprint_identification_metrics_reports_topk_and_missing_positive() -> None:
+    metadata = {
+        "voiceprint_matches": [
+            {
+                "speaker": "SPEAKER_00",
+                "candidates": [
+                    {"profile_id": "bob", "display_name": "Bob", "score": 0.91},
+                    {"profile_id": "alice", "display_name": "Alice", "score": 0.82},
+                ],
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "candidates": [
+                    {"profile_id": "carol", "display_name": "Carol", "score": 0.88},
+                ],
+            },
+        ]
+    }
+
+    result = voiceprint_identification_metrics(
+        metadata,
+        {"SPEAKER_00": "alice", "SPEAKER_01": "dave", "SPEAKER_02": "erin"},
+        top_k=2,
+    )
+
+    assert result["available"] is True
+    assert result["top1_accuracy"] == 0.0
+    assert result["topk_accuracy"] == 1 / 3
+    assert result["missing_result_speakers"] == ["SPEAKER_02"]
+    assert result["missing_positive_speakers"] == ["SPEAKER_01", "SPEAKER_02"]
+    assert result["rows"][0]["topk_hit"] is True
 
 
 def test_minutes_coverage_finds_evidence_in_transcript() -> None:

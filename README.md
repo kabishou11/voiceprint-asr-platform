@@ -403,7 +403,7 @@ Content-Type: application/json
 - `*_evaluation.json`：结构化指标，便于后续自动对比
 - `*_evaluation.md`：可读报告，包含 ASR、Speaker、声纹和会议纪要诊断
 
-当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计和会议纪要证据覆盖率。
+当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计、声纹 Top1/TopK 命中率、近似 EER 和会议纪要证据覆盖率。
 
 如果要把多个固定样本做成可横向比较的版本基线，先维护一个样本集 manifest。
 示例 manifest 已指向本地 15 分钟参考稿切片；首次运行前，先用完整参考稿导出这个切片：

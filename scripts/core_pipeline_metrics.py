@@ -376,6 +376,108 @@ def voiceprint_threshold_scan(
     }
 
 
+def voiceprint_identification_metrics(
+    metadata: dict[str, Any],
+    ground_truth: dict[str, str] | None,
+    *,
+    top_k: int = 3,
+) -> dict[str, Any]:
+    matches = metadata.get("voiceprint_matches") or []
+    if not isinstance(matches, list) or not matches:
+        return {"available": False, "reason": "missing_voiceprint_matches"}
+    if not ground_truth:
+        return {"available": False, "reason": "missing_voiceprint_ground_truth"}
+
+    match_by_speaker = {
+        str(item.get("speaker") or "").strip(): item
+        for item in matches
+        if isinstance(item, dict) and str(item.get("speaker") or "").strip()
+    }
+    rows: list[dict[str, Any]] = []
+    missing_result_speakers: list[str] = []
+    missing_positive_speakers: list[str] = []
+    wrong_top1_speakers: list[str] = []
+    top1_hits = 0
+    topk_hits = 0
+    top_k = max(1, int(top_k))
+
+    for speaker, expected in ground_truth.items():
+        item = match_by_speaker.get(speaker)
+        if not item:
+            missing_result_speakers.append(speaker)
+            missing_positive_speakers.append(speaker)
+            rows.append(
+                {
+                    "speaker": speaker,
+                    "expected": expected,
+                    "top1_hit": False,
+                    "topk_hit": False,
+                    "missing_result": True,
+                    "missing_positive": True,
+                }
+            )
+            continue
+
+        candidates = [
+            candidate
+            for candidate in (item.get("candidates") or [])
+            if isinstance(candidate, dict)
+        ]
+        top_candidates = candidates[:top_k]
+        top1 = top_candidates[0] if top_candidates else None
+        top1_hit = bool(top1 and _voiceprint_candidate_matches(top1, expected))
+        topk_hit = any(
+            _voiceprint_candidate_matches(candidate, expected)
+            for candidate in top_candidates
+        )
+        missing_positive = not any(
+            _voiceprint_candidate_matches(candidate, expected)
+            for candidate in candidates
+        )
+
+        if top1_hit:
+            top1_hits += 1
+        else:
+            wrong_top1_speakers.append(speaker)
+        if topk_hit:
+            topk_hits += 1
+        if missing_positive:
+            missing_positive_speakers.append(speaker)
+
+        rows.append(
+            {
+                "speaker": speaker,
+                "expected": expected,
+                "top1_profile_id": str(top1.get("profile_id") or "") if top1 else None,
+                "top1_display_name": str(top1.get("display_name") or "") if top1 else None,
+                "top1_score": float(top1.get("score") or 0.0) if top1 else None,
+                "top1_hit": top1_hit,
+                "topk_hit": topk_hit,
+                "candidate_count": len(candidates),
+                "missing_result": False,
+                "missing_positive": missing_positive,
+            }
+        )
+
+    evaluated_count = len(ground_truth)
+    return {
+        "available": True,
+        "top_k": top_k,
+        "label_count": len(ground_truth),
+        "evaluated_speaker_count": evaluated_count,
+        "top1_hit_count": top1_hits,
+        "topk_hit_count": topk_hits,
+        "top1_accuracy": top1_hits / max(1, evaluated_count),
+        "topk_accuracy": topk_hits / max(1, evaluated_count),
+        "missing_result_count": len(missing_result_speakers),
+        "missing_result_speakers": missing_result_speakers,
+        "missing_positive_count": len(missing_positive_speakers),
+        "missing_positive_speakers": missing_positive_speakers,
+        "wrong_top1_speakers": wrong_top1_speakers,
+        "rows": rows,
+    }
+
+
 def minutes_coverage_diagnostics(
     minutes_payload: dict[str, Any] | None,
     transcript_text: str,
@@ -449,6 +551,10 @@ def build_core_pipeline_report(
             transcript.metadata,
             voiceprint_ground_truth,
             thresholds=voiceprint_thresholds,
+        ),
+        "voiceprint_identification": voiceprint_identification_metrics(
+            transcript.metadata,
+            voiceprint_ground_truth,
         ),
         "minutes": minutes_coverage_diagnostics(minutes_payload, transcript_text),
     }
@@ -577,6 +683,24 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "eer",
             ),
         },
+        "voiceprint_identification": {
+            "available_count": _available_count(samples, "voiceprint_identification"),
+            "mean_top1_accuracy": _mean_metric(
+                samples,
+                "voiceprint_identification",
+                "top1_accuracy",
+            ),
+            "mean_topk_accuracy": _mean_metric(
+                samples,
+                "voiceprint_identification",
+                "topk_accuracy",
+            ),
+            "mean_missing_positive_count": _mean_metric(
+                samples,
+                "voiceprint_identification",
+                "missing_positive_count",
+            ),
+        },
         "minutes": {
             "available_count": _available_count(samples, "minutes"),
             "mean_decision_coverage": _mean_nested_metric(
@@ -609,6 +733,7 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
     speakers = aggregate.get("speakers") or {}
     speaker_reference = aggregate.get("speaker_reference") or {}
     voiceprint_scan = aggregate.get("voiceprint_threshold_scan") or {}
+    voiceprint_identification = aggregate.get("voiceprint_identification") or {}
     minutes = aggregate.get("minutes") or {}
 
     lines = [
@@ -627,18 +752,23 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均 DER: {_format_percent(speaker_reference.get('mean_der'))}",
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
         f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
+        f"- 平均声纹 Top1: "
+        f"{_format_percent(voiceprint_identification.get('mean_top1_accuracy'))}",
+        f"- 平均声纹 TopK: "
+        f"{_format_percent(voiceprint_identification.get('mean_topk_accuracy'))}",
         f"- 平均决策覆盖: {_format_percent(minutes.get('mean_decision_coverage'))}",
         f"- 平均行动项覆盖: {_format_percent(minutes.get('mean_action_item_coverage'))}",
         f"- 平均风险覆盖: {_format_percent(minutes.get('mean_risk_coverage'))}",
         "",
         "## 样本明细",
-        "| 样本 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 样本 | CER | DER | JER | EER | Top1 | TopK | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for sample in samples:
         sample_asr = sample.get("asr") or {}
         sample_speaker_reference = sample.get("speaker_reference") or {}
         sample_voiceprint_scan = sample.get("voiceprint_threshold_scan") or {}
+        sample_voiceprint_identification = sample.get("voiceprint_identification") or {}
         sample_minutes = sample.get("minutes") or {}
         lines.append(
             "| "
@@ -649,6 +779,8 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
                     _format_percent(sample_speaker_reference.get("der")),
                     _format_percent(sample_speaker_reference.get("jer")),
                     _format_percent((sample_voiceprint_scan.get("approx_eer") or {}).get("eer")),
+                    _format_percent(sample_voiceprint_identification.get("top1_accuracy")),
+                    _format_percent(sample_voiceprint_identification.get("topk_accuracy")),
                     _format_percent((sample_minutes.get("decisions") or {}).get("coverage")),
                     _format_percent((sample_minutes.get("action_items") or {}).get("coverage")),
                     _format_percent((sample_minutes.get("risks") or {}).get("coverage")),
@@ -689,8 +821,9 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         f"- 参考基线: {(report.get('comparison') or {}).get('reference') or 'N/A'}",
         "",
         "## 指标对比",
-        "| 基线 | 样本数 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 基线 | 样本数 | CER | DER | JER | EER | Top1 | TopK | "
+        "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for baseline in baselines:
         metrics = baseline.get("metrics") or {}
@@ -704,6 +837,8 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_der")),
                     _format_percent(metrics.get("mean_jer")),
                     _format_percent(metrics.get("mean_approx_eer")),
+                    _format_percent(metrics.get("mean_voiceprint_top1_accuracy")),
+                    _format_percent(metrics.get("mean_voiceprint_topk_accuracy")),
                     _format_percent(metrics.get("mean_decision_coverage")),
                     _format_percent(metrics.get("mean_action_item_coverage")),
                     _format_percent(metrics.get("mean_risk_coverage")),
@@ -716,8 +851,8 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "## 相对首个基线变化",
-            "| 基线 | CER | DER | JER | EER | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| 基线 | CER | DER | JER | EER | Top1 | TopK | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for baseline in baselines:
@@ -731,6 +866,8 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_der")),
                     _format_signed_percent(delta.get("mean_jer")),
                     _format_signed_percent(delta.get("mean_approx_eer")),
+                    _format_signed_percent(delta.get("mean_voiceprint_top1_accuracy")),
+                    _format_signed_percent(delta.get("mean_voiceprint_topk_accuracy")),
                     _format_signed_percent(delta.get("mean_decision_coverage")),
                     _format_signed_percent(delta.get("mean_action_item_coverage")),
                     _format_signed_percent(delta.get("mean_risk_coverage")),
@@ -817,6 +954,7 @@ def render_markdown_report(report: dict[str, Any]) -> str:
     speaker_reference = report.get("speaker_reference") or {}
     voiceprint = report.get("voiceprint") or {}
     voiceprint_scan = report.get("voiceprint_threshold_scan") or {}
+    voiceprint_identification = report.get("voiceprint_identification") or {}
     minutes = report.get("minutes") or {}
 
     lines = [
@@ -854,6 +992,9 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 样本数: {voiceprint_scan.get('sample_count', 'N/A')}",
         f"- 近似 EER: {_format_percent((voiceprint_scan.get('approx_eer') or {}).get('eer'))}",
         f"- EER 阈值: {_format_number((voiceprint_scan.get('approx_eer') or {}).get('threshold'))}",
+        f"- Top1 命中率: {_format_percent(voiceprint_identification.get('top1_accuracy'))}",
+        f"- TopK 命中率: {_format_percent(voiceprint_identification.get('topk_accuracy'))}",
+        f"- 缺失正确候选: {voiceprint_identification.get('missing_positive_count', 'N/A')}",
         "",
         "## 会议纪要覆盖",
         f"- 可用: {bool(minutes.get('available'))}",
@@ -1084,6 +1225,12 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             "mean_approx_eer": (
                 (aggregate.get("voiceprint_threshold_scan") or {}).get("mean_approx_eer")
             ),
+            "mean_voiceprint_top1_accuracy": (
+                (aggregate.get("voiceprint_identification") or {}).get("mean_top1_accuracy")
+            ),
+            "mean_voiceprint_topk_accuracy": (
+                (aggregate.get("voiceprint_identification") or {}).get("mean_topk_accuracy")
+            ),
             "mean_decision_coverage": (
                 (aggregate.get("minutes") or {}).get("mean_decision_coverage")
             ),
@@ -1279,7 +1426,7 @@ def _voiceprint_score_rows(
             profile_id = str(candidate.get("profile_id") or "")
             display_name = str(candidate.get("display_name") or "")
             score = float(candidate.get("score") or 0.0)
-            is_match = expected in {profile_id, display_name}
+            is_match = _voiceprint_candidate_matches(candidate, expected)
             found_positive = found_positive or is_match
             rows.append(
                 {
@@ -1302,6 +1449,15 @@ def _voiceprint_score_rows(
                 }
             )
     return rows
+
+
+def _voiceprint_candidate_matches(candidate: dict[str, Any], expected: str) -> bool:
+    expected_text = str(expected).strip()
+    return expected_text in {
+        str(candidate.get("profile_id") or "").strip(),
+        str(candidate.get("display_name") or "").strip(),
+        str(candidate.get("label") or "").strip(),
+    }
 
 
 def _format_percent(value: Any) -> str:
