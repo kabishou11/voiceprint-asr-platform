@@ -10,6 +10,7 @@ from scripts.core_pipeline_metrics import (
     speaker_diagnostics,
     voiceprint_diagnostics,
     voiceprint_identification_metrics,
+    voiceprint_probe_diagnostics,
     voiceprint_threshold_scan,
 )
 
@@ -89,6 +90,23 @@ def test_voiceprint_diagnostics_uses_metadata_matches() -> None:
     assert result["matched_speaker_count"] == 1
     assert result["unmatched_speaker_count"] == 1
     assert result["low_confidence_speakers"] == ["SPEAKER_01"]
+
+
+def test_voiceprint_probe_diagnostics_flags_risky_speaker_segments() -> None:
+    segments = [
+        TranscriptSegment(start_ms=0, end_ms=3000, text="干净长句", speaker="SPEAKER_00"),
+        TranscriptSegment(start_ms=4000, end_ms=8000, text="重叠长句", speaker="SPEAKER_00"),
+        TranscriptSegment(start_ms=4500, end_ms=7500, text="重叠讲话", speaker="SPEAKER_01"),
+        TranscriptSegment(start_ms=8200, end_ms=9000, text="短句", speaker="SPEAKER_01"),
+    ]
+
+    result = voiceprint_probe_diagnostics(segments, min_probe_duration_ms=2000)
+
+    assert result["available"] is True
+    assert result["probe_ready_count"] == 1
+    assert result["risky_speakers"] == ["SPEAKER_01"]
+    assert result["by_speaker"]["SPEAKER_00"]["probe_ready"] is True
+    assert result["by_speaker"]["SPEAKER_01"]["overlapped_segment_count"] == 1
 
 
 def test_diarization_error_metrics_maps_speaker_labels() -> None:

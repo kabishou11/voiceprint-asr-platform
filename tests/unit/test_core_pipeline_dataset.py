@@ -192,6 +192,7 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
             "asr": {"mean_cer": 0.1, "mean_sequence_ratio": 0.9, "mean_hotword_recall": None},
             "speakers": {"mean_speaker_count": 2, "mean_short_fragment_ratio": 0.2},
             "speaker_reference": {"mean_der": 0.3, "mean_jer": 0.4},
+            "voiceprint_probe": {"mean_probe_ready_ratio": 0.6},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.15},
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.7,
@@ -208,6 +209,7 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
                 "sample": {"name": "sample_1"},
                 "asr": {"cer": 0.1},
                 "speaker_reference": {"der": 0.3, "jer": 0.4},
+                "voiceprint_probe": {"probe_ready_ratio": 0.6},
                 "voiceprint_threshold_scan": {"approx_eer": {"eer": 0.15}},
                 "voiceprint_identification": {
                     "top1_accuracy": 0.7,
@@ -237,6 +239,7 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
         "aggregate": {
             "asr": {"mean_cer": 0.2},
             "speaker_reference": {"mean_der": 0.4, "mean_jer": 0.5},
+            "voiceprint_probe": {"mean_probe_ready_ratio": 0.4},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.3},
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.5,
@@ -250,6 +253,7 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
         "aggregate": {
             "asr": {"mean_cer": 0.1},
             "speaker_reference": {"mean_der": 0.25, "mean_jer": 0.35},
+            "voiceprint_probe": {"mean_probe_ready_ratio": 0.9},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.2},
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.75,
@@ -264,9 +268,10 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
 
     assert report["comparison"]["reference"] == "baseline_v1"
     assert report["baselines"][1]["delta_from_first"]["mean_cer"] == -0.1
+    assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_probe_ready_ratio"] == 0.5
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
     assert (
-        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -10.00% | "
-        "+25.00% | +10.00% | +25.00%"
+        "| baseline_v2 | -10.00% | -15.00% | -15.00% | +50.00% | "
+        "-10.00% | +25.00% | +10.00% | +25.00%"
     ) in markdown

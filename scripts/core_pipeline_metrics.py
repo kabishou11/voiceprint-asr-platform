@@ -180,6 +180,80 @@ def speaker_diagnostics(
     }
 
 
+def voiceprint_probe_diagnostics(
+    segments: list[TranscriptSegment],
+    *,
+    min_clean_segment_ms: int = 1200,
+    min_probe_duration_ms: int = 3000,
+    max_overlap_ratio: float = 0.2,
+) -> dict[str, Any]:
+    valid_segments = _valid_speaker_segments(segments)
+    if not valid_segments:
+        return {"available": False, "speaker_count": 0}
+
+    speakers = sorted({segment.speaker for segment in valid_segments if segment.speaker})
+    rows: dict[str, dict[str, Any]] = {}
+    ready_count = 0
+    risky_speakers: list[str] = []
+    for speaker in speakers:
+        speaker_segments = [segment for segment in valid_segments if segment.speaker == speaker]
+        total_duration_ms = sum(segment.end_ms - segment.start_ms for segment in speaker_segments)
+        clean_segments: list[TranscriptSegment] = []
+        short_count = 0
+        overlapped_count = 0
+        overlap_duration_ms = 0
+
+        for segment in speaker_segments:
+            duration_ms = segment.end_ms - segment.start_ms
+            overlap_ms = _segment_other_speaker_overlap_ms(segment, valid_segments)
+            overlap_ratio = overlap_ms / max(1, duration_ms)
+            overlap_duration_ms += overlap_ms
+            if duration_ms < min_clean_segment_ms:
+                short_count += 1
+            if overlap_ratio > max_overlap_ratio:
+                overlapped_count += 1
+            if duration_ms >= min_clean_segment_ms and overlap_ratio <= max_overlap_ratio:
+                clean_segments.append(segment)
+
+        clean_duration_ms = sum(segment.end_ms - segment.start_ms for segment in clean_segments)
+        longest_clean_ms = max(
+            (segment.end_ms - segment.start_ms for segment in clean_segments),
+            default=0,
+        )
+        ready = clean_duration_ms >= min_probe_duration_ms
+        if ready:
+            ready_count += 1
+        else:
+            risky_speakers.append(speaker or "UNKNOWN")
+
+        rows[speaker or "UNKNOWN"] = {
+            "segment_count": len(speaker_segments),
+            "total_duration_ms": total_duration_ms,
+            "clean_segment_count": len(clean_segments),
+            "clean_duration_ms": clean_duration_ms,
+            "clean_duration_ratio": clean_duration_ms / max(1, total_duration_ms),
+            "longest_clean_ms": longest_clean_ms,
+            "short_segment_count": short_count,
+            "overlapped_segment_count": overlapped_count,
+            "overlap_duration_ms": overlap_duration_ms,
+            "overlap_duration_ratio": overlap_duration_ms / max(1, total_duration_ms),
+            "probe_ready": ready,
+        }
+
+    speaker_count = len(rows)
+    return {
+        "available": True,
+        "speaker_count": speaker_count,
+        "probe_ready_count": ready_count,
+        "probe_ready_ratio": ready_count / max(1, speaker_count),
+        "risky_speakers": risky_speakers,
+        "min_clean_segment_ms": min_clean_segment_ms,
+        "min_probe_duration_ms": min_probe_duration_ms,
+        "max_overlap_ratio": max_overlap_ratio,
+        "by_speaker": rows,
+    }
+
+
 def diarization_error_metrics(
     reference_segments: list[TranscriptSegment],
     hypothesis_segments: list[TranscriptSegment],
@@ -547,6 +621,7 @@ def build_core_pipeline_report(
             transcript.metadata,
             low_confidence_threshold=low_confidence_threshold,
         ),
+        "voiceprint_probe": voiceprint_probe_diagnostics(transcript.segments),
         "voiceprint_threshold_scan": voiceprint_threshold_scan(
             transcript.metadata,
             voiceprint_ground_truth,
@@ -674,6 +749,19 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "low_confidence_count",
             ),
         },
+        "voiceprint_probe": {
+            "available_count": _available_count(samples, "voiceprint_probe"),
+            "mean_probe_ready_ratio": _mean_metric(
+                samples,
+                "voiceprint_probe",
+                "probe_ready_ratio",
+            ),
+            "mean_probe_ready_count": _mean_metric(
+                samples,
+                "voiceprint_probe",
+                "probe_ready_count",
+            ),
+        },
         "voiceprint_threshold_scan": {
             "available_count": _available_count(samples, "voiceprint_threshold_scan"),
             "mean_approx_eer": _mean_nested_metric(
@@ -732,6 +820,7 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
     asr = aggregate.get("asr") or {}
     speakers = aggregate.get("speakers") or {}
     speaker_reference = aggregate.get("speaker_reference") or {}
+    voiceprint_probe = aggregate.get("voiceprint_probe") or {}
     voiceprint_scan = aggregate.get("voiceprint_threshold_scan") or {}
     voiceprint_identification = aggregate.get("voiceprint_identification") or {}
     minutes = aggregate.get("minutes") or {}
@@ -751,6 +840,8 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均短碎片率: {_format_percent(speakers.get('mean_short_fragment_ratio'))}",
         f"- 平均 DER: {_format_percent(speaker_reference.get('mean_der'))}",
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
+        f"- 平均声纹 Probe 可用比例: "
+        f"{_format_percent(voiceprint_probe.get('mean_probe_ready_ratio'))}",
         f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
         f"- 平均声纹 Top1: "
         f"{_format_percent(voiceprint_identification.get('mean_top1_accuracy'))}",
@@ -821,9 +912,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         f"- 参考基线: {(report.get('comparison') or {}).get('reference') or 'N/A'}",
         "",
         "## 指标对比",
-        "| 基线 | 样本数 | CER | DER | JER | EER | Top1 | TopK | "
+        "| 基线 | 样本数 | CER | DER | JER | Probe | EER | Top1 | TopK | "
         "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "---: | ---: | ---: |",
     ]
     for baseline in baselines:
         metrics = baseline.get("metrics") or {}
@@ -836,6 +928,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_cer")),
                     _format_percent(metrics.get("mean_der")),
                     _format_percent(metrics.get("mean_jer")),
+                    _format_percent(metrics.get("mean_voiceprint_probe_ready_ratio")),
                     _format_percent(metrics.get("mean_approx_eer")),
                     _format_percent(metrics.get("mean_voiceprint_top1_accuracy")),
                     _format_percent(metrics.get("mean_voiceprint_topk_accuracy")),
@@ -851,8 +944,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "## 相对首个基线变化",
-            "| 基线 | CER | DER | JER | EER | Top1 | TopK | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| 基线 | CER | DER | JER | Probe | EER | Top1 | TopK | "
+            "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+            "---: | ---: | ---: |",
         ]
     )
     for baseline in baselines:
@@ -865,6 +960,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_cer")),
                     _format_signed_percent(delta.get("mean_der")),
                     _format_signed_percent(delta.get("mean_jer")),
+                    _format_signed_percent(delta.get("mean_voiceprint_probe_ready_ratio")),
                     _format_signed_percent(delta.get("mean_approx_eer")),
                     _format_signed_percent(delta.get("mean_voiceprint_top1_accuracy")),
                     _format_signed_percent(delta.get("mean_voiceprint_topk_accuracy")),
@@ -953,6 +1049,7 @@ def render_markdown_report(report: dict[str, Any]) -> str:
     speakers = report.get("speakers") or {}
     speaker_reference = report.get("speaker_reference") or {}
     voiceprint = report.get("voiceprint") or {}
+    voiceprint_probe = report.get("voiceprint_probe") or {}
     voiceprint_scan = report.get("voiceprint_threshold_scan") or {}
     voiceprint_identification = report.get("voiceprint_identification") or {}
     minutes = report.get("minutes") or {}
@@ -986,6 +1083,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 可用: {bool(voiceprint.get('available'))}",
         f"- 成功匹配 speaker: {voiceprint.get('matched_speaker_count', 'N/A')}",
         f"- 低置信 speaker: {voiceprint.get('low_confidence_count', 'N/A')}",
+        f"- Probe 可用比例: {_format_percent(voiceprint_probe.get('probe_ready_ratio'))}",
+        f"- Probe 风险 speaker: {', '.join(voiceprint_probe.get('risky_speakers') or []) or 'N/A'}",
         "",
         "## 声纹阈值扫描",
         f"- 可用: {bool(voiceprint_scan.get('available'))}",
@@ -1231,6 +1330,9 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             "mean_voiceprint_topk_accuracy": (
                 (aggregate.get("voiceprint_identification") or {}).get("mean_topk_accuracy")
             ),
+            "mean_voiceprint_probe_ready_ratio": (
+                (aggregate.get("voiceprint_probe") or {}).get("mean_probe_ready_ratio")
+            ),
             "mean_decision_coverage": (
                 (aggregate.get("minutes") or {}).get("mean_decision_coverage")
             ),
@@ -1404,6 +1506,21 @@ def _jaccard_error_rate(
                 intersection += 1
         errors.append(1.0 - (intersection / max(1, union)))
     return sum(errors) / len(errors)
+
+
+def _segment_other_speaker_overlap_ms(
+    target: TranscriptSegment,
+    segments: list[TranscriptSegment],
+) -> int:
+    overlap = 0
+    for segment in segments:
+        if not segment.speaker or segment.speaker == target.speaker:
+            continue
+        start = max(target.start_ms, segment.start_ms)
+        end = min(target.end_ms, segment.end_ms)
+        if end > start:
+            overlap += end - start
+    return overlap
 
 
 def _voiceprint_score_rows(
