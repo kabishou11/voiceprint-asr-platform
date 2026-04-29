@@ -69,6 +69,47 @@ def test_speaker_diagnostics_flags_fragments_and_turns() -> None:
     assert result["speaker_turn_count"] == 1
 
 
+def test_speaker_diagnostics_flags_readability_boundary_issues() -> None:
+    segments = [
+        TranscriptSegment(start_ms=0, end_ms=9000, text="没有应用加工逻", speaker="SPEAKER_00"),
+        TranscriptSegment(
+            start_ms=9000,
+            end_ms=15000,
+            text="辑的时候，这个场景是可以做到的。",
+            speaker="SPEAKER_01",
+        ),
+        TranscriptSegment(
+            start_ms=15000,
+            end_ms=18000,
+            text="。两周前继续说",
+            speaker="SPEAKER_01",
+        ),
+    ]
+
+    result = speaker_diagnostics(segments)
+
+    assert result["cjk_split_boundary_count"] == 1
+    assert result["cjk_split_boundary_examples"][0]["boundary_ms"] == 9000
+    assert result["leading_punctuation_count"] == 1
+    assert result["leading_punctuation_examples"][0]["start_ms"] == 15000
+
+
+def test_speaker_diagnostics_does_not_flag_repaired_cjk_boundary() -> None:
+    segments = [
+        TranscriptSegment(start_ms=0, end_ms=5000, text="没有应用加工", speaker="SPEAKER_00"),
+        TranscriptSegment(
+            start_ms=5000,
+            end_ms=15000,
+            text="逻辑的时候，这个场景是可以做到的。",
+            speaker="SPEAKER_01",
+        ),
+    ]
+
+    result = speaker_diagnostics(segments)
+
+    assert result["cjk_split_boundary_count"] == 0
+
+
 def test_voiceprint_diagnostics_uses_metadata_matches() -> None:
     metadata = {
         "voiceprint_matches": [

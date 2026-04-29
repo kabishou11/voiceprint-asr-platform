@@ -142,11 +142,14 @@ def speaker_diagnostics(
     short_count = 0
     long_count = 0
     turns = 0
+    cjk_split_examples: list[dict[str, Any]] = []
+    leading_punctuation_examples: list[dict[str, Any]] = []
     previous_speaker: str | None = None
     min_start = min(segment.start_ms for segment in segments)
     max_end = max(segment.end_ms for segment in segments)
 
-    for segment in segments:
+    ordered_segments = sorted(segments, key=lambda item: (item.start_ms, item.end_ms))
+    for index, segment in enumerate(ordered_segments):
         duration = max(0, segment.end_ms - segment.start_ms)
         speaker = segment.speaker or "UNKNOWN"
         speaker_durations[speaker] = speaker_durations.get(speaker, 0) + duration
@@ -157,6 +160,26 @@ def speaker_diagnostics(
         if previous_speaker is not None and speaker != previous_speaker:
             turns += 1
         previous_speaker = speaker
+        if _starts_with_punctuation(segment.text):
+            leading_punctuation_examples.append(
+                {
+                    "speaker": speaker,
+                    "start_ms": segment.start_ms,
+                    "text": _truncate_text(segment.text, 80),
+                }
+            )
+        if index > 0:
+            previous = ordered_segments[index - 1]
+            if _looks_like_cjk_split_boundary(previous.text, segment.text):
+                cjk_split_examples.append(
+                    {
+                        "previous_speaker": previous.speaker or "UNKNOWN",
+                        "speaker": speaker,
+                        "boundary_ms": segment.start_ms,
+                        "previous_text": _truncate_text(previous.text, 80),
+                        "text": _truncate_text(segment.text, 80),
+                    }
+                )
 
     timeline_duration_ms = max(1, max_end - min_start)
     speech_duration_ms = sum(speaker_durations.values())
@@ -177,6 +200,12 @@ def speaker_diagnostics(
         "speaker_turn_count": turns,
         "speaker_turns_per_minute": turns / max(1.0, timeline_duration_ms / 60000.0),
         "average_segment_ms": speech_duration_ms / len(segments),
+        "cjk_split_boundary_count": len(cjk_split_examples),
+        "cjk_split_boundary_ratio": len(cjk_split_examples) / max(1, len(segments) - 1),
+        "cjk_split_boundary_examples": cjk_split_examples[:5],
+        "leading_punctuation_count": len(leading_punctuation_examples),
+        "leading_punctuation_ratio": len(leading_punctuation_examples) / len(segments),
+        "leading_punctuation_examples": leading_punctuation_examples[:5],
     }
 
 
@@ -749,6 +778,21 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "speakers",
                 "speaker_turns_per_minute",
             ),
+            "mean_cjk_split_boundary_count": _mean_metric(
+                samples,
+                "speakers",
+                "cjk_split_boundary_count",
+            ),
+            "mean_cjk_split_boundary_ratio": _mean_metric(
+                samples,
+                "speakers",
+                "cjk_split_boundary_ratio",
+            ),
+            "mean_leading_punctuation_count": _mean_metric(
+                samples,
+                "speakers",
+                "leading_punctuation_count",
+            ),
         },
         "speaker_reference": {
             "available_count": _available_count(samples, "speaker_reference"),
@@ -895,6 +939,10 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均短碎片率: {_format_percent(speakers.get('mean_short_fragment_ratio'))}",
         f"- 平均 DER: {_format_percent(speaker_reference.get('mean_der'))}",
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
+        f"- 平均中文断词边界数: "
+        f"{_format_number(speakers.get('mean_cjk_split_boundary_count'))}",
+        f"- 平均前导标点段数: "
+        f"{_format_number(speakers.get('mean_leading_punctuation_count'))}",
         f"- 平均声纹 Probe 可用比例: "
         f"{_format_percent(voiceprint_probe.get('mean_probe_ready_ratio'))}",
         f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
@@ -1133,6 +1181,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 短碎片率: {_format_percent(speakers.get('short_fragment_ratio'))}",
         f"- 每分钟换人次数: {_format_number(speakers.get('speaker_turns_per_minute'))}",
         f"- 过长段数量: {speakers.get('long_segment_count', 'N/A')}",
+        f"- 中文断词边界: {speakers.get('cjk_split_boundary_count', 'N/A')}",
+        f"- 前导标点段: {speakers.get('leading_punctuation_count', 'N/A')}",
         "",
         "## Speaker 标注对比",
         f"- 可用: {bool(speaker_reference.get('available'))}",
@@ -1569,6 +1619,67 @@ def _truncate_snippet(text: str, max_length: int) -> str:
     if len(compact) <= max_length:
         return compact
     return compact[: max_length - 1].rstrip() + "…"
+
+
+def _truncate_text(text: str | None, max_length: int) -> str:
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if len(compact) <= max_length:
+        return compact
+    return compact[: max_length - 1].rstrip() + "…"
+
+
+def _starts_with_punctuation(text: str | None) -> bool:
+    return bool(re.match(r"^\s*[。！？；，,.!?;、]+", text or ""))
+
+
+def _looks_like_cjk_split_boundary(previous_text: str | None, current_text: str | None) -> bool:
+    previous = _trim_text_for_readability(previous_text)
+    current = _trim_leading_punctuation_for_readability(current_text)
+    if not previous or not current:
+        return False
+    if re.search(r"[，。！？!?；;]$", previous):
+        return False
+    if not re.search(r"[\u4e00-\u9fff]$", previous) or not re.match(r"^[\u4e00-\u9fff]", current):
+        return False
+    current_head = re.match(r"^([\u4e00-\u9fff]{1,4})", current)
+    return bool(current_head and _looks_like_split_cjk_word(previous, current_head.group(1)))
+
+
+def _trim_text_for_readability(text: str | None) -> str:
+    compact = re.sub(r"\s+", "", text or "").strip()
+    return compact.strip(" ,，")
+
+
+def _trim_leading_punctuation_for_readability(text: str | None) -> str:
+    compact = _trim_text_for_readability(text)
+    return re.sub(r"^[。！？；，,.!?;、]+", "", compact).strip()
+
+
+def _looks_like_split_cjk_word(previous_text: str, current_head: str) -> bool:
+    if len(previous_text) < 3 or not current_head:
+        return False
+    if len(current_head) == 1:
+        return True
+    second_char_particles = {
+        "的",
+        "了",
+        "地",
+        "得",
+        "时",
+        "后",
+        "是",
+        "把",
+        "被",
+        "让",
+        "就",
+        "也",
+        "都",
+        "要",
+        "能",
+        "可",
+        "在",
+    }
+    return current_head[1] in second_char_particles
 
 
 def _evidence_tokens(normalized_text: str) -> list[str]:
