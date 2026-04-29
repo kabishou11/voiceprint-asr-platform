@@ -76,6 +76,8 @@ def test_llm_meeting_minutes_uses_late_long_transcript_content(monkeypatch) -> N
     assert minutes.evidence is not None
     assert minutes.evidence["action_items"][0]["matched"] is True
     assert minutes.evidence["action_items"][0]["speaker"] == "SPEAKER_01"
+    assert minutes.evidence["action_items"][0]["evidence_score"] == 1.0
+    assert minutes.evidence["action_items"][0]["reason"] == "exact_match"
 
 
 def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
@@ -113,3 +115,23 @@ def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
     assert any("后半段行动项" in item for item in minutes.action_items)
     assert minutes.evidence is not None
     assert any(item["matched"] for item in minutes.evidence["action_items"])
+
+
+def test_meeting_minutes_evidence_reports_score_for_partial_match() -> None:
+    segment = Segment(
+        start_ms=0,
+        end_ms=1000,
+        text="会议决定推进日志治理，但敏感字段范围还需要继续确认。",
+        speaker="SPEAKER_00",
+    )
+
+    evidence = meeting_minutes._evidence_for_item(
+        "决定推进日志敏感字段治理并上线",
+        [segment],
+    )
+
+    assert evidence["matched"] is True
+    assert evidence["speaker"] == "SPEAKER_00"
+    assert 0.45 <= evidence["evidence_score"] < 1.0
+    assert evidence["reason"] == "token_overlap"
+    assert "上线" in evidence["missing_tokens"]

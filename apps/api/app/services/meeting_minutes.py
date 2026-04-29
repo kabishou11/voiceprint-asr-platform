@@ -9,8 +9,8 @@ from typing import Any
 import httpx
 from domain.schemas.transcript import JobDetail, Segment
 
-from . import job_db
 from ..core.config import get_settings
+from . import job_db
 
 
 @dataclass(frozen=True)
@@ -256,7 +256,10 @@ def _segment_chunks_for_minutes(
     return chunks
 
 
-def _build_local_minutes_payload(segments: list[Segment], fallback_text: str = "") -> dict[str, Any]:
+def _build_local_minutes_payload(
+    segments: list[Segment],
+    fallback_text: str = "",
+) -> dict[str, Any]:
     source_sentences = [_segment_sentence(segment) for segment in segments]
     sentences = [item for sentence in source_sentences for item in _split_sentences(sentence)]
     if not sentences and fallback_text:
@@ -265,7 +268,11 @@ def _build_local_minutes_payload(segments: list[Segment], fallback_text: str = "
     ranked = _rank_sentences(sentences)
     key_points = ranked[:6]
     return {
-        "summary": " ".join(key_points[:3] or sentences[:3]) if sentences else "暂无足够文本生成会议纪要。",
+        "summary": (
+            " ".join(key_points[:3] or sentences[:3])
+            if sentences
+            else "暂无足够文本生成会议纪要。"
+        ),
         "key_points": key_points,
         "topics": [item.split(":", 1)[-1].strip() for item in ranked[:5]],
         "decisions": _select_by_keywords(sentences, _DECISION_KEYWORDS, 8),
@@ -290,12 +297,24 @@ def _build_minutes_evidence(
 
 
 def _evidence_for_item(item: str, segments: list[Segment]) -> dict[str, Any]:
-    best_segment = _best_evidence_segment(item, segments)
-    if best_segment is None:
-        return {"item": item, "matched": False}
+    best = _best_evidence_segment(item, segments)
+    if best is None:
+        return {
+            "item": item,
+            "matched": False,
+            "evidence_score": 0.0,
+            "reason": "no_text_evidence",
+            "matched_tokens": [],
+            "missing_tokens": [],
+        }
+    best_segment, details = best
     return {
         "item": item,
         "matched": True,
+        "evidence_score": details["evidence_score"],
+        "reason": details["reason"],
+        "matched_tokens": details["matched_tokens"],
+        "missing_tokens": details["missing_tokens"],
         "speaker": best_segment.speaker or "未标注说话人",
         "start_ms": best_segment.start_ms,
         "end_ms": best_segment.end_ms,
@@ -303,35 +322,78 @@ def _evidence_for_item(item: str, segments: list[Segment]) -> dict[str, Any]:
     }
 
 
-def _best_evidence_segment(item: str, segments: list[Segment]) -> Segment | None:
+def _best_evidence_segment(
+    item: str,
+    segments: list[Segment],
+) -> tuple[Segment, dict[str, Any]] | None:
     normalized_item = _normalize_evidence_text(item)
     if not normalized_item:
         return None
-    best: tuple[float, Segment] | None = None
+    best: tuple[float, Segment, dict[str, Any]] | None = None
     for segment in segments:
         normalized_segment = _normalize_evidence_text(segment.text)
         if not normalized_segment:
             continue
-        score = _evidence_score(normalized_item, normalized_segment)
+        details = _evidence_details(normalized_item, normalized_segment)
+        score = float(details["evidence_score"])
         if best is None or score > best[0]:
-            best = (score, segment)
+            best = (score, segment, details)
     if best is None or best[0] < 0.45:
         return None
-    return best[1]
+    return best[1], best[2]
 
 
 def _evidence_score(item: str, segment: str) -> float:
+    return float(_evidence_details(item, segment)["evidence_score"])
+
+
+def _evidence_details(item: str, segment: str) -> dict[str, Any]:
     if item in segment:
-        return 1.0
-    tokens = [
+        return {
+            "evidence_score": 1.0,
+            "reason": "exact_match",
+            "matched_tokens": [],
+            "missing_tokens": [],
+        }
+    tokens = _evidence_tokens(item)
+    if not tokens:
+        return {
+            "evidence_score": 0.0,
+            "reason": "no_comparable_tokens",
+            "matched_tokens": [],
+            "missing_tokens": [],
+        }
+    matched_tokens = [token for token in tokens if token in segment]
+    missing_tokens = [token for token in tokens if token not in segment]
+    score = len(matched_tokens) / len(tokens)
+    reason = "token_overlap" if score >= 0.45 else "weak_token_overlap"
+    if not matched_tokens:
+        reason = "no_token_overlap"
+    return {
+        "evidence_score": score,
+        "reason": reason,
+        "matched_tokens": matched_tokens,
+        "missing_tokens": missing_tokens,
+    }
+
+
+def _evidence_tokens(normalized_text: str) -> list[str]:
+    raw_tokens = [
         token
-        for token in re.findall(r"[\w一-鿿]{2,}", item)
+        for token in re.findall(r"[\w\u4e00-\u9fff]{2,}", normalized_text)
         if len(token) >= 2
     ]
-    if not tokens:
-        return 0.0
-    matched = sum(1 for token in tokens if token in segment)
-    return matched / len(tokens)
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in raw_tokens:
+        candidates = [token]
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) >= 6:
+            candidates.extend(token[index : index + 2] for index in range(len(token) - 1))
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                tokens.append(candidate)
+    return tokens
 
 
 def _normalize_evidence_text(text: str | None) -> str:
@@ -414,9 +476,12 @@ def _format_evidence_lines(evidence: dict[str, list[dict[str, Any]]] | None) -> 
             if not item.get("matched"):
                 lines.append(f"- {item.get('item', '')}（未匹配到原文证据）")
                 continue
+            score = item.get("evidence_score")
+            score_text = f"，证据分 {float(score):.2f}" if score is not None else ""
             lines.append(
                 f"- {item.get('item', '')} -> {item.get('speaker')} "
                 f"[{item.get('start_ms')}ms-{item.get('end_ms')}ms]"
+                f"{score_text}"
             )
     return lines
 
@@ -456,7 +521,12 @@ def _as_list(value: Any) -> list[str]:
     return []
 
 
-def _build_llm_prompt(job: JobDetail, transcript: str, *, chunk_label: str | None = None) -> list[dict[str, str]]:
+def _build_llm_prompt(
+    job: JobDetail,
+    transcript: str,
+    *,
+    chunk_label: str | None = None,
+) -> list[dict[str, str]]:
     label = f"{chunk_label}\n" if chunk_label else ""
     return [
         {
@@ -500,7 +570,10 @@ def _build_llm_reduce_prompt(job: JobDetail, chunk_payload: str) -> list[dict[st
     ]
 
 
-def _call_llm_minutes(settings, messages: list[dict[str, str]]) -> tuple[dict[str, Any], str | None]:
+def _call_llm_minutes(
+    settings,
+    messages: list[dict[str, str]],
+) -> tuple[dict[str, Any], str | None]:
     url = settings.minutes_llm_base_url.rstrip("/") + "/chat/completions"
     response = httpx.post(
         url,
@@ -530,7 +603,11 @@ def _call_llm_minutes(settings, messages: list[dict[str, str]]) -> tuple[dict[st
     return _parse_json_object(content), reasoning or None
 
 
-def _chunk_transcript_payload(transcript: str, *, max_chars: int = _LLM_CHUNK_CHAR_LIMIT) -> list[str]:
+def _chunk_transcript_payload(
+    transcript: str,
+    *,
+    max_chars: int = _LLM_CHUNK_CHAR_LIMIT,
+) -> list[str]:
     if len(transcript) <= max_chars:
         return [transcript]
     chunks: list[str] = []
@@ -570,7 +647,11 @@ def _merge_minutes_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
                     return items
         return items
 
-    summaries = [str(payload.get("summary")).strip() for payload in payloads if str(payload.get("summary") or "").strip()]
+    summaries = [
+        str(payload.get("summary")).strip()
+        for payload in payloads
+        if str(payload.get("summary") or "").strip()
+    ]
     return {
         "summary": " ".join(summaries[:3]),
         "key_points": collect("key_points"),
@@ -614,7 +695,10 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
             },
             ensure_ascii=False,
         )
-        parsed, reasoning = _call_llm_minutes(settings, _build_llm_reduce_prompt(job, reduce_payload))
+        parsed, reasoning = _call_llm_minutes(
+            settings,
+            _build_llm_reduce_prompt(job, reduce_payload),
+        )
         if reasoning:
             reasoning_parts.append(reasoning)
         if not parsed:
@@ -682,7 +766,11 @@ def build_meeting_minutes(job: JobDetail) -> MeetingMinutes:
             _build_local_minutes_payload([], chunk)
             for chunk in _chunk_transcript_payload(job.result.text)
         ]
-    payload = _merge_minutes_payloads(payloads) if len(payloads) > 1 else (payloads[0] if payloads else {})
+    payload = (
+        _merge_minutes_payloads(payloads)
+        if len(payloads) > 1
+        else (payloads[0] if payloads else {})
+    )
 
     summary = str(payload.get("summary") or "暂无足够文本生成会议纪要。")
     key_points = _as_list(payload.get("key_points"))

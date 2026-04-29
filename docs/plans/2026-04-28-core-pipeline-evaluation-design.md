@@ -94,4 +94,4 @@
 - 第五阶段形成真实样本集评测闭环。已落地第一版：`evaluate_core_pipeline_dataset.py` 读取样本集 manifest，批量生成样本明细与聚合基线报告；`compare_core_pipeline_baselines.py` 支持多个 baseline JSON 横向比较，并输出相对首个基线的变化值。下一步补齐 15min/长会议样本的参考文本、RTTM、声纹标签和人工纪要基准，即可横向比较 DER、EER、ASR 与纪要覆盖率。
 - 第六阶段固化真实参考稿窗口。已落地第一版：`export_reference_slice.py` 可以把完整参考稿按音频时长比例导出固定窗口切片，供样本集 manifest 作为 `reference_text` 使用，避免每次评测依赖外部桌面文件。已补充质量门控：`time_ratio` 切片默认标记为 `draft_time_ratio`，只输出诊断，不进入正式 ASR 聚合；人工复核或时间戳对齐后需显式改为 `confirmed`。
 - 第七阶段降低人工标注启动成本。已落地第一版：`generate_evaluation_annotation_templates.py` 可从当前转写结果生成 RTTM、声纹标签、人工纪要和复核清单草稿；这些草稿必须人工修正后才可作为 manifest 的参考标注。
-- 第八阶段提升会议纪要评测可解释性。已落地第一版：`minutes_coverage_diagnostics` 在保留原有覆盖率字段的同时，新增逐条 `evidence_rows`、弱证据和缺证据统计，让长会议 map-reduce 纪要优化可以直接追踪到“哪条结论没有 transcript 支撑”。
+- 第八阶段提升会议纪要评测可解释性。已落地第一版：`minutes_coverage_diagnostics` 在保留原有覆盖率字段的同时，新增逐条 `evidence_rows`、弱证据和缺证据统计；会议纪要服务层 `evidence` 同步返回证据分、命中 token、缺失 token 和原因，让长会议 map-reduce 纪要优化可以直接追踪到“哪条结论没有 transcript 支撑”。
