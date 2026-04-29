@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.core_pipeline_metrics import (
     build_baseline_comparison_report,
     build_core_pipeline_dataset_report,
@@ -240,7 +242,9 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
             "asr": {"mean_cer": 0.2},
             "speakers": {
                 "mean_cjk_split_boundary_count": 3.0,
+                "mean_cjk_split_boundary_ratio": 0.3,
                 "mean_leading_punctuation_count": 2.0,
+                "mean_leading_punctuation_ratio": 0.2,
             },
             "speaker_reference": {"mean_der": 0.4, "mean_jer": 0.5},
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.4},
@@ -258,7 +262,9 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
             "asr": {"mean_cer": 0.1},
             "speakers": {
                 "mean_cjk_split_boundary_count": 1.0,
+                "mean_cjk_split_boundary_ratio": 0.1,
                 "mean_leading_punctuation_count": 0.5,
+                "mean_leading_punctuation_ratio": 0.05,
             },
             "speaker_reference": {"mean_der": 0.25, "mean_jer": 0.35},
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.9},
@@ -277,11 +283,17 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     assert report["comparison"]["reference"] == "baseline_v1"
     assert report["baselines"][1]["delta_from_first"]["mean_cer"] == -0.1
     assert report["baselines"][1]["delta_from_first"]["mean_cjk_split_boundary_count"] == -2.0
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_cjk_split_boundary_ratio"
+    ] == pytest.approx(-0.2)
     assert report["baselines"][1]["delta_from_first"]["mean_leading_punctuation_count"] == -1.5
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_leading_punctuation_ratio"
+    ] == pytest.approx(-0.15)
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_probe_ready_ratio"] == 0.5
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
     assert (
-        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -2.00 | -1.50 | "
-        "+50.00% | -10.00% | +25.00% | +10.00% | +25.00%"
+        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -2.00 | -20.00% | "
+        "-1.50 | -15.00% | +50.00% | -10.00% | +25.00% | +10.00% | +25.00%"
     ) in markdown

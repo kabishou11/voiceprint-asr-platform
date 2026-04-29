@@ -793,6 +793,11 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "speakers",
                 "leading_punctuation_count",
             ),
+            "mean_leading_punctuation_ratio": _mean_metric(
+                samples,
+                "speakers",
+                "leading_punctuation_ratio",
+            ),
         },
         "speaker_reference": {
             "available_count": _available_count(samples, "speaker_reference"),
@@ -941,8 +946,12 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
         f"- 平均中文断词边界数: "
         f"{_format_number(speakers.get('mean_cjk_split_boundary_count'))}",
+        f"- 平均中文断词边界率: "
+        f"{_format_percent(speakers.get('mean_cjk_split_boundary_ratio'))}",
         f"- 平均前导标点段数: "
         f"{_format_number(speakers.get('mean_leading_punctuation_count'))}",
+        f"- 平均前导标点段率: "
+        f"{_format_percent(speakers.get('mean_leading_punctuation_ratio'))}",
         f"- 平均声纹 Probe 可用比例: "
         f"{_format_percent(voiceprint_probe.get('mean_probe_ready_ratio'))}",
         f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
@@ -1023,9 +1032,11 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         f"- 参考基线: {(report.get('comparison') or {}).get('reference') or 'N/A'}",
         "",
         "## 指标对比",
-        "| 基线 | 样本数 | CER | DER | JER | 断词边界 | 前导标点 | Probe | EER | Top1 | TopK | "
+        "| 基线 | 样本数 | CER | DER | JER | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+        "Probe | EER | Top1 | TopK | "
         "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "---: | ---: | ---: | ---: | "
         "---: | ---: | ---: |",
     ]
     for baseline in baselines:
@@ -1040,7 +1051,9 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_der")),
                     _format_percent(metrics.get("mean_jer")),
                     _format_number(metrics.get("mean_cjk_split_boundary_count")),
+                    _format_percent(metrics.get("mean_cjk_split_boundary_ratio")),
                     _format_number(metrics.get("mean_leading_punctuation_count")),
+                    _format_percent(metrics.get("mean_leading_punctuation_ratio")),
                     _format_percent(metrics.get("mean_voiceprint_probe_ready_ratio")),
                     _format_percent(metrics.get("mean_approx_eer")),
                     _format_percent(metrics.get("mean_voiceprint_top1_accuracy")),
@@ -1057,9 +1070,11 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "## 相对首个基线变化",
-            "| 基线 | CER | DER | JER | 断词边界 | 前导标点 | Probe | EER | Top1 | TopK | "
+            "| 基线 | CER | DER | JER | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+            "Probe | EER | Top1 | TopK | "
             "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+            "---: | ---: | ---: | ---: | "
             "---: | ---: | ---: |",
         ]
     )
@@ -1074,7 +1089,9 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_der")),
                     _format_signed_percent(delta.get("mean_jer")),
                     _format_signed_number(delta.get("mean_cjk_split_boundary_count")),
+                    _format_signed_percent(delta.get("mean_cjk_split_boundary_ratio")),
                     _format_signed_number(delta.get("mean_leading_punctuation_count")),
+                    _format_signed_percent(delta.get("mean_leading_punctuation_ratio")),
                     _format_signed_percent(delta.get("mean_voiceprint_probe_ready_ratio")),
                     _format_signed_percent(delta.get("mean_approx_eer")),
                     _format_signed_percent(delta.get("mean_voiceprint_top1_accuracy")),
@@ -1448,8 +1465,14 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             "mean_cjk_split_boundary_count": (
                 (aggregate.get("speakers") or {}).get("mean_cjk_split_boundary_count")
             ),
+            "mean_cjk_split_boundary_ratio": (
+                (aggregate.get("speakers") or {}).get("mean_cjk_split_boundary_ratio")
+            ),
             "mean_leading_punctuation_count": (
                 (aggregate.get("speakers") or {}).get("mean_leading_punctuation_count")
+            ),
+            "mean_leading_punctuation_ratio": (
+                (aggregate.get("speakers") or {}).get("mean_leading_punctuation_ratio")
             ),
             "mean_der": ((aggregate.get("speaker_reference") or {}).get("mean_der")),
             "mean_jer": ((aggregate.get("speaker_reference") or {}).get("mean_jer")),
