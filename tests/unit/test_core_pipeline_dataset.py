@@ -82,6 +82,109 @@ def test_dataset_manifest_resolves_relative_paths_and_builds_aggregate(tmp_path:
     assert report["aggregate"]["minutes"]["mean_action_item_coverage"] == 1.0
 
 
+def test_dataset_manifest_excludes_draft_reference_from_asr_aggregate(
+    tmp_path: Path,
+) -> None:
+    transcript = tmp_path / "hypothesis.txt"
+    transcript.write_text(
+        "\n".join(
+            [
+                "语言: zh-cn",
+                "0001. [00:00:00.000 - 00:00:01.000 | 00:00:01.000] SPEAKER_00",
+                "真实前十五分钟文本。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    reference_text = tmp_path / "reference.txt"
+    reference_text.write_text("按时长比例切出来但未人工对齐的参考稿。", encoding="utf-8")
+    reference_metadata = tmp_path / "reference.json"
+    reference_metadata.write_text(
+        json.dumps(
+            {
+                "reference_slice_mode": "time_ratio",
+                "reference_quality": "draft_time_ratio",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "draft_reference_suite",
+                "samples": [
+                    {
+                        "name": "sample_1",
+                        "transcript": transcript.name,
+                        "reference_text": reference_text.name,
+                        "reference_metadata": reference_metadata.name,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_core_pipeline_dataset_report(load_dataset_manifest(manifest_path))
+    sample = report["samples"][0]
+
+    assert report["aggregate"]["asr"]["available_count"] == 0
+    assert report["aggregate"]["asr"]["mean_cer"] is None
+    assert sample["asr"]["available"] is False
+    assert sample["asr_diagnostic"]["available"] is True
+    assert sample["reference_text"]["quality"] == "draft_time_ratio"
+    assert sample["reference_text"]["use_for_metrics"] is False
+
+
+def test_dataset_manifest_allows_explicitly_confirmed_reference(tmp_path: Path) -> None:
+    transcript = tmp_path / "hypothesis.txt"
+    transcript.write_text(
+        "\n".join(
+            [
+                "语言: zh-cn",
+                "0001. [00:00:00.000 - 00:00:01.000 | 00:00:01.000] SPEAKER_00",
+                "人工对齐文本。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    reference_text = tmp_path / "reference.txt"
+    reference_text.write_text("人工对齐文本。", encoding="utf-8")
+    reference_metadata = tmp_path / "reference.json"
+    reference_metadata.write_text(
+        json.dumps({"reference_slice_mode": "time_ratio"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "confirmed_reference_suite",
+                "samples": [
+                    {
+                        "name": "sample_1",
+                        "transcript": transcript.name,
+                        "reference_text": reference_text.name,
+                        "reference_metadata": reference_metadata.name,
+                        "reference_quality": "confirmed",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_core_pipeline_dataset_report(load_dataset_manifest(manifest_path))
+
+    assert report["aggregate"]["asr"]["available_count"] == 1
+    assert report["aggregate"]["asr"]["mean_cer"] == 0.0
+    assert report["samples"][0]["reference_text"]["use_for_metrics"] is True
+
+
 def test_render_dataset_markdown_includes_sample_table() -> None:
     report = {
         "suite": {"name": "demo", "version": "v1", "sample_count": 1},

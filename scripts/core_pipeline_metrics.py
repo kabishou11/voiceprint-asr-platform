@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 _PUNCTUATION_PATTERN = re.compile(r"[，。！？；：、“”‘’,.!?;:~\-—_\(\)\[\]{}<>《》/\\|]")
 _READABLE_SEGMENT_PATTERN = re.compile(
     r"^\d+\.\s+\[(?P<start>[\d:.]+)\s+-\s+(?P<end>[\d:.]+)\s+\|\s+[\d:.]+\]\s+(?P<speaker>\S+)\s*$"
@@ -66,7 +65,9 @@ def character_error_rate(reference: str, hypothesis: str) -> float:
     normalized_hypothesis = normalize_compare_text(hypothesis)
     if not normalized_reference:
         return 0.0 if not normalized_hypothesis else 1.0
-    return levenshtein_distance(normalized_reference, normalized_hypothesis) / len(normalized_reference)
+    return levenshtein_distance(normalized_reference, normalized_hypothesis) / len(
+        normalized_reference
+    )
 
 
 def sequence_ratio(reference: str, hypothesis: str) -> float:
@@ -216,7 +217,11 @@ def diarization_error_metrics(
     false_alarm = 0
     confusion = 0
     reference_speech = 0
-    for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
+    for reference_label, hypothesis_label in zip(
+        reference_labels,
+        hypothesis_labels,
+        strict=True,
+    ):
         if reference_label is not None:
             reference_speech += 1
         if reference_label is not None and hypothesis_label is None:
@@ -315,7 +320,11 @@ def voiceprint_threshold_scan(
     for threshold in sorted(set(float(item) for item in thresholds)):
         tp = fp = tn = fn = 0
         for row in score_rows:
-            predicted = row["score"] >= threshold
+            predicted = (
+                False
+                if row.get("missing_positive")
+                else float(row["score"]) >= threshold
+            )
             actual = bool(row["is_match"])
             if predicted and actual:
                 tp += 1
@@ -354,18 +363,23 @@ def voiceprint_threshold_scan(
             }
 
     positive_count = sum(1 for row in score_rows if row["is_match"])
+    missing_positive_count = sum(1 for row in score_rows if row.get("missing_positive"))
     return {
         "available": True,
         "label_count": len(ground_truth),
         "sample_count": len(score_rows),
         "positive_count": positive_count,
         "negative_count": len(score_rows) - positive_count,
+        "missing_positive_count": missing_positive_count,
         "approx_eer": best_eer,
         "roc_points": points,
     }
 
 
-def minutes_coverage_diagnostics(minutes_payload: dict[str, Any] | None, transcript_text: str) -> dict[str, Any]:
+def minutes_coverage_diagnostics(
+    minutes_payload: dict[str, Any] | None,
+    transcript_text: str,
+) -> dict[str, Any]:
     if not minutes_payload:
         return {"available": False}
 
@@ -466,6 +480,7 @@ def load_dataset_manifest(path: str | Path) -> dict[str, Any]:
         for key in (
             "transcript",
             "reference_text",
+            "reference_metadata",
             "reference_speakers",
             "hotwords_file",
             "minutes_json",
@@ -944,14 +959,11 @@ def _build_manifest_sample_report(
     speaker_frame_step_ms: int,
 ) -> dict[str, Any]:
     transcript_path = Path(str(sample["transcript"]))
-    reference_text = (
-        Path(str(sample["reference_text"])).read_text(encoding="utf-8")
-        if sample.get("reference_text")
-        else None
-    )
+    transcript = load_transcript_artifact(transcript_path)
+    reference = _load_manifest_reference_text(sample)
     report = build_core_pipeline_report(
-        transcript=load_transcript_artifact(transcript_path),
-        reference_text=reference_text,
+        transcript=transcript,
+        reference_text=reference["text"] if reference["use_for_metrics"] else None,
         reference_speaker_segments=load_speaker_reference(sample.get("reference_speakers")),
         hotwords=load_hotwords(sample.get("hotwords_file")),
         minutes_payload=load_minutes_payload(sample.get("minutes_json")),
@@ -964,15 +976,85 @@ def _build_manifest_sample_report(
         "tags": sample.get("tags") or [],
         "notes": sample.get("notes"),
     }
+    report["reference_text"] = {
+        "path": sample.get("reference_text"),
+        "metadata_path": reference.get("metadata_path"),
+        "quality": reference["quality"],
+        "slice_mode": (reference.get("metadata") or {}).get("reference_slice_mode"),
+        "use_for_metrics": reference["use_for_metrics"],
+        "warning": reference.get("warning"),
+    }
+    if reference["text"] and not reference["use_for_metrics"]:
+        report["asr_diagnostic"] = text_quality_metrics(
+            reference_text=reference["text"],
+            hypothesis_text=transcript.text,
+            hotwords=load_hotwords(sample.get("hotwords_file")),
+        )
     report["inputs"] = {
         "transcript": str(transcript_path),
         "reference_text": sample.get("reference_text"),
+        "reference_metadata": sample.get("reference_metadata"),
         "reference_speakers": sample.get("reference_speakers"),
         "hotwords_file": sample.get("hotwords_file"),
         "minutes_json": sample.get("minutes_json"),
         "voiceprint_labels": sample.get("voiceprint_labels"),
     }
     return report
+
+
+def _load_manifest_reference_text(sample: dict[str, Any]) -> dict[str, Any]:
+    reference_path = sample.get("reference_text")
+    if not reference_path:
+        return {"text": None, "quality": "missing", "use_for_metrics": False}
+
+    path = Path(str(reference_path))
+    text = path.read_text(encoding="utf-8")
+    metadata_path = _reference_metadata_path(sample, path)
+    metadata = _load_reference_metadata(metadata_path)
+    explicit_quality = str(sample.get("reference_quality") or "").strip().lower()
+    quality = explicit_quality or _infer_reference_quality(metadata)
+    use_for_metrics = quality in {"confirmed", "gold", "manual", "aligned"}
+    warning = None
+    if not use_for_metrics:
+        warning = (
+            "参考稿未标记为 confirmed/gold/manual/aligned，"
+            "仅作为诊断，不进入正式 ASR 聚合指标。"
+        )
+
+    return {
+        "text": text,
+        "quality": quality,
+        "metadata": metadata,
+        "metadata_path": str(metadata_path) if metadata_path else None,
+        "use_for_metrics": use_for_metrics,
+        "warning": warning,
+    }
+
+
+def _reference_metadata_path(sample: dict[str, Any], reference_path: Path) -> Path | None:
+    if sample.get("reference_metadata"):
+        return Path(str(sample["reference_metadata"]))
+    sidecar = reference_path.with_suffix(".json")
+    return sidecar if sidecar.exists() else None
+
+
+def _load_reference_metadata(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
+def _infer_reference_quality(metadata: dict[str, Any]) -> str:
+    quality = str(metadata.get("reference_quality") or "").strip().lower()
+    if quality:
+        return quality
+    mode = str(metadata.get("reference_slice_mode") or "").strip().lower()
+    if mode in {"time_ratio", "char_ratio", "sentence_ratio"}:
+        return f"draft_{mode}"
+    if mode == "full":
+        return "confirmed"
+    return "confirmed"
 
 
 def _resolve_manifest_path(base_dir: Path, value: Any) -> Path:
@@ -1002,7 +1084,9 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             "mean_approx_eer": (
                 (aggregate.get("voiceprint_threshold_scan") or {}).get("mean_approx_eer")
             ),
-            "mean_decision_coverage": ((aggregate.get("minutes") or {}).get("mean_decision_coverage")),
+            "mean_decision_coverage": (
+                (aggregate.get("minutes") or {}).get("mean_decision_coverage")
+            ),
             "mean_action_item_coverage": (
                 (aggregate.get("minutes") or {}).get("mean_action_item_coverage")
             ),
@@ -1119,7 +1203,11 @@ def _greedy_speaker_mapping(
     hypothesis_labels: list[str | None],
 ) -> dict[str, str]:
     overlaps: dict[tuple[str, str], int] = {}
-    for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
+    for reference_label, hypothesis_label in zip(
+        reference_labels,
+        hypothesis_labels,
+        strict=True,
+    ):
         if reference_label is None or hypothesis_label is None:
             continue
         key = (str(hypothesis_label), str(reference_label))
@@ -1151,8 +1239,16 @@ def _jaccard_error_rate(
     for speaker in reference_speakers:
         intersection = 0
         union = 0
-        for reference_label, hypothesis_label in zip(reference_labels, hypothesis_labels):
-            mapped_hypothesis = mapping.get(str(hypothesis_label), hypothesis_label) if hypothesis_label else None
+        for reference_label, hypothesis_label in zip(
+            reference_labels,
+            hypothesis_labels,
+            strict=True,
+        ):
+            mapped_hypothesis = (
+                mapping.get(str(hypothesis_label), hypothesis_label)
+                if hypothesis_label
+                else None
+            )
             reference_active = reference_label == speaker
             hypothesis_active = mapped_hypothesis == speaker
             if reference_active or hypothesis_active:
@@ -1200,8 +1296,9 @@ def _voiceprint_score_rows(
                     "speaker": speaker,
                     "profile_id": expected,
                     "display_name": expected,
-                    "score": 0.0,
+                    "score": None,
                     "is_match": True,
+                    "missing_positive": True,
                 }
             )
     return rows

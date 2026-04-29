@@ -1,6 +1,7 @@
-from apps.worker.app.tasks import multi_speaker
 from domain.schemas.transcript import Segment, TranscriptResult
 from model_adapters import AudioAsset
+
+from apps.worker.app.tasks import multi_speaker
 
 
 class _DummyAsrAdapter:
@@ -33,7 +34,10 @@ class _DummyDiarizationAdapter:
 
 class _DummyVoiceprintAdapter:
     def identify(self, asset: AudioAsset, top_k: int, profile_ids: list[str] | None = None):
-        from domain.schemas.voiceprint import VoiceprintIdentificationCandidate, VoiceprintIdentificationResult
+        from domain.schemas.voiceprint import (
+            VoiceprintIdentificationCandidate,
+            VoiceprintIdentificationResult,
+        )
 
         candidates = [
             VoiceprintIdentificationCandidate(
@@ -63,7 +67,11 @@ class _DummyRegistry:
 def test_run_multi_speaker_transcription_attaches_timeline_metadata(monkeypatch) -> None:
     monkeypatch.setattr(multi_speaker, "get_worker_registry", lambda: _DummyRegistry())
     monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
-    monkeypatch.setattr(multi_speaker, "_adapter_asset", lambda asset_name: AudioAsset(path=asset_name))
+    monkeypatch.setattr(
+        multi_speaker,
+        "_adapter_asset",
+        lambda asset_name: AudioAsset(path=asset_name),
+    )
 
     result = multi_speaker.run_multi_speaker_transcription(job_id="job-1", asset_name="demo.wav")
 
@@ -94,7 +102,11 @@ def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch
 
     monkeypatch.setattr(multi_speaker, "get_worker_registry", lambda: _DummyRegistry())
     monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
-    monkeypatch.setattr(multi_speaker, "_adapter_asset", lambda asset_name: AudioAsset(path=asset_name))
+    monkeypatch.setattr(
+        multi_speaker,
+        "_adapter_asset",
+        lambda asset_name: AudioAsset(path=asset_name),
+    )
     monkeypatch.setattr(
         multi_speaker,
         "_build_speaker_probe_assets",
@@ -115,3 +127,34 @@ def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch
     assert result.metadata.voiceprint_matches
     assert result.metadata.voiceprint_matches[0].candidate_profile_ids == [profile_id]
     assert result.metadata.voiceprint_matches[0].candidates[0].display_name == "测试候选人"
+
+
+def test_build_speaker_probe_assets_prefers_clean_high_energy_segments(tmp_path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    sample_rate = 16000
+    audio = np.zeros(sample_rate * 5, dtype=np.float32)
+    audio[0:sample_rate] = 0.02
+    audio[sample_rate:sample_rate * 3] = 0.6
+    audio[sample_rate * 3:sample_rate * 5] = 0.4
+    source = tmp_path / "source.wav"
+    sf.write(source, audio, sample_rate)
+
+    built = multi_speaker._build_speaker_probe_assets(
+        AudioAsset(path=str(source), sample_rate=sample_rate, channels=1),
+        [
+            Segment(start_ms=0, end_ms=1000, speaker="SPEAKER_00", confidence=0.95),
+            Segment(start_ms=1000, end_ms=3000, speaker="SPEAKER_00", confidence=0.95),
+            Segment(start_ms=1500, end_ms=2800, speaker="SPEAKER_01", confidence=0.95),
+            Segment(start_ms=3000, end_ms=5000, speaker="SPEAKER_00", confidence=0.95),
+        ],
+        ["SPEAKER_00"],
+        tmp_path,
+    )
+
+    assert len(built) == 1
+    probe_audio, probe_rate = sf.read(built[0][1].path, dtype="float32")
+    assert probe_rate == sample_rate
+    assert 1.9 <= len(probe_audio) / sample_rate <= 2.1
+    assert float(np.mean(np.abs(probe_audio))) > 0.3

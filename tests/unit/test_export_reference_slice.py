@@ -11,6 +11,7 @@ def test_build_reference_slice_records_ratio_metadata() -> None:
     assert sliced == "第一句。第二句更长一些。"
     assert metadata["reference_slice_mode"] == "time_ratio"
     assert metadata["reference_slice_ratio"] == 1 / 3
+    assert metadata["reference_quality"] == "draft_time_ratio"
     assert metadata["reference_full_length"] > metadata["reference_slice_length"]
 
 
@@ -26,3 +27,4 @@ def test_build_reference_slice_keeps_full_text_without_window() -> None:
     assert sliced == text
     assert metadata["reference_slice_mode"] == "full"
     assert metadata["reference_slice_ratio"] == 1.0
+    assert metadata["reference_quality"] == "confirmed"

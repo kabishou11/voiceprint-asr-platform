@@ -8,6 +8,8 @@
       "tags": ["15min", "multi-speaker", "hotwords"],
       "transcript": "../../storage/experiments/standard_recording_1/standard_recording_1_15min_multispeaker_readable_v20_hotwords.txt",
       "reference_text": "../../storage/experiments/standard_recording_1_15min_refbench/standard_recording_1_15min_reference_slice.txt",
+      "reference_metadata": "../../storage/experiments/standard_recording_1_15min_refbench/standard_recording_1_15min_reference_slice.json",
+      "reference_quality": "draft_time_ratio",
       "reference_speakers": null,
       "hotwords_file": "../../storage/experiments/standard_recording_1/standard_recording_1_hotwords.txt",
       "voiceprint_labels": null,

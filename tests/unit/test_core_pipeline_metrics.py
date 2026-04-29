@@ -1,20 +1,23 @@
 from scripts.core_pipeline_metrics import (
     TranscriptArtifact,
     TranscriptSegment,
+    _parse_readable_transcript,
     build_core_pipeline_report,
     character_error_rate,
     diarization_error_metrics,
     hotword_recall,
     minutes_coverage_diagnostics,
     speaker_diagnostics,
-    voiceprint_threshold_scan,
     voiceprint_diagnostics,
+    voiceprint_threshold_scan,
 )
-from scripts.core_pipeline_metrics import _parse_readable_transcript
 
 
 def test_character_error_rate_normalizes_chinese_punctuation() -> None:
-    assert character_error_rate("分类分级准确率超过百分之九十。", "分类分级准确率超过百分之九十") == 0.0
+    assert (
+        character_error_rate("分类分级准确率超过百分之九十。", "分类分级准确率超过百分之九十")
+        == 0.0
+    )
     assert character_error_rate("分类分级", "分类评级") == 0.25
 
 
@@ -147,6 +150,34 @@ def test_voiceprint_threshold_scan_estimates_eer() -> None:
     assert result["negative_count"] == 2
     assert result["approx_eer"]["threshold"] == 0.5
     assert result["approx_eer"]["eer"] == 0.0
+
+
+def test_voiceprint_threshold_scan_counts_missing_positive_as_false_negative() -> None:
+    metadata = {
+        "voiceprint_matches": [
+            {
+                "speaker": "SPEAKER_00",
+                "candidates": [
+                    {"profile_id": "bob", "display_name": "Bob", "score": 0.92},
+                ],
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "candidates": [],
+            },
+        ]
+    }
+
+    result = voiceprint_threshold_scan(
+        metadata,
+        {"SPEAKER_00": "alice", "SPEAKER_01": "carol"},
+        thresholds=[0.0, 0.5],
+    )
+
+    assert result["available"] is True
+    assert result["missing_positive_count"] == 2
+    assert result["approx_eer"]["eer"] > 0.0
+    assert result["roc_points"][0]["fn"] == 2
 
 
 def test_minutes_coverage_finds_evidence_in_transcript() -> None:

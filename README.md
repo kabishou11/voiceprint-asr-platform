@@ -421,10 +421,14 @@ manifest 每个样本支持：
 
 - `transcript`：必填，TranscriptResult JSON 或 readable txt
 - `reference_text`：参考稿，用于 CER / 文本相似度
+- `reference_metadata`：可选，参考稿元数据 JSON；比例切片会自动标记为草稿
+- `reference_quality`：可选，只有 `confirmed` / `gold` / `manual` / `aligned` 会进入正式 ASR 聚合
 - `reference_speakers`：RTTM、TranscriptResult JSON 或 readable txt，用于轻量 DER / JER
 - `hotwords_file`：热词 txt 或 `{hotwords: []}` JSON
 - `voiceprint_labels`：`{speaker: profile_id}` JSON，用于阈值扫描与近似 EER
 - `minutes_json`：人工纪要基准，用于决策、行动项、风险覆盖率
+
+注意：`export_reference_slice.py` 生成的 `time_ratio` 参考稿只是启动标注用的草稿。它会保留 ASR 诊断值，但默认不进入样本集的正式 CER 聚合；人工复核或时间戳对齐后，再把 manifest 中的 `reference_quality` 改为 `confirmed`。
 
 批量评测会输出：
 

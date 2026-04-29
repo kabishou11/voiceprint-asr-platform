@@ -41,6 +41,7 @@ def build_reference_slice(
     return sliced, {
         "reference_slice_mode": mode,
         "reference_slice_ratio": ratio,
+        "reference_quality": f"draft_{mode}" if mode == "time_ratio" else "confirmed",
         "audio_duration_seconds": audio_duration_seconds,
         "max_seconds": max_seconds,
         "reference_full_length": len(reference_text),
