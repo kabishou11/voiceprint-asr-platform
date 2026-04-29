@@ -111,6 +111,16 @@ def build_exclusive_speaker_timeline(diarization_segments: list[Segment]) -> lis
             )
             continue
 
+        if (
+            current.speaker != previous.speaker
+            and previous.start_ms < current.start_ms
+            and current.end_ms < previous.end_ms
+        ):
+            exclusive[-1] = previous.model_copy(update={"end_ms": current.start_ms})
+            exclusive.append(current)
+            exclusive.append(previous.model_copy(update={"start_ms": current.end_ms}))
+            continue
+
         if current.start_ms < previous.end_ms:
             pivot = max(
                 previous.start_ms,

@@ -206,6 +206,47 @@ def test_build_exclusive_speaker_timeline_splits_overlap_at_midpoint() -> None:
     assert exclusive[1].end_ms == 3000
 
 
+def test_build_exclusive_speaker_timeline_preserves_nested_interjection() -> None:
+    segments = [
+        Segment(start_ms=0, end_ms=10000, text="", speaker="SPEAKER_00", confidence=0.9),
+        Segment(start_ms=2000, end_ms=3000, text="", speaker="SPEAKER_01", confidence=0.95),
+    ]
+
+    exclusive = build_exclusive_speaker_timeline(segments)
+
+    assert [(item.start_ms, item.end_ms, item.speaker) for item in exclusive] == [
+        (0, 2000, "SPEAKER_00"),
+        (2000, 3000, "SPEAKER_01"),
+        (3000, 10000, "SPEAKER_00"),
+    ]
+
+
+def test_align_transcript_preserves_nested_interjection_speaker() -> None:
+    transcript = TranscriptResult(
+        text="甲方持续说明乙方这里插话说明几个关键问题甲方继续说明",
+        language="zh-cn",
+        segments=[
+            Segment(
+                start_ms=0,
+                end_ms=10000,
+                text="甲方持续说明乙方这里插话说明几个关键问题甲方继续说明",
+                speaker=None,
+            ),
+        ],
+    )
+    diarization_segments = [
+        Segment(start_ms=0, end_ms=10000, text="", speaker="SPEAKER_00"),
+        Segment(start_ms=3000, end_ms=6500, text="", speaker="SPEAKER_01"),
+    ]
+
+    result = align_transcript_with_speakers(transcript, diarization_segments)
+
+    assert any(segment.speaker == "SPEAKER_01" for segment in result.segments)
+    assert "插话" in " ".join(
+        segment.text for segment in result.segments if segment.speaker == "SPEAKER_01"
+    )
+
+
 def test_merge_short_segments_repairs_cjk_word_split_across_same_speaker_boundary() -> None:
     result = merge_short_segments(
         [

@@ -7,6 +7,7 @@ from scripts.core_pipeline_metrics import (
     diarization_error_metrics,
     hotword_recall,
     minutes_coverage_diagnostics,
+    render_markdown_report,
     speaker_diagnostics,
     voiceprint_diagnostics,
     voiceprint_identification_metrics,
@@ -108,6 +109,27 @@ def test_speaker_diagnostics_does_not_flag_repaired_cjk_boundary() -> None:
     result = speaker_diagnostics(segments)
 
     assert result["cjk_split_boundary_count"] == 0
+
+
+def test_render_markdown_report_includes_speaker_readability_ratios() -> None:
+    markdown = render_markdown_report(
+        {
+            "speakers": {
+                "speaker_count": 2,
+                "segment_count": 3,
+                "short_fragment_ratio": 0.1,
+                "speaker_turns_per_minute": 2.0,
+                "long_segment_count": 0,
+                "cjk_split_boundary_count": 1,
+                "cjk_split_boundary_ratio": 0.5,
+                "leading_punctuation_count": 1,
+                "leading_punctuation_ratio": 1 / 3,
+            },
+        }
+    )
+
+    assert "- 中文断词边界率: 50.00%" in markdown
+    assert "- 前导标点段率: 33.33%" in markdown
 
 
 def test_voiceprint_diagnostics_uses_metadata_matches() -> None:

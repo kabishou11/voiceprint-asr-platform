@@ -100,3 +100,4 @@
 - 第七阶段降低人工标注启动成本。已落地第一版：`generate_evaluation_annotation_templates.py` 可从当前转写结果生成 RTTM、声纹标签、人工纪要和复核清单草稿；这些草稿必须人工修正后才可作为 manifest 的参考标注。
 - 第八阶段提升会议纪要评测可解释性。已落地第一版：`minutes_coverage_diagnostics` 在保留原有覆盖率字段的同时，新增逐条 `evidence_rows`、弱证据和缺证据统计；会议纪要服务层 `evidence` 同步返回证据分、命中 token、缺失 token 和原因，让长会议 map-reduce 纪要优化可以直接追踪到“哪条结论没有 transcript 支撑”。
 - 第九阶段减少多人转写可读性断裂。已落地第一版：speaker 对齐层在无法按句子/标点切分、必须退回时间比例切片时，会检测中文词被 diarization 边界切开的情况，并把边界左移一字，避免出现“加工逻 / 辑的时候”这类断词片段。评测侧同步新增中文断词边界、前导标点段的数量与比例统计，让可读性问题可以进入 baseline 横向比较。
+- 第十阶段保留内嵌插话 speaker。已落地第一版：exclusive speaker timeline 在长 speaker 段内出现短插话段时，会把长段拆成前段、插话段和尾段，避免嵌套 speaker 被中点裁边逻辑吞掉，后续 alignment 和声纹 probe 都能看到该 speaker。
