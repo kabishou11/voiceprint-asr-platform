@@ -1,3 +1,5 @@
+from domain.schemas.transcript import Segment, TranscriptResult
+
 from apps.worker.app.pipelines.alignment import (
     align_transcript_with_speakers,
     build_display_speaker_timeline,
@@ -5,7 +7,6 @@ from apps.worker.app.pipelines.alignment import (
     canonicalize_speaker_labels,
     merge_short_segments,
 )
-from domain.schemas.transcript import Segment, TranscriptResult
 
 
 def test_canonicalize_speaker_labels_orders_by_first_appearance() -> None:
@@ -30,7 +31,13 @@ def test_align_transcript_splits_segment_by_diarization_timeline() -> None:
         text="甲方先说，乙方再说。",
         language="zh-cn",
         segments=[
-            Segment(start_ms=0, end_ms=4000, text="甲方先说，乙方再说。", speaker=None, confidence=0.9),
+            Segment(
+                start_ms=0,
+                end_ms=4000,
+                text="甲方先说，乙方再说。",
+                speaker=None,
+                confidence=0.9,
+            ),
         ],
     )
     diarization_segments = [
@@ -69,6 +76,33 @@ def test_align_transcript_prefers_sentence_boundaries_when_speaker_changes() -> 
     assert len(result.segments) == 2
     assert result.segments[0].text == "第一句已经说完。"
     assert result.segments[1].text == "第二句继续说明。"
+    assert result.segments[0].speaker == "SPEAKER_00"
+    assert result.segments[1].speaker == "SPEAKER_01"
+
+
+def test_align_transcript_repairs_cjk_word_split_at_diarization_boundary() -> None:
+    transcript = TranscriptResult(
+        text="没有应用加工逻辑的时候这个场景是可以做到的",
+        language="zh-cn",
+        segments=[
+            Segment(
+                start_ms=0,
+                end_ms=15000,
+                text="没有应用加工逻辑的时候这个场景是可以做到的",
+                speaker=None,
+            ),
+        ],
+    )
+    diarization_segments = [
+        Segment(start_ms=0, end_ms=5000, text="", speaker="SPEAKER_00"),
+        Segment(start_ms=5000, end_ms=15000, text="", speaker="SPEAKER_01"),
+    ]
+
+    result = align_transcript_with_speakers(transcript, diarization_segments)
+
+    assert len(result.segments) == 2
+    assert result.segments[0].text == "没有应用加工"
+    assert result.segments[1].text.startswith("逻辑的时候")
     assert result.segments[0].speaker == "SPEAKER_00"
     assert result.segments[1].speaker == "SPEAKER_01"
 
@@ -176,7 +210,12 @@ def test_merge_short_segments_repairs_cjk_word_split_across_same_speaker_boundar
     result = merge_short_segments(
         [
             Segment(start_ms=0, end_ms=9000, text="没有应用加工逻", speaker="SPEAKER_00"),
-            Segment(start_ms=9000, end_ms=15000, text="辑的时候，这个场景是可以做到的。", speaker="SPEAKER_00"),
+            Segment(
+                start_ms=9000,
+                end_ms=15000,
+                text="辑的时候，这个场景是可以做到的。",
+                speaker="SPEAKER_00",
+            ),
         ],
         max_merged_duration_ms=10000,
     )
@@ -190,7 +229,12 @@ def test_merge_short_segments_trims_leading_punctuation_on_same_speaker_followup
     result = merge_short_segments(
         [
             Segment(start_ms=0, end_ms=7000, text="前面这句已经说完", speaker="SPEAKER_00"),
-            Segment(start_ms=7000, end_ms=12000, text="。两周前，平台功能基本上主体OK之后", speaker="SPEAKER_00"),
+            Segment(
+                start_ms=7000,
+                end_ms=12000,
+                text="。两周前，平台功能基本上主体OK之后",
+                speaker="SPEAKER_00",
+            ),
         ],
         max_merged_duration_ms=10000,
     )
