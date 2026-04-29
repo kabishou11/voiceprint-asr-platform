@@ -461,7 +461,7 @@ manifest 每个样本支持：
   storage\experiments\core_pipeline_baseline_example\core_pipeline_baseline_example_baseline.json
 ```
 
-对比报告会列出每个 baseline 的核心指标，并给出相对首个 baseline 的变化值。
+对比报告会列出每个 baseline 的核心指标，并给出相对首个 baseline 的变化值。除 CER、DER、声纹和纪要覆盖外，对比表也会展示中文断词边界数、前导标点段数，方便评估 speaker 对齐优化是否真实改善可读性。
 
 ## 常见问题
 
