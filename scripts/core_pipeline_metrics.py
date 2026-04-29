@@ -565,11 +565,26 @@ def minutes_coverage_diagnostics(
         raw_items = minutes_payload.get(key) or []
         items = [str(item).strip() for item in raw_items if str(item).strip()]
         if not items:
-            return {"total": 0, "covered": 0, "coverage": None, "missing": []}
-        missing = [
-            item
+            return {
+                "total": 0,
+                "covered": 0,
+                "coverage": None,
+                "missing": [],
+                "missing_count": 0,
+                "low_evidence": [],
+                "low_evidence_count": 0,
+                "evidence_rows": [],
+            }
+
+        evidence_rows = [
+            _text_evidence_details(item, transcript_text, transcript_normalized)
             for item in items
-            if not _has_text_evidence(item, transcript_normalized)
+        ]
+        missing = [row["item"] for row in evidence_rows if not row["matched"]]
+        low_evidence = [
+            row
+            for row in evidence_rows
+            if not row["matched"] and float(row.get("evidence_score") or 0.0) > 0.0
         ]
         covered = len(items) - len(missing)
         return {
@@ -577,6 +592,10 @@ def minutes_coverage_diagnostics(
             "covered": covered,
             "coverage": covered / len(items),
             "missing": missing,
+            "missing_count": len(missing),
+            "low_evidence": low_evidence,
+            "low_evidence_count": len(low_evidence),
+            "evidence_rows": evidence_rows,
         }
 
     return {
@@ -809,6 +828,42 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "risks",
                 "coverage",
             ),
+            "mean_decision_missing_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "decisions",
+                "missing_count",
+            ),
+            "mean_action_item_missing_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "action_items",
+                "missing_count",
+            ),
+            "mean_risk_missing_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "risks",
+                "missing_count",
+            ),
+            "mean_decision_low_evidence_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "decisions",
+                "low_evidence_count",
+            ),
+            "mean_action_item_low_evidence_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "action_items",
+                "low_evidence_count",
+            ),
+            "mean_risk_low_evidence_count": _mean_nested_metric(
+                samples,
+                "minutes",
+                "risks",
+                "low_evidence_count",
+            ),
         },
     }
 
@@ -850,6 +905,14 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均决策覆盖: {_format_percent(minutes.get('mean_decision_coverage'))}",
         f"- 平均行动项覆盖: {_format_percent(minutes.get('mean_action_item_coverage'))}",
         f"- 平均风险覆盖: {_format_percent(minutes.get('mean_risk_coverage'))}",
+        f"- 平均纪要缺证据数(决策/行动/风险): "
+        f"{_format_number(minutes.get('mean_decision_missing_count'))}/"
+        f"{_format_number(minutes.get('mean_action_item_missing_count'))}/"
+        f"{_format_number(minutes.get('mean_risk_missing_count'))}",
+        f"- 平均纪要弱证据数(决策/行动/风险): "
+        f"{_format_number(minutes.get('mean_decision_low_evidence_count'))}/"
+        f"{_format_number(minutes.get('mean_action_item_low_evidence_count'))}/"
+        f"{_format_number(minutes.get('mean_risk_low_evidence_count'))}",
         "",
         "## 样本明细",
         "| 样本 | CER | DER | JER | EER | Top1 | TopK | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
@@ -1098,8 +1161,17 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         "## 会议纪要覆盖",
         f"- 可用: {bool(minutes.get('available'))}",
         f"- 决策覆盖: {_format_percent((minutes.get('decisions') or {}).get('coverage'))}",
+        f"- 决策缺证据/弱证据: "
+        f"{(minutes.get('decisions') or {}).get('missing_count', 'N/A')}/"
+        f"{(minutes.get('decisions') or {}).get('low_evidence_count', 'N/A')}",
         f"- 行动项覆盖: {_format_percent((minutes.get('action_items') or {}).get('coverage'))}",
+        f"- 行动项缺证据/弱证据: "
+        f"{(minutes.get('action_items') or {}).get('missing_count', 'N/A')}/"
+        f"{(minutes.get('action_items') or {}).get('low_evidence_count', 'N/A')}",
         f"- 风险覆盖: {_format_percent((minutes.get('risks') or {}).get('coverage'))}",
+        f"- 风险缺证据/弱证据: "
+        f"{(minutes.get('risks') or {}).get('missing_count', 'N/A')}/"
+        f"{(minutes.get('risks') or {}).get('low_evidence_count', 'N/A')}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -1398,20 +1470,124 @@ def _parse_time_ms(value: str) -> int:
 
 
 def _has_text_evidence(item: str, transcript_normalized: str) -> bool:
+    return bool(
+        _text_evidence_details(
+            item,
+            transcript_text="",
+            transcript_normalized=transcript_normalized,
+        )["matched"]
+    )
+
+
+def _text_evidence_details(
+    item: str,
+    transcript_text: str,
+    transcript_normalized: str,
+) -> dict[str, Any]:
     normalized_item = normalize_compare_text(item)
+    base_row: dict[str, Any] = {
+        "item": item,
+        "matched": False,
+        "evidence_score": 0.0,
+        "evidence_snippet": None,
+        "matched_tokens": [],
+        "missing_tokens": [],
+        "reason": "empty_item",
+    }
     if not normalized_item:
-        return False
+        return base_row
     if normalized_item in transcript_normalized:
-        return True
-    tokens = [
+        base_row.update(
+            {
+                "matched": True,
+                "evidence_score": 1.0,
+                "evidence_snippet": _best_evidence_snippet(item, transcript_text),
+                "reason": "exact_match",
+            }
+        )
+        return base_row
+    tokens = _evidence_tokens(normalized_item)
+    if not tokens:
+        base_row["reason"] = "no_comparable_tokens"
+        return base_row
+
+    matched_tokens = [token for token in tokens if token in transcript_normalized]
+    missing_tokens = [token for token in tokens if token not in transcript_normalized]
+    score = len(matched_tokens) / len(tokens)
+    matched = score >= 0.6
+    reason = "token_overlap" if matched else "weak_token_overlap"
+    if not matched_tokens:
+        reason = "no_token_overlap"
+    base_row.update(
+        {
+            "matched": matched,
+            "evidence_score": score,
+            "evidence_snippet": _best_evidence_snippet(item, transcript_text),
+            "matched_tokens": matched_tokens,
+            "missing_tokens": missing_tokens,
+            "reason": reason,
+        }
+    )
+    return base_row
+
+
+def _best_evidence_snippet(item: str, transcript_text: str, max_length: int = 140) -> str | None:
+    if not transcript_text:
+        return None
+
+    normalized_item = normalize_compare_text(item)
+    tokens = _evidence_tokens(normalized_item)
+    chunks = [
+        chunk.strip()
+        for chunk in re.split(r"(?<=[。！？!?；;])|\n+", transcript_text)
+        if chunk.strip()
+    ]
+    if not chunks:
+        chunks = [transcript_text.strip()]
+
+    best_chunk: str | None = None
+    best_score = -1.0
+    for chunk in chunks:
+        normalized_chunk = normalize_compare_text(chunk)
+        if normalized_item and normalized_item in normalized_chunk:
+            return _truncate_snippet(chunk, max_length)
+        if tokens:
+            score = sum(1 for token in tokens if token in normalized_chunk) / len(tokens)
+        else:
+            score = difflib.SequenceMatcher(a=normalized_item, b=normalized_chunk).ratio()
+        if score > best_score:
+            best_score = score
+            best_chunk = chunk
+
+    if best_chunk is None or best_score <= 0:
+        return None
+    return _truncate_snippet(best_chunk, max_length)
+
+
+def _truncate_snippet(text: str, max_length: int) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= max_length:
+        return compact
+    return compact[: max_length - 1].rstrip() + "…"
+
+
+def _evidence_tokens(normalized_text: str) -> list[str]:
+    raw_tokens = [
         token
-        for token in re.findall(r"[\w\u4e00-\u9fff]{2,}", normalized_item)
+        for token in re.findall(r"[\w\u4e00-\u9fff]{2,}", normalized_text)
         if len(token) >= 2
     ]
-    if not tokens:
-        return False
-    matched = sum(1 for token in tokens if token in transcript_normalized)
-    return matched / len(tokens) >= 0.6
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in raw_tokens:
+        candidates = [token]
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) >= 6:
+            candidates.extend(token[index : index + 2] for index in range(len(token) - 1))
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                tokens.append(candidate)
+    return tokens
 
 
 def _valid_speaker_segments(segments: list[TranscriptSegment]) -> list[TranscriptSegment]:

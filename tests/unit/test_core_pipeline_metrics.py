@@ -245,6 +245,41 @@ def test_minutes_coverage_finds_evidence_in_transcript() -> None:
     assert result["decisions"]["coverage"] == 1.0
     assert result["action_items"]["coverage"] == 1.0
     assert result["risks"]["coverage"] == 0.0
+    assert result["decisions"]["evidence_rows"][0]["matched"] is True
+    assert result["decisions"]["evidence_rows"][0]["reason"] == "exact_match"
+    assert "会议决定先做日志分类分级" in result["decisions"]["evidence_rows"][0]["evidence_snippet"]
+    assert result["risks"]["missing"] == ["外部文档未覆盖"]
+    assert result["risks"]["missing_count"] == 1
+
+
+def test_minutes_coverage_reports_weak_evidence_details() -> None:
+    minutes = {
+        "decisions": ["决定推进日志敏感字段治理并完成上线验收"],
+        "action_items": [],
+        "risks": [],
+    }
+    transcript = "会议决定先推进日志治理，但敏感字段范围还没有最终确认。"
+
+    result = minutes_coverage_diagnostics(minutes, transcript)
+
+    decision = result["decisions"]
+    assert decision["coverage"] == 0.0
+    assert decision["missing_count"] == 1
+    assert decision["low_evidence_count"] == 1
+    assert decision["low_evidence"][0]["item"] == "决定推进日志敏感字段治理并完成上线验收"
+    assert decision["low_evidence"][0]["reason"] == "weak_token_overlap"
+    assert decision["low_evidence"][0]["evidence_score"] > 0
+    assert "日志治理" in decision["low_evidence"][0]["evidence_snippet"]
+
+
+def test_minutes_coverage_keeps_empty_sections_compatible() -> None:
+    result = minutes_coverage_diagnostics({"decisions": []}, "没有纪要条目。")
+
+    assert result["decisions"]["coverage"] is None
+    assert result["decisions"]["missing"] == []
+    assert result["decisions"]["missing_count"] == 0
+    assert result["decisions"]["low_evidence"] == []
+    assert result["decisions"]["evidence_rows"] == []
 
 
 def test_build_core_pipeline_report_combines_all_sections() -> None:
