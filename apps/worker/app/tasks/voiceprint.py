@@ -56,13 +56,14 @@ def _identify_voiceprint_sync(
     asset_name: str,
     top_k: int,
     model_key: str = "3dspeaker-embedding",
+    profile_ids: list[str] | None = None,
 ) -> VoiceprintIdentificationResult:
     """同步执行声纹识别任务（内部实现）。"""
     registry = get_worker_registry()
     registry.require_available(model_key)
     adapter = registry.get_voiceprint(model_key)
     asset = preprocess_audio(_adapter_asset(asset_name))
-    return adapter.identify(asset=asset, top_k=top_k)
+    return adapter.identify(asset=asset, top_k=top_k, profile_ids=profile_ids)
 
 
 def _adapter_asset(asset_name: str):
@@ -131,6 +132,7 @@ def execute_identify_voiceprint_task(
     asset_name: str,
     top_k: int,
     model_key: str = "3dspeaker-embedding",
+    profile_ids: list[str] | None = None,
 ) -> VoiceprintIdentificationResult:
     """执行声纹识别任务（Celery Worker 入口）。"""
     update_job_status(job_id, "running")
@@ -141,6 +143,7 @@ def execute_identify_voiceprint_task(
             asset_name=asset_name,
             top_k=top_k,
             model_key=model_key,
+            profile_ids=profile_ids,
         )
         update_job_result(job_id, result=result.model_dump(), status="succeeded")
         return result
@@ -212,9 +215,21 @@ def _init_wrapper():
     _init_celery_tasks()
 
     # 如果没有 Celery，返回兼容 wrapper
-    enroll_voiceprint_task = _enroll_task if _enroll_task else lambda *args, **kwargs: execute_enroll_voiceprint_task(*args, **kwargs)
-    verify_voiceprint_task = _verify_task if _verify_task else lambda *args, **kwargs: execute_verify_voiceprint_task(*args, **kwargs)
-    identify_voiceprint_task = _identify_task if _identify_task else lambda *args, **kwargs: execute_identify_voiceprint_task(*args, **kwargs)
+    enroll_voiceprint_task = (
+        _enroll_task
+        if _enroll_task
+        else lambda *args, **kwargs: execute_enroll_voiceprint_task(*args, **kwargs)
+    )
+    verify_voiceprint_task = (
+        _verify_task
+        if _verify_task
+        else lambda *args, **kwargs: execute_verify_voiceprint_task(*args, **kwargs)
+    )
+    identify_voiceprint_task = (
+        _identify_task
+        if _identify_task
+        else lambda *args, **kwargs: execute_identify_voiceprint_task(*args, **kwargs)
+    )
 
 
 # ============ 公开 API ============
@@ -293,7 +308,11 @@ def verify_voiceprint(
 
     logger.info(f"声纹验证任务 {job_id} 同步执行")
     return _verify_voiceprint_sync(
-        job_id=job_id, asset_name=asset_name, profile_id=profile_id, threshold=threshold, model_key=model_key
+        job_id=job_id,
+        asset_name=asset_name,
+        profile_id=profile_id,
+        threshold=threshold,
+        model_key=model_key,
     )
 
 
@@ -302,6 +321,7 @@ def identify_voiceprint(
     asset_name: str,
     top_k: int,
     model_key: str = "3dspeaker-embedding",
+    profile_ids: list[str] | None = None,
 ) -> VoiceprintIdentificationResult:
     """执行声纹识别任务。
 
@@ -317,9 +337,15 @@ def identify_voiceprint(
     _init_wrapper()
 
     if is_async_available() and _identify_task is not None:
-        _identify_task.apply_async(args=[job_id, asset_name, top_k, model_key])
+        _identify_task.apply_async(args=[job_id, asset_name, top_k, model_key, profile_ids])
         logger.info(f"声纹识别任务 {job_id} 已提交到队列")
         return VoiceprintIdentificationResult(candidates=[], matched=False)
 
     logger.info(f"声纹识别任务 {job_id} 同步执行")
-    return _identify_voiceprint_sync(job_id=job_id, asset_name=asset_name, top_k=top_k, model_key=model_key)
+    return _identify_voiceprint_sync(
+        job_id=job_id,
+        asset_name=asset_name,
+        top_k=top_k,
+        model_key=model_key,
+        profile_ids=profile_ids,
+    )

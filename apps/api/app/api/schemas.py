@@ -1,10 +1,13 @@
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
-
 from domain.schemas.transcript import JobDetail, TranscriptResult
-from domain.schemas.voiceprint import VoiceprintIdentificationResult, VoiceprintProfile, VoiceprintVerificationResult
+from domain.schemas.voiceprint import (
+    VoiceprintIdentificationResult,
+    VoiceprintProfile,
+    VoiceprintVerificationResult,
+)
+from pydantic import BaseModel, Field, model_validator
 
 ModelAvailability = Literal["available", "optional", "unavailable"]
 
@@ -160,6 +163,7 @@ class VerifyVoiceprintResponse(BaseModel):
 class IdentifyVoiceprintRequest(BaseModel):
     probe_asset_name: str
     top_k: int = Field(default=3, ge=1, le=10)
+    profile_ids: list[str] | None = None
 
 
 class IdentifyVoiceprintResponse(BaseModel):

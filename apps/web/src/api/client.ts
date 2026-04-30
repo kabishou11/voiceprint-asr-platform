@@ -186,10 +186,15 @@ export function verifyVoiceprint(
 export function identifyVoiceprint(
   probeAssetName: string,
   topK: number,
+  profileIds?: string[],
 ): Promise<IdentifyVoiceprintResponse> {
   return request<IdentifyVoiceprintResponse>('/voiceprints/identify', {
     method: 'POST',
-    body: JSON.stringify({ probe_asset_name: probeAssetName, top_k: topK }),
+    body: JSON.stringify({
+      probe_asset_name: probeAssetName,
+      top_k: topK,
+      ...(profileIds && profileIds.length > 0 ? { profile_ids: profileIds } : {}),
+    }),
   });
 }
 

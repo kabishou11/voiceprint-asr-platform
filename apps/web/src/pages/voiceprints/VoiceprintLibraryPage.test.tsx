@@ -7,6 +7,9 @@ import { VoiceprintLibraryPage } from './VoiceprintLibraryPage';
 import { appTheme } from '../../theme/appTheme';
 
 const fetchVoiceprintProfiles = vi.fn();
+const fetchVoiceprintGroups = vi.fn();
+const fetchVoiceprintProfileDetail = vi.fn();
+const fetchVoiceprintJob = vi.fn();
 const createVoiceprintProfile = vi.fn();
 const uploadAudio = vi.fn();
 const enrollVoiceprint = vi.fn();
@@ -15,6 +18,9 @@ const identifyVoiceprint = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchVoiceprintProfiles: () => fetchVoiceprintProfiles(),
+  fetchVoiceprintGroups: () => fetchVoiceprintGroups(),
+  fetchVoiceprintProfileDetail: (...args: unknown[]) => fetchVoiceprintProfileDetail(...args),
+  fetchVoiceprintJob: (...args: unknown[]) => fetchVoiceprintJob(...args),
   createVoiceprintProfile: (...args: unknown[]) => createVoiceprintProfile(...args),
   uploadAudio: (...args: unknown[]) => uploadAudio(...args),
   enrollVoiceprint: (...args: unknown[]) => enrollVoiceprint(...args),
@@ -22,11 +28,13 @@ vi.mock('../../api/client', () => ({
   identifyVoiceprint: (...args: unknown[]) => identifyVoiceprint(...args),
 }));
 
-function renderPage() {
+function renderPage(
+  initialEntry = '/voiceprints?probe=meeting.wav&speaker=SPEAKER_00&jobId=job-1',
+) {
   return render(
     <ThemeProvider theme={appTheme}>
       <CssBaseline />
-      <MemoryRouter initialEntries={['/voiceprints?probe=meeting.wav&speaker=SPEAKER_00&jobId=job-1']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/voiceprints" element={<VoiceprintLibraryPage />} />
           <Route path="/jobs/:jobId" element={<LocationProbe />} />
@@ -55,6 +63,28 @@ describe('VoiceprintLibraryPage', () => {
           sample_count: 1,
         },
       ],
+    });
+    fetchVoiceprintGroups.mockResolvedValue({ items: [] });
+    fetchVoiceprintProfileDetail.mockResolvedValue({
+      profile: {
+        profile_id: 'sample-female-1',
+        display_name: '女声样本 1',
+        model_key: '3dspeaker-embedding',
+        sample_count: 1,
+      },
+      samples: [],
+      history: [],
+    });
+    fetchVoiceprintJob.mockResolvedValue({
+      job_id: 'job-voiceprint',
+      job_type: 'voiceprint_identify',
+      status: 'succeeded',
+      identification: {
+        matched: true,
+        candidates: [
+          { profile_id: 'sample-female-1', display_name: '女声样本 1', score: 0.98, rank: 1 },
+        ],
+      },
     });
     createVoiceprintProfile.mockResolvedValue({
       profile: {
@@ -128,8 +158,8 @@ describe('VoiceprintLibraryPage', () => {
     const fileInputs = container.querySelectorAll('input[type="file"]');
     const file = new File(['probe'], 'probe.wav', { type: 'audio/wav' });
 
-    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: '声纹验证' }));
+    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '验证' }));
 
     await waitFor(() => {
       expect(uploadAudio).toHaveBeenCalled();
@@ -145,20 +175,59 @@ describe('VoiceprintLibraryPage', () => {
       expect(fetchVoiceprintProfiles).toHaveBeenCalled();
     });
 
-    expect(screen.getAllByText(/已从任务详情带入资产：meeting\.wav/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/来自任务：meeting\.wav/).length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText('验证阈值'), { target: { value: '0.85' } });
-    fireEvent.click(screen.getAllByRole('button', { name: '声纹验证' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: '验证' })[0]);
 
     await waitFor(() => {
       expect(verifyVoiceprint).toHaveBeenCalledWith('sample-female-1', 'meeting.wav', 0.85);
     });
 
     fireEvent.change(screen.getByLabelText('识别候选数'), { target: { value: '5' } });
-    fireEvent.click(screen.getAllByRole('button', { name: '声纹识别' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: '识别' })[0]);
 
     await waitFor(() => {
       expect(identifyVoiceprint).toHaveBeenCalledWith('meeting.wav', 5);
+    });
+  });
+
+  it('passes visible group profiles as identify candidates', async () => {
+    fetchVoiceprintProfiles.mockResolvedValue({
+      items: [
+        {
+          profile_id: 'sample-female-1',
+          display_name: '女声样本 1',
+          model_key: '3dspeaker-embedding',
+          sample_count: 1,
+        },
+        {
+          profile_id: 'outside-profile',
+          display_name: '组外档案',
+          model_key: '3dspeaker-embedding',
+          sample_count: 1,
+        },
+      ],
+    });
+    fetchVoiceprintGroups.mockResolvedValue({
+      items: [
+        {
+          group_id: 'group-a',
+          display_name: '项目组 A',
+          profile_ids: ['sample-female-1'],
+        },
+      ],
+    });
+    renderPage('/voiceprints?probe=meeting.wav&voiceprintScope=group&voiceprintGroupId=group-a');
+
+    await waitFor(() => {
+      expect(screen.getByText(/当前仅展示分组/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: '识别' })[0]);
+
+    await waitFor(() => {
+      expect(identifyVoiceprint).toHaveBeenCalledWith('meeting.wav', 3, ['sample-female-1']);
     });
   });
 
@@ -169,9 +238,11 @@ describe('VoiceprintLibraryPage', () => {
       expect(fetchVoiceprintProfiles).toHaveBeenCalled();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '声纹验证' }));
+    fireEvent.click(screen.getByRole('button', { name: '验证' }));
 
-    const writeBackButton = await screen.findByRole('button', { name: '将当前 Speaker 回写为 女声样本 1' });
+    const writeBackButton = await screen.findByRole('button', {
+      name: '将 SPEAKER_00 回写为 女声样本 1',
+    });
     fireEvent.click(writeBackButton);
 
     expect(await screen.findByTestId('location-probe')).toHaveTextContent('/jobs/job-1');
@@ -192,14 +263,15 @@ describe('VoiceprintLibraryPage', () => {
     const fileInputs = container.querySelectorAll('input[type="file"]');
     const file = new File(['probe'], 'probe.wav', { type: 'audio/wav' });
 
-    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: '声纹识别' }));
+    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '识别' }));
 
     await waitFor(() => {
       expect(uploadAudio).toHaveBeenCalled();
       expect(identifyVoiceprint).toHaveBeenCalledWith('uploaded.wav', 3);
     });
-    expect(await screen.findByText(/1\. 女声样本 1 · 相似度 0.98/)).toBeInTheDocument();
+    expect(await screen.findByText(/1\. 女声样本 1/)).toBeInTheDocument();
+    expect(await screen.findByText('0.980')).toBeInTheDocument();
   });
 
   it('uploads and enrolls voiceprint sample', async () => {
@@ -211,7 +283,7 @@ describe('VoiceprintLibraryPage', () => {
 
     const fileInputs = container.querySelectorAll('input[type="file"]');
     const file = new File(['voice'], 'voice.wav', { type: 'audio/wav' });
-    fireEvent.change(fileInputs[1] as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.change(fileInputs[0] as HTMLInputElement, { target: { files: [file] } });
     fireEvent.click(screen.getAllByRole('button', { name: '开始注册' })[0]);
 
     await waitFor(() => {

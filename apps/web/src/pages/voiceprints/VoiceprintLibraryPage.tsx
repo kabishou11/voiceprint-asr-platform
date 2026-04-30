@@ -58,6 +58,7 @@ function ProfileDetail({
   incomingSpeaker,
   incomingJobId,
   scopeGroupId,
+  candidateProfileIds,
   onEnrolled,
 }: {
   profile: VoiceprintProfile;
@@ -65,6 +66,7 @@ function ProfileDetail({
   incomingSpeaker: string;
   incomingJobId: string;
   scopeGroupId: string;
+  candidateProfileIds?: string[];
   onEnrolled: () => void;
 }) {
   const navigate = useNavigate();
@@ -143,7 +145,12 @@ function ProfileDetail({
     setBusy(true); setError(null); setIdentifyResult([]);
     try {
       const assetName = await ensureAsset(probeFile, probeAssetName || incomingProbeAsset);
-      const res = await identifyVoiceprint(assetName, topK);
+      const scopedProfileIds = candidateProfileIds && candidateProfileIds.length > 0
+        ? candidateProfileIds
+        : undefined;
+      const res = scopedProfileIds
+        ? await identifyVoiceprint(assetName, topK, scopedProfileIds)
+        : await identifyVoiceprint(assetName, topK);
       if (res.job) { setPendingJob({ jobId: res.job.job_id, kind: 'identify' }); setFeedback('识别任务已提交'); return; }
       if (res.result) setIdentifyResult(res.result.candidates);
     } catch (e) { setError(e instanceof Error ? e.message : '识别失败'); }
@@ -475,6 +482,10 @@ export function VoiceprintLibraryPage() {
     () => visibleProfiles.find((p) => p.profile_id === selectedProfileId) ?? visibleProfiles[0] ?? null,
     [visibleProfiles, selectedProfileId],
   );
+  const identifyCandidateProfileIds = useMemo(
+    () => (scopeMode === 'group' && scopeGroupId ? visibleProfiles.map((p) => p.profile_id) : undefined),
+    [scopeMode, scopeGroupId, visibleProfiles],
+  );
 
   const handleCreateProfile = async () => {
     if (!newProfileName.trim()) { setCreateError('请输入档案名称'); return; }
@@ -560,6 +571,7 @@ export function VoiceprintLibraryPage() {
               incomingSpeaker={incomingSpeaker}
               incomingJobId={incomingJobId}
               scopeGroupId={scopeGroupId}
+              candidateProfileIds={identifyCandidateProfileIds}
               onEnrolled={() => profilesState.reload()}
             />
           ) : (
