@@ -32,6 +32,23 @@ class _DummyDiarizationAdapter:
         ]
 
 
+class _DummyDiarizationAdapterWithLastOutputs(_DummyDiarizationAdapter):
+    def diarize(self, asset: AudioAsset) -> list[Segment]:
+        return self.get_last_outputs()["exclusive"]
+
+    def get_last_outputs(self) -> dict[str, list[Segment]]:
+        return {
+            "regular": [
+                Segment(start_ms=0, end_ms=2500, text="", speaker="raw_a", confidence=0.9),
+                Segment(start_ms=1500, end_ms=4000, text="", speaker="raw_b", confidence=0.95),
+            ],
+            "exclusive": [
+                Segment(start_ms=0, end_ms=2000, text="", speaker="raw_a", confidence=0.9),
+                Segment(start_ms=2000, end_ms=4000, text="", speaker="raw_b", confidence=0.95),
+            ],
+        }
+
+
 class _DummyVoiceprintAdapter:
     def __init__(self) -> None:
         self.seen_profile_ids: list[list[str] | None] = []
@@ -55,8 +72,13 @@ class _DummyVoiceprintAdapter:
 
 
 class _DummyRegistry:
-    def __init__(self, voiceprint_adapter: _DummyVoiceprintAdapter | None = None) -> None:
+    def __init__(
+        self,
+        voiceprint_adapter: _DummyVoiceprintAdapter | None = None,
+        diarization_adapter: _DummyDiarizationAdapter | None = None,
+    ) -> None:
         self.voiceprint_adapter = voiceprint_adapter or _DummyVoiceprintAdapter()
+        self.diarization_adapter = diarization_adapter or _DummyDiarizationAdapter()
 
     def require_available(self, model_key: str) -> None:
         return None
@@ -65,7 +87,7 @@ class _DummyRegistry:
         return _DummyAsrAdapter()
 
     def get_diarization(self, model_key: str) -> _DummyDiarizationAdapter:
-        return _DummyDiarizationAdapter()
+        return self.diarization_adapter
 
     def get_voiceprint(self, model_key: str) -> _DummyVoiceprintAdapter:
         return self.voiceprint_adapter
@@ -89,6 +111,32 @@ def test_run_multi_speaker_transcription_attaches_timeline_metadata(monkeypatch)
     assert result.metadata.timelines[0].source == "regular"
     assert result.metadata.timelines[1].source == "exclusive"
     assert result.metadata.timelines[2].source == "display"
+
+
+def test_run_multi_speaker_transcription_uses_adapter_regular_and_exclusive_timelines(
+    monkeypatch,
+) -> None:
+    registry = _DummyRegistry(diarization_adapter=_DummyDiarizationAdapterWithLastOutputs())
+    monkeypatch.setattr(multi_speaker, "get_worker_registry", lambda: registry)
+    monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
+    monkeypatch.setattr(
+        multi_speaker,
+        "_adapter_asset",
+        lambda asset_name: AudioAsset(path=asset_name),
+    )
+
+    result = multi_speaker.run_multi_speaker_transcription(job_id="job-1", asset_name="demo.wav")
+
+    assert result.metadata is not None
+    timelines = {timeline.source: timeline.segments for timeline in result.metadata.timelines}
+    assert [(item.start_ms, item.end_ms) for item in timelines["regular"]] == [
+        (0, 2500),
+        (1500, 4000),
+    ]
+    assert [(item.start_ms, item.end_ms) for item in timelines["exclusive"]] == [
+        (0, 2000),
+        (2000, 4000),
+    ]
 
 
 def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch) -> None:

@@ -635,6 +635,64 @@ def minutes_coverage_diagnostics(
     }
 
 
+def timeline_diagnostics(
+    transcript: TranscriptArtifact,
+    *,
+    reference_speaker_segments: list[TranscriptSegment] | None = None,
+    speaker_frame_step_ms: int = 100,
+) -> dict[str, Any]:
+    timelines = _timeline_segments_from_metadata(transcript.metadata)
+    timelines.append(
+        {
+            "source": "final",
+            "label": "Final transcript segments",
+            "segments": transcript.segments,
+        }
+    )
+
+    rows: list[dict[str, Any]] = []
+    for timeline in timelines:
+        segments = timeline["segments"]
+        speakers = speaker_diagnostics(segments)
+        speaker_reference = (
+            diarization_error_metrics(
+                reference_speaker_segments or [],
+                segments,
+                frame_step_ms=speaker_frame_step_ms,
+            )
+            if reference_speaker_segments is not None
+            else {"available": False}
+        )
+        row = {
+            "source": timeline["source"],
+            "label": timeline["label"],
+            "segment_count": len(segments),
+            "speakers": speakers,
+            "speaker_reference": speaker_reference,
+        }
+        row["quality_score"] = _timeline_quality_score(row)
+        rows.append(row)
+
+    available_rows = [
+        row
+        for row in rows
+        if (row.get("speakers") or {}).get("available")
+    ]
+    best = min(
+        available_rows,
+        key=lambda row: float(row.get("quality_score") or 0.0),
+        default=None,
+    )
+    return {
+        "available": bool(rows),
+        "timeline_count": len(rows),
+        "best_source": best.get("source") if best else None,
+        "best_label": best.get("label") if best else None,
+        "best_quality_score": best.get("quality_score") if best else None,
+        "timelines": rows,
+    }
+
+
 def build_core_pipeline_report(
     *,
     transcript: TranscriptArtifact,
@@ -665,6 +723,11 @@ def build_core_pipeline_report(
             transcript.segments,
             frame_step_ms=speaker_frame_step_ms,
         ) if reference_speaker_segments is not None else {"available": False},
+        "timeline_diagnostics": timeline_diagnostics(
+            transcript,
+            reference_speaker_segments=reference_speaker_segments,
+            speaker_frame_step_ms=speaker_frame_step_ms,
+        ),
         "voiceprint": voiceprint_diagnostics(
             transcript.metadata,
             low_confidence_threshold=low_confidence_threshold,
@@ -1180,6 +1243,7 @@ def render_markdown_report(report: dict[str, Any]) -> str:
     asr = report.get("asr") or {}
     speakers = report.get("speakers") or {}
     speaker_reference = report.get("speaker_reference") or {}
+    timeline_diagnostics_report = report.get("timeline_diagnostics") or {}
     voiceprint = report.get("voiceprint") or {}
     voiceprint_probe = report.get("voiceprint_probe") or {}
     voiceprint_scan = report.get("voiceprint_threshold_scan") or {}
@@ -1214,6 +1278,14 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- Miss: {_format_percent(speaker_reference.get('miss_rate'))}",
         f"- False Alarm: {_format_percent(speaker_reference.get('false_alarm_rate'))}",
         f"- Confusion: {_format_percent(speaker_reference.get('confusion_rate'))}",
+        "",
+        "## Timeline 诊断",
+        f"- 可用: {bool(timeline_diagnostics_report.get('available'))}",
+        f"- 推荐 Timeline: {timeline_diagnostics_report.get('best_source') or 'N/A'}",
+        f"- 推荐分数: {_format_number(timeline_diagnostics_report.get('best_quality_score'))}",
+        "| Timeline | 分段 | DER | JER | 短碎片率 | 断词率 | 前导标点率 | 分数 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        *_render_timeline_rows(timeline_diagnostics_report),
         "",
         "## 声纹识别",
         f"- 可用: {bool(voiceprint.get('available'))}",
@@ -1272,6 +1344,45 @@ def _parse_json_transcript(data: dict[str, Any]) -> TranscriptArtifact:
         segments=segments,
         metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
     )
+
+
+def _timeline_segments_from_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_timelines = metadata.get("timelines") if isinstance(metadata, dict) else None
+    if not isinstance(raw_timelines, list):
+        return []
+
+    timelines: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_timelines, start=1):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or f"timeline_{index}").strip() or f"timeline_{index}"
+        label = str(item.get("label") or source).strip() or source
+        segments = _parse_segment_items(item.get("segments") or [])
+        timelines.append({"source": source, "label": label, "segments": segments})
+    return timelines
+
+
+def _parse_segment_items(items: Any) -> list[TranscriptSegment]:
+    if not isinstance(items, list):
+        return []
+    segments: list[TranscriptSegment] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        segments.append(
+            TranscriptSegment(
+                start_ms=int(item.get("start_ms") or 0),
+                end_ms=int(item.get("end_ms") or 0),
+                text=str(item.get("text") or ""),
+                speaker=str(item["speaker"]) if item.get("speaker") is not None else None,
+                confidence=(
+                    float(item["confidence"])
+                    if item.get("confidence") is not None
+                    else None
+                ),
+            )
+        )
+    return segments
 
 
 def _parse_readable_transcript(payload: str) -> TranscriptArtifact:
@@ -1545,6 +1656,32 @@ def _mean_nested_metric(
         if (value := ((sample.get(section) or {}).get(nested) or {}).get(key)) is not None
     ]
     return sum(values) / len(values) if values else None
+
+
+def _timeline_quality_score(row: dict[str, Any]) -> float:
+    speakers = row.get("speakers") or {}
+    speaker_reference = row.get("speaker_reference") or {}
+    if not speakers.get("available"):
+        return 999.0
+
+    short_ratio = float(speakers.get("short_fragment_ratio") or 0.0)
+    cjk_ratio = float(speakers.get("cjk_split_boundary_ratio") or 0.0)
+    leading_ratio = float(speakers.get("leading_punctuation_ratio") or 0.0)
+    long_count = float(speakers.get("long_segment_count") or 0.0)
+    turns_per_minute = float(speakers.get("speaker_turns_per_minute") or 0.0)
+    readability_penalty = (
+        short_ratio
+        + (2.0 * cjk_ratio)
+        + leading_ratio
+        + min(1.0, long_count / max(1.0, float(speakers.get("segment_count") or 1)))
+        + min(1.0, turns_per_minute / 20.0)
+    )
+
+    if speaker_reference.get("available"):
+        der = float(speaker_reference.get("der") or 0.0)
+        jer = float(speaker_reference.get("jer") or 0.0)
+        return der + (0.25 * jer) + (0.1 * readability_penalty)
+    return readability_penalty
 
 
 def _parse_time_ms(value: str) -> int:
@@ -1897,6 +2034,36 @@ def _voiceprint_candidate_matches(candidate: dict[str, Any], expected: str) -> b
         str(candidate.get("display_name") or "").strip(),
         str(candidate.get("label") or "").strip(),
     }
+
+
+def _render_timeline_rows(report: dict[str, Any]) -> list[str]:
+    rows = report.get("timelines") if isinstance(report, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+
+    rendered: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        speakers = row.get("speakers") or {}
+        speaker_reference = row.get("speaker_reference") or {}
+        rendered.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row.get("source") or "N/A"),
+                    str(row.get("segment_count", "N/A")),
+                    _format_percent(speaker_reference.get("der")),
+                    _format_percent(speaker_reference.get("jer")),
+                    _format_percent(speakers.get("short_fragment_ratio")),
+                    _format_percent(speakers.get("cjk_split_boundary_ratio")),
+                    _format_percent(speakers.get("leading_punctuation_ratio")),
+                    _format_number(row.get("quality_score")),
+                ]
+            )
+            + " |"
+        )
+    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
 
 
 def _format_percent(value: Any) -> str:

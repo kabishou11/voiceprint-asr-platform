@@ -108,9 +108,18 @@ def _run_multi_speaker_transcription_sync(
         transcript = asr_adapter.transcribe(asset)
         diarization_segments = diarization_adapter.diarize(asset)
 
-    diarization_segments = canonicalize_speaker_labels(diarization_segments)
+    adapter_timelines = _get_adapter_diarization_timelines(diarization_adapter)
+    regular_segments = canonicalize_speaker_labels(
+        adapter_timelines.get("regular") or diarization_segments
+    )
+    adapter_exclusive_segments = canonicalize_speaker_labels(
+        adapter_timelines.get("exclusive") or []
+    )
+    diarization_segments = adapter_exclusive_segments or regular_segments
     aligned = align_transcript_with_speakers(transcript, diarization_segments)
-    exclusive_segments = build_exclusive_speaker_timeline(diarization_segments)
+    exclusive_segments = adapter_exclusive_segments or build_exclusive_speaker_timeline(
+        regular_segments or diarization_segments
+    )
     display_segments = build_display_speaker_timeline(
         aligned.segments,
         exclusive_segments or diarization_segments,
@@ -131,7 +140,7 @@ def _run_multi_speaker_transcription_sync(
             TranscriptTimeline(
                 label="Regular diarization",
                 source="regular",
-                segments=diarization_segments,
+                segments=regular_segments or diarization_segments,
             ),
             TranscriptTimeline(
                 label="Exclusive alignment timeline",
@@ -146,6 +155,31 @@ def _run_multi_speaker_transcription_sync(
         ],
     )
     return aligned.model_copy(update={"metadata": metadata})
+
+
+def _get_adapter_diarization_timelines(adapter) -> dict[str, list[Segment]]:
+    getter = getattr(adapter, "get_last_outputs", None)
+    if not callable(getter):
+        return {}
+    try:
+        outputs = getter()
+    except Exception as exc:
+        logger.warning("读取 diarization adapter 时间线失败: %s", exc)
+        return {}
+    if not isinstance(outputs, dict):
+        return {}
+
+    timelines: dict[str, list[Segment]] = {}
+    for source in ("regular", "exclusive"):
+        items = outputs.get(source)
+        if not isinstance(items, list):
+            continue
+        timelines[source] = [
+            item.model_copy()
+            for item in items
+            if isinstance(item, Segment) and item.end_ms > item.start_ms
+        ]
+    return timelines
 
 
 def _build_voiceprint_matches(

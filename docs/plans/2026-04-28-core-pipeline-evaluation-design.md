@@ -105,3 +105,4 @@
 - 第十二阶段增强长会议 LLM 纪要归并可靠性。已落地第一版：多分块纪要 reduce 后，会从 chunk 合并草稿中回填 reduce 遗漏且可在原始 transcript segments 中命中证据的决策、行动项和风险，避免模型归并时丢失后半段已有证据的关键事项。
 - 第十三阶段保护真实短插话。已落地第一版：alignment 的 A-B-A 短碎片平滑只吸收 filler 或无句末标点的短残片，不再吞掉“不同意。”这类短但完整的跨 speaker 插话，避免多人会议中的关键反对意见被合并到前后 speaker。
 - 第十四阶段补齐声纹库识别候选范围。已落地第一版：声纹库页面在分组上下文执行“声纹识别”时，会把当前可见分组档案 ID 作为 `profile_ids` 透传到 `/voiceprints/identify`，API 同步与异步 worker 链路再传到底层 adapter，避免 UI 已限定分组但实际全库识别。
+- 第十五阶段把多时间线纳入评测。已落地第一版：核心评测报告新增 `timeline_diagnostics`，会并排计算 metadata 中 `regular`、`exclusive`、`display` 与最终 `segments` 的 speaker 诊断、DER/JER、中文断词和前导标点指标，并给出推荐 timeline；worker 同步读取 adapter 的 `get_last_outputs()`，避免 pyannote 的 regular/exclusive 元数据被折叠成同一份。

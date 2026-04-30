@@ -368,4 +368,92 @@ def test_build_core_pipeline_report_combines_all_sections() -> None:
     assert report["asr"]["cer"] == 0.0
     assert report["speakers"]["speaker_count"] == 1
     assert report["speaker_reference"]["der"] == 0.0
+    assert report["timeline_diagnostics"]["best_source"] == "final"
     assert report["voiceprint"]["available"] is False
+
+
+def test_build_core_pipeline_report_compares_metadata_timelines() -> None:
+    reference = [
+        TranscriptSegment(start_ms=0, end_ms=2000, text="", speaker="alice"),
+        TranscriptSegment(start_ms=2000, end_ms=4000, text="", speaker="bob"),
+    ]
+    artifact = TranscriptArtifact(
+        text="没有应用加工逻辑的时候，好的。",
+        language="zh-cn",
+        segments=[
+            TranscriptSegment(start_ms=0, end_ms=2000, text="没有应用加工逻", speaker="SPEAKER_00"),
+            TranscriptSegment(
+                start_ms=2000,
+                end_ms=4000,
+                text="辑的时候，好的。",
+                speaker="SPEAKER_01",
+            ),
+        ],
+        metadata={
+            "timelines": [
+                {
+                    "label": "Regular diarization",
+                    "source": "regular",
+                    "segments": [
+                        {"start_ms": 0, "end_ms": 4000, "text": "", "speaker": "SPEAKER_00"},
+                    ],
+                },
+                {
+                    "label": "Exclusive alignment timeline",
+                    "source": "exclusive",
+                    "segments": [
+                        {"start_ms": 0, "end_ms": 2000, "text": "", "speaker": "SPEAKER_00"},
+                        {"start_ms": 2000, "end_ms": 4000, "text": "", "speaker": "SPEAKER_01"},
+                    ],
+                },
+                {
+                    "label": "Display speaker timeline",
+                    "source": "display",
+                    "segments": [
+                        {"start_ms": 0, "end_ms": 4000, "text": "", "speaker": "SPEAKER_00"},
+                    ],
+                },
+            ]
+        },
+    )
+
+    report = build_core_pipeline_report(
+        transcript=artifact,
+        reference_speaker_segments=reference,
+    )
+
+    timeline_report = report["timeline_diagnostics"]
+    by_source = {row["source"]: row for row in timeline_report["timelines"]}
+    assert set(by_source) == {"regular", "exclusive", "display", "final"}
+    assert by_source["exclusive"]["speaker_reference"]["der"] == 0.0
+    assert by_source["final"]["speakers"]["cjk_split_boundary_count"] == 1
+    assert timeline_report["best_source"] == "exclusive"
+
+
+def test_render_markdown_report_includes_timeline_diagnostics() -> None:
+    markdown = render_markdown_report(
+        {
+            "timeline_diagnostics": {
+                "available": True,
+                "best_source": "exclusive",
+                "best_quality_score": 0.01,
+                "timelines": [
+                    {
+                        "source": "exclusive",
+                        "segment_count": 2,
+                        "quality_score": 0.01,
+                        "speakers": {
+                            "short_fragment_ratio": 0.0,
+                            "cjk_split_boundary_ratio": 0.0,
+                            "leading_punctuation_ratio": 0.0,
+                        },
+                        "speaker_reference": {"der": 0.0, "jer": 0.0},
+                    }
+                ],
+            }
+        }
+    )
+
+    assert "## Timeline 诊断" in markdown
+    assert "- 推荐 Timeline: exclusive" in markdown
+    assert "| exclusive | 2 | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.01 |" in markdown
