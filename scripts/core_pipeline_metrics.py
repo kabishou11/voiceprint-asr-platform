@@ -930,6 +930,16 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
                 "approx_eer",
                 "eer",
             ),
+            "mean_missing_result_count": _mean_metric(
+                samples,
+                "voiceprint_threshold_scan",
+                "missing_result_count",
+            ),
+            "mean_missing_positive_count": _mean_metric(
+                samples,
+                "voiceprint_threshold_scan",
+                "missing_positive_count",
+            ),
         },
         "voiceprint_identification": {
             "available_count": _available_count(samples, "voiceprint_identification"),
@@ -1122,6 +1132,10 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均声纹 Probe 可用比例: "
         f"{_format_percent(voiceprint_probe.get('mean_probe_ready_ratio'))}",
         f"- 平均近似 EER: {_format_percent(voiceprint_scan.get('mean_approx_eer'))}",
+        f"- 平均阈值扫描缺失结果数: "
+        f"{_format_number(voiceprint_scan.get('mean_missing_result_count'))}",
+        f"- 平均阈值扫描缺失正确候选数: "
+        f"{_format_number(voiceprint_scan.get('mean_missing_positive_count'))}",
         f"- 平均声纹 Top1: "
         f"{_format_percent(voiceprint_identification.get('mean_top1_accuracy'))}",
         f"- 平均声纹 TopK: "
@@ -1723,6 +1737,16 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             ),
             "mean_approx_eer": (
                 (aggregate.get("voiceprint_threshold_scan") or {}).get("mean_approx_eer")
+            ),
+            "mean_voiceprint_scan_missing_result_count": (
+                (aggregate.get("voiceprint_threshold_scan") or {}).get(
+                    "mean_missing_result_count"
+                )
+            ),
+            "mean_voiceprint_scan_missing_positive_count": (
+                (aggregate.get("voiceprint_threshold_scan") or {}).get(
+                    "mean_missing_positive_count"
+                )
             ),
             "mean_voiceprint_top1_accuracy": (
                 (aggregate.get("voiceprint_identification") or {}).get("mean_top1_accuracy")

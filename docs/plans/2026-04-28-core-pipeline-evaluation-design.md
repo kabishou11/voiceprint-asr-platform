@@ -112,3 +112,4 @@
 - 第十九阶段把最佳 timeline 文本覆盖纳入基线对比。已落地第一版：样本集聚合会记录被推荐 timeline 的平均文本覆盖率，baseline summary 与横向对比表同步展示该指标及 delta，避免后续只观察 Timeline 分数却忽略推荐结果是否保留了可读文本。
 - 第二十阶段把部分文本覆盖纳入 timeline 质量分。已落地第一版：在没有 speaker reference 时，timeline 推荐分会按文本覆盖缺口增加惩罚，避免只有少量 segment 带文本的 display/regular 时间线与完整 final transcript 打平。
 - 第二十一阶段修正声纹阈值扫描漏计缺失结果。已落地第一版：阈值扫描改为以 ground truth speaker 为评估主轴，若某个 speaker 完全没有 `voiceprint_matches` 结果，也会生成 `missing_result`/`missing_positive` score row 并按 false negative 计入 ROC/EER，避免多人转写声纹链路漏跑时被聚合指标吞掉。
+- 第二十二阶段补齐声纹阈值扫描缺失计数聚合。已落地第一版：样本集聚合会输出平均缺失结果数和平均缺失正确候选数，baseline summary 同步保留这些指标的 delta，方便批量评测时直接发现声纹链路漏跑、候选范围过窄或注册库覆盖不足。

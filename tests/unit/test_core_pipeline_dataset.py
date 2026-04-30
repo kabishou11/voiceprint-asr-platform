@@ -214,7 +214,11 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
                 },
             },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.6},
-            "voiceprint_threshold_scan": {"mean_approx_eer": 0.15},
+            "voiceprint_threshold_scan": {
+                "mean_approx_eer": 0.15,
+                "mean_missing_result_count": 1.0,
+                "mean_missing_positive_count": 2.0,
+            },
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.7,
                 "mean_topk_accuracy": 0.9,
@@ -249,6 +253,8 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
 
     assert "# 核心流水线样本集基线报告" in markdown
     assert "- 推荐 Timeline 分布: exclusive=1" in markdown
+    assert "- 平均阈值扫描缺失结果数: 1.00" in markdown
+    assert "- 平均阈值扫描缺失正确候选数: 2.00" in markdown
     assert (
         "| exclusive | 1 | 2.00 | 30.00% | 40.00% | 100.00% | "
         "20.00% | 10.00% | 0.00% | 0.12 |"
@@ -330,6 +336,33 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
     assert timeline["sources"]["display"]["mean_quality_score"] == 0.5
 
 
+def test_aggregate_core_pipeline_reports_summarizes_voiceprint_scan_missing_counts() -> None:
+    aggregate = aggregate_core_pipeline_reports(
+        [
+            {
+                "voiceprint_threshold_scan": {
+                    "available": True,
+                    "missing_result_count": 2,
+                    "missing_positive_count": 3,
+                }
+            },
+            {
+                "voiceprint_threshold_scan": {
+                    "available": True,
+                    "missing_result_count": 0,
+                    "missing_positive_count": 1,
+                }
+            },
+        ]
+    )
+
+    scan = aggregate["voiceprint_threshold_scan"]
+
+    assert scan["available_count"] == 2
+    assert scan["mean_missing_result_count"] == 1.0
+    assert scan["mean_missing_positive_count"] == 2.0
+
+
 def test_baseline_comparison_reports_delta_from_first() -> None:
     first = {
         "suite": {"name": "baseline_v1", "sample_count": 1},
@@ -347,7 +380,11 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_best_text_coverage_ratio": 0.5,
             },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.4},
-            "voiceprint_threshold_scan": {"mean_approx_eer": 0.3},
+            "voiceprint_threshold_scan": {
+                "mean_approx_eer": 0.3,
+                "mean_missing_result_count": 2.0,
+                "mean_missing_positive_count": 3.0,
+            },
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.5,
                 "mean_topk_accuracy": 0.7,
@@ -371,7 +408,11 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_best_text_coverage_ratio": 1.0,
             },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.9},
-            "voiceprint_threshold_scan": {"mean_approx_eer": 0.2},
+            "voiceprint_threshold_scan": {
+                "mean_approx_eer": 0.2,
+                "mean_missing_result_count": 1.0,
+                "mean_missing_positive_count": 1.5,
+            },
             "voiceprint_identification": {
                 "mean_top1_accuracy": 0.75,
                 "mean_topk_accuracy": 0.8,
@@ -400,6 +441,12 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
         "mean_leading_punctuation_ratio"
     ] == pytest.approx(-0.15)
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_probe_ready_ratio"] == 0.5
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_voiceprint_scan_missing_result_count"
+    ] == -1.0
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_voiceprint_scan_missing_positive_count"
+    ] == -1.5
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
     assert (
