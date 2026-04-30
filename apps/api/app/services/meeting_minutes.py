@@ -296,6 +296,28 @@ def _build_minutes_evidence(
     }
 
 
+def _backfill_evidenced_items(
+    primary: list[str],
+    fallback: list[str],
+    segments: list[Segment],
+    *,
+    limit: int = 12,
+) -> list[str]:
+    items = list(primary)
+    seen = {_normalize_evidence_text(item) for item in items}
+    for candidate in fallback:
+        normalized = _normalize_evidence_text(candidate)
+        if not normalized or normalized in seen:
+            continue
+        if _best_evidence_segment(candidate, segments) is None:
+            continue
+        items.append(candidate)
+        seen.add(normalized)
+        if len(items) >= limit:
+            break
+    return items
+
+
 def _evidence_for_item(item: str, segments: list[Segment]) -> dict[str, Any]:
     best = _best_evidence_segment(item, segments)
     if best is None:
@@ -671,8 +693,10 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
     baseline = build_meeting_minutes(job)
     transcript = _transcript_payload(job)
     chunks = _chunk_transcript_payload(transcript)
+    segments = job.result.segments if job.result is not None else []
     parsed_chunks: list[dict[str, Any]] = []
     reasoning_parts: list[str] = []
+    merged_payload: dict[str, Any] | None = None
     for index, chunk in enumerate(chunks, start=1):
         parsed, reasoning = _call_llm_minutes(
             settings,
@@ -714,7 +738,22 @@ def build_llm_meeting_minutes(job: JobDetail) -> MeetingMinutes:
     action_items = _as_list(parsed.get("action_items")) or baseline.action_items
     risks = _as_list(parsed.get("risks")) or baseline.risks
     keywords = _as_list(parsed.get("keywords")) or baseline.keywords
-    segments = job.result.segments if job.result is not None else []
+    if merged_payload and segments:
+        decisions = _backfill_evidenced_items(
+            decisions,
+            _as_list(merged_payload.get("decisions")),
+            segments,
+        )
+        action_items = _backfill_evidenced_items(
+            action_items,
+            _as_list(merged_payload.get("action_items")),
+            segments,
+        )
+        risks = _backfill_evidenced_items(
+            risks,
+            _as_list(merged_payload.get("risks")),
+            segments,
+        )
     evidence = _build_minutes_evidence(
         segments,
         decisions=decisions,
