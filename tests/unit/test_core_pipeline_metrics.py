@@ -68,6 +68,9 @@ def test_speaker_diagnostics_flags_fragments_and_turns() -> None:
     assert result["short_fragment_count"] == 1
     assert result["long_segment_count"] == 1
     assert result["speaker_turn_count"] == 1
+    assert result["text_segment_count"] == 3
+    assert result["text_coverage_ratio"] == 1.0
+    assert result["readability_available"] is True
 
 
 def test_speaker_diagnostics_flags_readability_boundary_issues() -> None:
@@ -434,6 +437,39 @@ def test_build_core_pipeline_report_compares_metadata_timelines() -> None:
     assert timeline_report["best_source"] == "exclusive"
 
 
+def test_timeline_diagnostics_does_not_prefer_textless_timeline_without_reference() -> None:
+    artifact = TranscriptArtifact(
+        text="没有应用加工逻辑的时候。",
+        language="zh-cn",
+        segments=[
+            TranscriptSegment(start_ms=0, end_ms=2000, text="没有应用加工逻", speaker="SPEAKER_00"),
+            TranscriptSegment(start_ms=2000, end_ms=4000, text="辑的时候。", speaker="SPEAKER_01"),
+        ],
+        metadata={
+            "timelines": [
+                {
+                    "label": "Regular diarization",
+                    "source": "regular",
+                    "segments": [
+                        {"start_ms": 0, "end_ms": 4000, "text": "", "speaker": "SPEAKER_00"},
+                    ],
+                }
+            ]
+        },
+    )
+
+    report = build_core_pipeline_report(transcript=artifact)
+    by_source = {
+        row["source"]: row
+        for row in report["timeline_diagnostics"]["timelines"]
+    }
+
+    assert by_source["regular"]["speakers"]["readability_available"] is False
+    assert by_source["regular"]["quality_score"] == 999.0
+    assert by_source["final"]["speakers"]["text_coverage_ratio"] == 1.0
+    assert report["timeline_diagnostics"]["best_source"] == "final"
+
+
 def test_render_markdown_report_includes_timeline_diagnostics() -> None:
     markdown = render_markdown_report(
         {
@@ -447,6 +483,7 @@ def test_render_markdown_report_includes_timeline_diagnostics() -> None:
                         "segment_count": 2,
                         "quality_score": 0.01,
                         "speakers": {
+                            "text_coverage_ratio": 1.0,
                             "short_fragment_ratio": 0.0,
                             "cjk_split_boundary_ratio": 0.0,
                             "leading_punctuation_ratio": 0.0,
@@ -460,7 +497,10 @@ def test_render_markdown_report_includes_timeline_diagnostics() -> None:
 
     assert "## Timeline 诊断" in markdown
     assert "- 推荐 Timeline: exclusive" in markdown
-    assert "| exclusive | 2 | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.01 |" in markdown
+    assert (
+        "| exclusive | 2 | 0.00% | 0.00% | 100.00% | "
+        "0.00% | 0.00% | 0.00% | 0.01 |"
+    ) in markdown
 
 
 def test_render_markdown_report_includes_voiceprint_threshold_missing_speakers() -> None:

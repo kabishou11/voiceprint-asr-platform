@@ -204,6 +204,7 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
                         "mean_segment_count": 2,
                         "mean_der": 0.3,
                         "mean_jer": 0.4,
+                        "mean_text_coverage_ratio": 1.0,
                         "mean_short_fragment_ratio": 0.2,
                         "mean_cjk_split_boundary_ratio": 0.1,
                         "mean_leading_punctuation_ratio": 0.0,
@@ -247,7 +248,10 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
 
     assert "# 核心流水线样本集基线报告" in markdown
     assert "- 推荐 Timeline 分布: exclusive=1" in markdown
-    assert "| exclusive | 1 | 2.00 | 30.00% | 40.00% | 20.00% | 10.00% | 0.00% | 0.12 |" in markdown
+    assert (
+        "| exclusive | 1 | 2.00 | 30.00% | 40.00% | 100.00% | "
+        "20.00% | 10.00% | 0.00% | 0.12 |"
+    ) in markdown
     assert (
         "| sample_1 | 10.00% | 30.00% | 40.00% | 15.00% | "
         "70.00% | 90.00% | 100.00% | 50.00% | N/A |"
@@ -268,6 +272,7 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
                         "quality_score": 0.1,
                         "speaker_reference": {"der": 0.0, "jer": 0.2},
                         "speakers": {
+                            "text_coverage_ratio": 1.0,
                             "short_fragment_ratio": 0.1,
                             "cjk_split_boundary_ratio": 0.0,
                             "leading_punctuation_ratio": 0.0,
@@ -279,6 +284,7 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
                         "quality_score": 0.5,
                         "speaker_reference": {"der": 0.4, "jer": 0.4},
                         "speakers": {
+                            "text_coverage_ratio": 0.0,
                             "short_fragment_ratio": 0.0,
                             "cjk_split_boundary_ratio": 0.0,
                             "leading_punctuation_ratio": 0.0,
@@ -299,6 +305,7 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
                         "quality_score": 0.2,
                         "speaker_reference": {"der": 0.2, "jer": 0.2},
                         "speakers": {
+                            "text_coverage_ratio": 0.5,
                             "short_fragment_ratio": 0.2,
                             "cjk_split_boundary_ratio": 0.1,
                             "leading_punctuation_ratio": 0.0,
@@ -317,6 +324,7 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
     assert timeline["mean_best_quality_score"] == pytest.approx(0.15)
     assert timeline["sources"]["exclusive"]["mean_segment_count"] == 3.0
     assert timeline["sources"]["exclusive"]["mean_der"] == pytest.approx(0.1)
+    assert timeline["sources"]["exclusive"]["mean_text_coverage_ratio"] == pytest.approx(0.75)
     assert timeline["sources"]["display"]["mean_quality_score"] == 0.5
 
 

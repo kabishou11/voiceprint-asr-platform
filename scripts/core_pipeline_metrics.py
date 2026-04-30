@@ -142,6 +142,8 @@ def speaker_diagnostics(
     short_count = 0
     long_count = 0
     turns = 0
+    text_segment_count = 0
+    text_duration_ms = 0
     cjk_split_examples: list[dict[str, Any]] = []
     leading_punctuation_examples: list[dict[str, Any]] = []
     previous_speaker: str | None = None
@@ -153,6 +155,9 @@ def speaker_diagnostics(
         duration = max(0, segment.end_ms - segment.start_ms)
         speaker = segment.speaker or "UNKNOWN"
         speaker_durations[speaker] = speaker_durations.get(speaker, 0) + duration
+        if str(segment.text or "").strip():
+            text_segment_count += 1
+            text_duration_ms += duration
         if duration <= short_fragment_ms:
             short_count += 1
         if duration >= long_segment_ms:
@@ -194,6 +199,11 @@ def speaker_diagnostics(
             speaker: duration / max(1, speech_duration_ms)
             for speaker, duration in speaker_durations.items()
         },
+        "text_segment_count": text_segment_count,
+        "text_coverage_ratio": text_segment_count / len(segments),
+        "text_duration_ms": text_duration_ms,
+        "text_duration_ratio": text_duration_ms / max(1, speech_duration_ms),
+        "readability_available": text_segment_count > 0,
         "short_fragment_count": short_count,
         "short_fragment_ratio": short_count / len(segments),
         "long_segment_count": long_count,
@@ -1036,6 +1046,10 @@ def _aggregate_timeline_source_rows(rows: list[dict[str, Any]]) -> dict[str, Any
             ((row.get("speakers") or {}).get("short_fragment_ratio"))
             for row in rows
         ),
+        "mean_text_coverage_ratio": _mean_values(
+            ((row.get("speakers") or {}).get("text_coverage_ratio"))
+            for row in rows
+        ),
         "mean_cjk_split_boundary_ratio": _mean_values(
             ((row.get("speakers") or {}).get("cjk_split_boundary_ratio"))
             for row in rows
@@ -1107,8 +1121,9 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"{_format_number(minutes.get('mean_risk_low_evidence_count'))}",
         "",
         "## Timeline 聚合",
-        "| Timeline | 样本数 | 分段 | DER | JER | 短碎片率 | 断词率 | 前导标点率 | 分数 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Timeline | 样本数 | 分段 | DER | JER | 文本覆盖 | "
+        "短碎片率 | 断词率 | 前导标点率 | 分数 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         *_render_timeline_aggregate_rows(timeline_diagnostics_report),
         "",
         "## 样本明细",
@@ -1363,8 +1378,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 可用: {bool(timeline_diagnostics_report.get('available'))}",
         f"- 推荐 Timeline: {timeline_diagnostics_report.get('best_source') or 'N/A'}",
         f"- 推荐分数: {_format_number(timeline_diagnostics_report.get('best_quality_score'))}",
-        "| Timeline | 分段 | DER | JER | 短碎片率 | 断词率 | 前导标点率 | 分数 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Timeline | 分段 | DER | JER | 文本覆盖 | 短碎片率 | 断词率 | 前导标点率 | 分数 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         *_render_timeline_rows(timeline_diagnostics_report),
         "",
         "## 声纹识别",
@@ -1758,6 +1773,11 @@ def _timeline_quality_score(row: dict[str, Any]) -> float:
     if not speakers.get("available"):
         return 999.0
 
+    text_coverage_ratio = float(speakers.get("text_coverage_ratio") or 0.0)
+    has_reference = bool(speaker_reference.get("available"))
+    if not has_reference and text_coverage_ratio <= 0:
+        return 999.0
+
     short_ratio = float(speakers.get("short_fragment_ratio") or 0.0)
     cjk_ratio = float(speakers.get("cjk_split_boundary_ratio") or 0.0)
     leading_ratio = float(speakers.get("leading_punctuation_ratio") or 0.0)
@@ -1771,7 +1791,7 @@ def _timeline_quality_score(row: dict[str, Any]) -> float:
         + min(1.0, turns_per_minute / 20.0)
     )
 
-    if speaker_reference.get("available"):
+    if has_reference:
         der = float(speaker_reference.get("der") or 0.0)
         jer = float(speaker_reference.get("jer") or 0.0)
         return der + (0.25 * jer) + (0.1 * readability_penalty)
@@ -2133,7 +2153,7 @@ def _voiceprint_candidate_matches(candidate: dict[str, Any], expected: str) -> b
 def _render_timeline_rows(report: dict[str, Any]) -> list[str]:
     rows = report.get("timelines") if isinstance(report, dict) else None
     if not isinstance(rows, list) or not rows:
-        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
 
     rendered: list[str] = []
     for row in rows:
@@ -2149,6 +2169,7 @@ def _render_timeline_rows(report: dict[str, Any]) -> list[str]:
                     str(row.get("segment_count", "N/A")),
                     _format_percent(speaker_reference.get("der")),
                     _format_percent(speaker_reference.get("jer")),
+                    _format_percent(speakers.get("text_coverage_ratio")),
                     _format_percent(speakers.get("short_fragment_ratio")),
                     _format_percent(speakers.get("cjk_split_boundary_ratio")),
                     _format_percent(speakers.get("leading_punctuation_ratio")),
@@ -2157,13 +2178,13 @@ def _render_timeline_rows(report: dict[str, Any]) -> list[str]:
             )
             + " |"
         )
-    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
 
 
 def _render_timeline_aggregate_rows(report: dict[str, Any]) -> list[str]:
     sources = report.get("sources") if isinstance(report, dict) else None
     if not isinstance(sources, dict) or not sources:
-        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
 
     rendered: list[str] = []
     for source, row in sorted(sources.items()):
@@ -2178,6 +2199,7 @@ def _render_timeline_aggregate_rows(report: dict[str, Any]) -> list[str]:
                     _format_number(row.get("mean_segment_count")),
                     _format_percent(row.get("mean_der")),
                     _format_percent(row.get("mean_jer")),
+                    _format_percent(row.get("mean_text_coverage_ratio")),
                     _format_percent(row.get("mean_short_fragment_ratio")),
                     _format_percent(row.get("mean_cjk_split_boundary_ratio")),
                     _format_percent(row.get("mean_leading_punctuation_ratio")),
@@ -2186,7 +2208,7 @@ def _render_timeline_aggregate_rows(report: dict[str, Any]) -> list[str]:
             )
             + " |"
         )
-    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
 
 
 def _format_counts(value: Any) -> str:

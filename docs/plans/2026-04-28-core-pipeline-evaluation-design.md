@@ -108,3 +108,4 @@
 - 第十五阶段把多时间线纳入评测。已落地第一版：核心评测报告新增 `timeline_diagnostics`，会并排计算 metadata 中 `regular`、`exclusive`、`display` 与最终 `segments` 的 speaker 诊断、DER/JER、中文断词和前导标点指标，并给出推荐 timeline；worker 同步读取 adapter 的 `get_last_outputs()`，避免 pyannote 的 regular/exclusive 元数据被折叠成同一份。
 - 第十六阶段把多时间线诊断纳入样本集基线。已落地第一版：样本集聚合报告会统计推荐 timeline 分布、最佳 timeline 平均质量分，以及各 timeline source 的平均 DER/JER、短碎片率、中文断词率和前导标点率；baseline 对比同步加入最佳 timeline 分数 delta，让 speaker 对齐优化可以跨版本量化比较。
 - 第十七阶段增强声纹阈值扫描可解释性。已落地第一版：`voiceprint_threshold_scan` 在统计缺失正确候选数量之外，会返回具体缺失 speaker 列表和完整 score rows；Markdown 报告同步展示阈值扫描缺失 speaker，方便区分阈值问题、候选范围问题和声纹模型打分问题。
+- 第十八阶段修正无文本 timeline 的推荐偏差。已落地第一版：speaker 诊断新增文本覆盖率和可读性可用标记；在没有 reference speaker 标注时，缺少文本的 regular/exclusive/display 时间线不会因为“没有断词可检测”而被误选为最佳 timeline，样本集聚合表同步展示各 timeline 的文本覆盖率。
