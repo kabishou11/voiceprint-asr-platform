@@ -1221,10 +1221,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         "## 指标对比",
         "| 基线 | 样本数 | CER | DER | JER | Timeline分数 | "
         "Timeline文本覆盖 | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
-        "Probe | EER | Top1 | TopK | "
+        "Probe | EER | 缺结果 | 缺候选 | Top1 | TopK | "
         "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-        "---: | ---: | ---: | ---: | "
+        "---: | ---: | ---: | ---: | ---: | ---: | "
         "---: | ---: | ---: |",
     ]
     for baseline in baselines:
@@ -1246,6 +1246,8 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_leading_punctuation_ratio")),
                     _format_percent(metrics.get("mean_voiceprint_probe_ready_ratio")),
                     _format_percent(metrics.get("mean_approx_eer")),
+                    _format_number(metrics.get("mean_voiceprint_scan_missing_result_count")),
+                    _format_number(metrics.get("mean_voiceprint_scan_missing_positive_count")),
                     _format_percent(metrics.get("mean_voiceprint_top1_accuracy")),
                     _format_percent(metrics.get("mean_voiceprint_topk_accuracy")),
                     _format_percent(metrics.get("mean_decision_coverage")),
@@ -1262,10 +1264,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
             "## 相对首个基线变化",
             "| 基线 | CER | DER | JER | Timeline分数 | Timeline文本覆盖 | "
             "断词数 | 断词率 | 前导标点数 | 前导标点率 | "
-            "Probe | EER | Top1 | TopK | "
+            "Probe | EER | 缺结果 | 缺候选 | Top1 | TopK | "
             "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-            "---: | ---: | ---: | ---: | "
+            "---: | ---: | ---: | ---: | ---: | ---: | "
             "---: | ---: | ---: |",
         ]
     )
@@ -1287,6 +1289,12 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_leading_punctuation_ratio")),
                     _format_signed_percent(delta.get("mean_voiceprint_probe_ready_ratio")),
                     _format_signed_percent(delta.get("mean_approx_eer")),
+                    _format_signed_number(
+                        delta.get("mean_voiceprint_scan_missing_result_count")
+                    ),
+                    _format_signed_number(
+                        delta.get("mean_voiceprint_scan_missing_positive_count")
+                    ),
                     _format_signed_percent(delta.get("mean_voiceprint_top1_accuracy")),
                     _format_signed_percent(delta.get("mean_voiceprint_topk_accuracy")),
                     _format_signed_percent(delta.get("mean_decision_coverage")),

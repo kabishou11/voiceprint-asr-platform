@@ -449,8 +449,9 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     ] == -1.5
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
+    assert "Probe | EER | 缺结果 | 缺候选 | Top1" in markdown
     assert (
         "| baseline_v2 | -10.00% | -15.00% | -15.00% | -0.50 | +50.00% | "
         "-2.00 | -20.00% | -1.50 | -15.00% | +50.00% | -10.00% | "
-        "+25.00% | +10.00% | +25.00%"
+        "-1.00 | -1.50 | +25.00% | +10.00% | +25.00%"
     ) in markdown
