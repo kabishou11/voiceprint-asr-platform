@@ -1003,6 +1003,7 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
 def aggregate_timeline_diagnostics(samples: list[dict[str, Any]]) -> dict[str, Any]:
     best_source_counts: dict[str, int] = {}
     best_scores: list[float] = []
+    best_text_coverages: list[float] = []
     rows_by_source: dict[str, list[dict[str, Any]]] = {}
 
     for sample in samples:
@@ -1016,12 +1017,18 @@ def aggregate_timeline_diagnostics(samples: list[dict[str, Any]]) -> dict[str, A
             best_scores.append(float(best_score))
         for row in timeline_report.get("timelines") or []:
             if isinstance(row, dict) and str(row.get("source") or "").strip():
-                rows_by_source.setdefault(str(row["source"]), []).append(row)
+                source = str(row["source"])
+                rows_by_source.setdefault(source, []).append(row)
+                if source == best_source:
+                    text_coverage = (row.get("speakers") or {}).get("text_coverage_ratio")
+                    if text_coverage is not None:
+                        best_text_coverages.append(float(text_coverage))
 
     return {
         "available_count": sum(best_source_counts.values()),
         "best_source_counts": best_source_counts,
         "mean_best_quality_score": _mean_values(best_scores),
+        "mean_best_text_coverage_ratio": _mean_values(best_text_coverages),
         "sources": {
             source: _aggregate_timeline_source_rows(rows)
             for source, rows in sorted(rows_by_source.items())
@@ -1091,6 +1098,8 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
         f"- 平均最佳 Timeline 分数: "
         f"{_format_number(timeline_diagnostics_report.get('mean_best_quality_score'))}",
+        f"- 平均最佳 Timeline 文本覆盖: "
+        f"{_format_percent(timeline_diagnostics_report.get('mean_best_text_coverage_ratio'))}",
         f"- 推荐 Timeline 分布: "
         f"{_format_counts(timeline_diagnostics_report.get('best_source_counts'))}",
         f"- 平均中文断词边界数: "
@@ -1188,10 +1197,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         "",
         "## 指标对比",
         "| 基线 | 样本数 | CER | DER | JER | Timeline分数 | "
-        "断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+        "Timeline文本覆盖 | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
         "Probe | EER | Top1 | TopK | "
         "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
         "---: | ---: | ---: | ---: | "
         "---: | ---: | ---: |",
     ]
@@ -1207,6 +1216,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_der")),
                     _format_percent(metrics.get("mean_jer")),
                     _format_number(metrics.get("mean_best_timeline_quality_score")),
+                    _format_percent(metrics.get("mean_best_timeline_text_coverage_ratio")),
                     _format_number(metrics.get("mean_cjk_split_boundary_count")),
                     _format_percent(metrics.get("mean_cjk_split_boundary_ratio")),
                     _format_number(metrics.get("mean_leading_punctuation_count")),
@@ -1227,10 +1237,11 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "## 相对首个基线变化",
-            "| 基线 | CER | DER | JER | Timeline分数 | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+            "| 基线 | CER | DER | JER | Timeline分数 | Timeline文本覆盖 | "
+            "断词数 | 断词率 | 前导标点数 | 前导标点率 | "
             "Probe | EER | Top1 | TopK | "
             "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
             "---: | ---: | ---: | ---: | "
             "---: | ---: | ---: |",
         ]
@@ -1246,6 +1257,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_der")),
                     _format_signed_percent(delta.get("mean_jer")),
                     _format_signed_number(delta.get("mean_best_timeline_quality_score")),
+                    _format_signed_percent(delta.get("mean_best_timeline_text_coverage_ratio")),
                     _format_signed_number(delta.get("mean_cjk_split_boundary_count")),
                     _format_signed_percent(delta.get("mean_cjk_split_boundary_ratio")),
                     _format_signed_number(delta.get("mean_leading_punctuation_count")),
@@ -1691,6 +1703,11 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             "mean_best_timeline_quality_score": (
                 (aggregate.get("timeline_diagnostics") or {}).get(
                     "mean_best_quality_score"
+                )
+            ),
+            "mean_best_timeline_text_coverage_ratio": (
+                (aggregate.get("timeline_diagnostics") or {}).get(
+                    "mean_best_text_coverage_ratio"
                 )
             ),
             "mean_approx_eer": (

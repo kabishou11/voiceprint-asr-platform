@@ -197,6 +197,7 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
             "speaker_reference": {"mean_der": 0.3, "mean_jer": 0.4},
             "timeline_diagnostics": {
                 "mean_best_quality_score": 0.12,
+                "mean_best_text_coverage_ratio": 1.0,
                 "best_source_counts": {"exclusive": 1},
                 "sources": {
                     "exclusive": {
@@ -322,6 +323,7 @@ def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> No
     assert timeline["available_count"] == 2
     assert timeline["best_source_counts"] == {"exclusive": 2}
     assert timeline["mean_best_quality_score"] == pytest.approx(0.15)
+    assert timeline["mean_best_text_coverage_ratio"] == pytest.approx(0.75)
     assert timeline["sources"]["exclusive"]["mean_segment_count"] == 3.0
     assert timeline["sources"]["exclusive"]["mean_der"] == pytest.approx(0.1)
     assert timeline["sources"]["exclusive"]["mean_text_coverage_ratio"] == pytest.approx(0.75)
@@ -340,7 +342,10 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_leading_punctuation_ratio": 0.2,
             },
             "speaker_reference": {"mean_der": 0.4, "mean_jer": 0.5},
-            "timeline_diagnostics": {"mean_best_quality_score": 0.8},
+            "timeline_diagnostics": {
+                "mean_best_quality_score": 0.8,
+                "mean_best_text_coverage_ratio": 0.5,
+            },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.4},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.3},
             "voiceprint_identification": {
@@ -361,7 +366,10 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_leading_punctuation_ratio": 0.05,
             },
             "speaker_reference": {"mean_der": 0.25, "mean_jer": 0.35},
-            "timeline_diagnostics": {"mean_best_quality_score": 0.3},
+            "timeline_diagnostics": {
+                "mean_best_quality_score": 0.3,
+                "mean_best_text_coverage_ratio": 1.0,
+            },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.9},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.2},
             "voiceprint_identification": {
@@ -384,6 +392,9 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     assert report["baselines"][1]["delta_from_first"][
         "mean_best_timeline_quality_score"
     ] == pytest.approx(-0.5)
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_best_timeline_text_coverage_ratio"
+    ] == pytest.approx(0.5)
     assert report["baselines"][1]["delta_from_first"]["mean_leading_punctuation_count"] == -1.5
     assert report["baselines"][1]["delta_from_first"][
         "mean_leading_punctuation_ratio"
@@ -392,6 +403,7 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
     assert (
-        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -0.50 | -2.00 | -20.00% | "
-        "-1.50 | -15.00% | +50.00% | -10.00% | +25.00% | +10.00% | +25.00%"
+        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -0.50 | +50.00% | "
+        "-2.00 | -20.00% | -1.50 | -15.00% | +50.00% | -10.00% | "
+        "+25.00% | +10.00% | +25.00%"
     ) in markdown
