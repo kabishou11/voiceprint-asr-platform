@@ -189,6 +189,24 @@ def test_align_transcript_absorbs_longer_aba_fragment_when_middle_is_short_resid
     assert result.segments[0].speaker == "SPEAKER_00"
 
 
+def test_align_transcript_preserves_short_complete_interjection() -> None:
+    transcript = TranscriptResult(
+        text="第一句。不同意。第三句。",
+        language="zh-cn",
+        segments=[
+            Segment(start_ms=0, end_ms=2000, text="第一句。", speaker="SPEAKER_00"),
+            Segment(start_ms=2000, end_ms=3200, text="不同意。", speaker="SPEAKER_01"),
+            Segment(start_ms=3200, end_ms=5200, text="第三句。", speaker="SPEAKER_00"),
+        ],
+    )
+
+    result = align_transcript_with_speakers(transcript, [])
+
+    assert len(result.segments) == 3
+    assert result.segments[1].speaker == "SPEAKER_01"
+    assert result.segments[1].text == "不同意。"
+
+
 def test_build_exclusive_speaker_timeline_splits_overlap_at_midpoint() -> None:
     segments = [
         Segment(start_ms=0, end_ms=2000, text="", speaker="SPEAKER_00", confidence=0.9),

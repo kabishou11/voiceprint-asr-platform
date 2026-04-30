@@ -524,11 +524,13 @@ def _merge_tiny_alternating_segments(
         prev_seg = items[index - 1]
         next_seg = items[index + 1]
         duration = current.end_ms - current.start_ms
-        if (
+        current_text = _cleanup_segment_text(current.text)
+        is_short_residue = (
             duration <= max(min_duration_ms * 3, 2500)
-            or len(_cleanup_segment_text(current.text)) <= tiny_text_len
-            or _is_filler_segment(current.text)
-        ):
+            and len(current_text) <= tiny_text_len
+            and not re.search(r"[。！？!?；;]$", current_text)
+        )
+        if is_short_residue or _is_filler_segment(current_text):
             if prev_seg.speaker == next_seg.speaker:
                 merged_text = _join_text(prev_seg.text, next_seg.text)
                 items[index - 1] = prev_seg.model_copy(
