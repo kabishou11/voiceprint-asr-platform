@@ -114,3 +114,4 @@
 - 第二十一阶段修正声纹阈值扫描漏计缺失结果。已落地第一版：阈值扫描改为以 ground truth speaker 为评估主轴，若某个 speaker 完全没有 `voiceprint_matches` 结果，也会生成 `missing_result`/`missing_positive` score row 并按 false negative 计入 ROC/EER，避免多人转写声纹链路漏跑时被聚合指标吞掉。
 - 第二十二阶段补齐声纹阈值扫描缺失计数聚合。已落地第一版：样本集聚合会输出平均缺失结果数和平均缺失正确候选数，baseline summary 同步保留这些指标的 delta，方便批量评测时直接发现声纹链路漏跑、候选范围过窄或注册库覆盖不足。
 - 第二十三阶段把声纹缺失计数展示到基线对比。已落地第一版：baseline Markdown 的指标表和 delta 表在 EER 后展示“缺结果/缺候选”，让人工复盘时可以直接判断 EER 改善是否来自真实声纹模型表现，而不是缺失链路或候选覆盖变化。
+- 第二十四阶段修正空声纹结果被跳过的问题。已落地第一版：当提供声纹 ground truth 但 `voiceprint_matches` 为空时，阈值扫描和 TopK 识别不再返回 unavailable，而是把所有标注 speaker 计为 `missing_result` 与 `missing_positive`，让“声纹链路完全没产出”在批量指标中表现为 0 分和缺失计数。

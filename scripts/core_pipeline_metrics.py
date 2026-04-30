@@ -418,10 +418,10 @@ def voiceprint_threshold_scan(
     thresholds: list[float] | None = None,
 ) -> dict[str, Any]:
     matches = metadata.get("voiceprint_matches") or []
-    if not isinstance(matches, list) or not matches:
-        return {"available": False, "reason": "missing_voiceprint_matches"}
     if not ground_truth:
         return {"available": False, "reason": "missing_voiceprint_ground_truth"}
+    if not isinstance(matches, list):
+        matches = []
 
     score_rows = _voiceprint_score_rows(matches, ground_truth)
     if not score_rows:
@@ -514,10 +514,10 @@ def voiceprint_identification_metrics(
     top_k: int = 3,
 ) -> dict[str, Any]:
     matches = metadata.get("voiceprint_matches") or []
-    if not isinstance(matches, list) or not matches:
-        return {"available": False, "reason": "missing_voiceprint_matches"}
     if not ground_truth:
         return {"available": False, "reason": "missing_voiceprint_ground_truth"}
+    if not isinstance(matches, list):
+        matches = []
 
     match_by_speaker = {
         str(item.get("speaker") or "").strip(): item

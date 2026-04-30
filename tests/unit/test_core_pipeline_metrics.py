@@ -298,6 +298,22 @@ def test_voiceprint_threshold_scan_counts_missing_result_as_false_negative() -> 
     assert result["score_rows"][1]["missing_positive"] is True
 
 
+def test_voiceprint_threshold_scan_evaluates_empty_matches_as_all_missing() -> None:
+    result = voiceprint_threshold_scan(
+        {"voiceprint_matches": []},
+        {"SPEAKER_00": "alice", "SPEAKER_01": "bob"},
+        thresholds=[0.0, 0.5],
+    )
+
+    assert result["available"] is True
+    assert result["sample_count"] == 2
+    assert result["positive_count"] == 2
+    assert result["missing_result_count"] == 2
+    assert result["missing_result_speakers"] == ["SPEAKER_00", "SPEAKER_01"]
+    assert result["missing_positive_count"] == 2
+    assert result["roc_points"][0]["fn"] == 2
+
+
 def test_voiceprint_identification_metrics_reports_topk_and_missing_positive() -> None:
     metadata = {
         "voiceprint_matches": [
@@ -329,6 +345,21 @@ def test_voiceprint_identification_metrics_reports_topk_and_missing_positive() -
     assert result["missing_result_speakers"] == ["SPEAKER_02"]
     assert result["missing_positive_speakers"] == ["SPEAKER_01", "SPEAKER_02"]
     assert result["rows"][0]["topk_hit"] is True
+
+
+def test_voiceprint_identification_metrics_evaluates_empty_matches_as_all_missing() -> None:
+    result = voiceprint_identification_metrics(
+        {"voiceprint_matches": []},
+        {"SPEAKER_00": "alice", "SPEAKER_01": "bob"},
+        top_k=2,
+    )
+
+    assert result["available"] is True
+    assert result["top1_accuracy"] == 0.0
+    assert result["topk_accuracy"] == 0.0
+    assert result["missing_result_count"] == 2
+    assert result["missing_result_speakers"] == ["SPEAKER_00", "SPEAKER_01"]
+    assert result["missing_positive_count"] == 2
 
 
 def test_minutes_coverage_finds_evidence_in_transcript() -> None:
