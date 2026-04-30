@@ -470,6 +470,49 @@ def test_timeline_diagnostics_does_not_prefer_textless_timeline_without_referenc
     assert report["timeline_diagnostics"]["best_source"] == "final"
 
 
+def test_timeline_diagnostics_penalizes_partial_text_coverage_without_reference() -> None:
+    artifact = TranscriptArtifact(
+        text="分类分级规则已经确认。",
+        language="zh-cn",
+        segments=[
+            TranscriptSegment(
+                start_ms=0,
+                end_ms=4000,
+                text="分类分级规则已经确认。",
+                speaker="SPEAKER_00",
+            ),
+        ],
+        metadata={
+            "timelines": [
+                {
+                    "label": "Partial display timeline",
+                    "source": "display",
+                    "segments": [
+                        {
+                            "start_ms": 0,
+                            "end_ms": 2000,
+                            "text": "分类分级规则",
+                            "speaker": "SPEAKER_00",
+                        },
+                        {"start_ms": 2000, "end_ms": 4000, "text": "", "speaker": "SPEAKER_00"},
+                    ],
+                }
+            ]
+        },
+    )
+
+    report = build_core_pipeline_report(transcript=artifact)
+    by_source = {
+        row["source"]: row
+        for row in report["timeline_diagnostics"]["timelines"]
+    }
+
+    assert by_source["display"]["speakers"]["text_coverage_ratio"] == 0.5
+    assert by_source["display"]["quality_score"] == 0.5
+    assert by_source["final"]["quality_score"] == 0.0
+    assert report["timeline_diagnostics"]["best_source"] == "final"
+
+
 def test_render_markdown_report_includes_timeline_diagnostics() -> None:
     markdown = render_markdown_report(
         {

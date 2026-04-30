@@ -1796,12 +1796,14 @@ def _timeline_quality_score(row: dict[str, Any]) -> float:
         return 999.0
 
     short_ratio = float(speakers.get("short_fragment_ratio") or 0.0)
+    text_missing_ratio = 1.0 - min(1.0, max(0.0, text_coverage_ratio))
     cjk_ratio = float(speakers.get("cjk_split_boundary_ratio") or 0.0)
     leading_ratio = float(speakers.get("leading_punctuation_ratio") or 0.0)
     long_count = float(speakers.get("long_segment_count") or 0.0)
     turns_per_minute = float(speakers.get("speaker_turns_per_minute") or 0.0)
     readability_penalty = (
-        short_ratio
+        text_missing_ratio
+        + short_ratio
         + (2.0 * cjk_ratio)
         + leading_ratio
         + min(1.0, long_count / max(1.0, float(speakers.get("segment_count") or 1)))
