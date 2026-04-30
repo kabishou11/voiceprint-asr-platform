@@ -467,6 +467,13 @@ def voiceprint_threshold_scan(
 
     positive_count = sum(1 for row in score_rows if row["is_match"])
     missing_positive_count = sum(1 for row in score_rows if row.get("missing_positive"))
+    missing_positive_speakers = sorted(
+        {
+            str(row.get("speaker") or "")
+            for row in score_rows
+            if row.get("missing_positive") and str(row.get("speaker") or "")
+        }
+    )
     return {
         "available": True,
         "label_count": len(ground_truth),
@@ -474,8 +481,10 @@ def voiceprint_threshold_scan(
         "positive_count": positive_count,
         "negative_count": len(score_rows) - positive_count,
         "missing_positive_count": missing_positive_count,
+        "missing_positive_speakers": missing_positive_speakers,
         "approx_eer": best_eer,
         "roc_points": points,
+        "score_rows": score_rows,
     }
 
 
@@ -1370,6 +1379,10 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 样本数: {voiceprint_scan.get('sample_count', 'N/A')}",
         f"- 近似 EER: {_format_percent((voiceprint_scan.get('approx_eer') or {}).get('eer'))}",
         f"- EER 阈值: {_format_number((voiceprint_scan.get('approx_eer') or {}).get('threshold'))}",
+        f"- 阈值扫描缺失正确候选: "
+        f"{voiceprint_scan.get('missing_positive_count', 'N/A')}",
+        f"- 阈值扫描缺失 speaker: "
+        f"{', '.join(voiceprint_scan.get('missing_positive_speakers') or []) or 'N/A'}",
         f"- Top1 命中率: {_format_percent(voiceprint_identification.get('top1_accuracy'))}",
         f"- TopK 命中率: {_format_percent(voiceprint_identification.get('topk_accuracy'))}",
         f"- 缺失正确候选: {voiceprint_identification.get('missing_positive_count', 'N/A')}",

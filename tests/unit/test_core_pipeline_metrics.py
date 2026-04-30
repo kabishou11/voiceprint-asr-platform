@@ -258,8 +258,12 @@ def test_voiceprint_threshold_scan_counts_missing_positive_as_false_negative() -
 
     assert result["available"] is True
     assert result["missing_positive_count"] == 2
+    assert result["missing_positive_speakers"] == ["SPEAKER_00", "SPEAKER_01"]
     assert result["approx_eer"]["eer"] > 0.0
     assert result["roc_points"][0]["fn"] == 2
+    assert result["score_rows"][0]["profile_id"] == "bob"
+    assert result["score_rows"][1]["missing_positive"] is True
+    assert result["score_rows"][1]["score"] is None
 
 
 def test_voiceprint_identification_metrics_reports_topk_and_missing_positive() -> None:
@@ -457,3 +461,21 @@ def test_render_markdown_report_includes_timeline_diagnostics() -> None:
     assert "## Timeline 诊断" in markdown
     assert "- 推荐 Timeline: exclusive" in markdown
     assert "| exclusive | 2 | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.01 |" in markdown
+
+
+def test_render_markdown_report_includes_voiceprint_threshold_missing_speakers() -> None:
+    markdown = render_markdown_report(
+        {
+            "voiceprint_threshold_scan": {
+                "available": True,
+                "sample_count": 2,
+                "missing_positive_count": 1,
+                "missing_positive_speakers": ["SPEAKER_01"],
+                "approx_eer": {"eer": 0.5, "threshold": 0.7},
+            },
+            "voiceprint_identification": {},
+        }
+    )
+
+    assert "- 阈值扫描缺失正确候选: 1" in markdown
+    assert "- 阈值扫描缺失 speaker: SPEAKER_01" in markdown

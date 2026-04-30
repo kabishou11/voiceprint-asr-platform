@@ -107,3 +107,4 @@
 - 第十四阶段补齐声纹库识别候选范围。已落地第一版：声纹库页面在分组上下文执行“声纹识别”时，会把当前可见分组档案 ID 作为 `profile_ids` 透传到 `/voiceprints/identify`，API 同步与异步 worker 链路再传到底层 adapter，避免 UI 已限定分组但实际全库识别。
 - 第十五阶段把多时间线纳入评测。已落地第一版：核心评测报告新增 `timeline_diagnostics`，会并排计算 metadata 中 `regular`、`exclusive`、`display` 与最终 `segments` 的 speaker 诊断、DER/JER、中文断词和前导标点指标，并给出推荐 timeline；worker 同步读取 adapter 的 `get_last_outputs()`，避免 pyannote 的 regular/exclusive 元数据被折叠成同一份。
 - 第十六阶段把多时间线诊断纳入样本集基线。已落地第一版：样本集聚合报告会统计推荐 timeline 分布、最佳 timeline 平均质量分，以及各 timeline source 的平均 DER/JER、短碎片率、中文断词率和前导标点率；baseline 对比同步加入最佳 timeline 分数 delta，让 speaker 对齐优化可以跨版本量化比较。
+- 第十七阶段增强声纹阈值扫描可解释性。已落地第一版：`voiceprint_threshold_scan` 在统计缺失正确候选数量之外，会返回具体缺失 speaker 列表和完整 score rows；Markdown 报告同步展示阈值扫描缺失 speaker，方便区分阈值问题、候选范围问题和声纹模型打分问题。
