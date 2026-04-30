@@ -157,7 +157,7 @@ def _build_voiceprint_matches(
     group_id: str | None,
     profile_ids: list[str] | None,
 ) -> list[VoiceprintSpeakerMatch]:
-    if scope_mode == "none":
+    if scope_mode == "none" and not profile_ids:
         return []
 
     candidate_ids, display_names = _resolve_voiceprint_candidates(scope_mode, group_id, profile_ids)

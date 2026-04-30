@@ -33,12 +33,16 @@ class _DummyDiarizationAdapter:
 
 
 class _DummyVoiceprintAdapter:
+    def __init__(self) -> None:
+        self.seen_profile_ids: list[list[str] | None] = []
+
     def identify(self, asset: AudioAsset, top_k: int, profile_ids: list[str] | None = None):
         from domain.schemas.voiceprint import (
             VoiceprintIdentificationCandidate,
             VoiceprintIdentificationResult,
         )
 
+        self.seen_profile_ids.append(profile_ids)
         candidates = [
             VoiceprintIdentificationCandidate(
                 profile_id=(profile_ids or ["profile-a"])[0],
@@ -51,6 +55,9 @@ class _DummyVoiceprintAdapter:
 
 
 class _DummyRegistry:
+    def __init__(self, voiceprint_adapter: _DummyVoiceprintAdapter | None = None) -> None:
+        self.voiceprint_adapter = voiceprint_adapter or _DummyVoiceprintAdapter()
+
     def require_available(self, model_key: str) -> None:
         return None
 
@@ -61,7 +68,7 @@ class _DummyRegistry:
         return _DummyDiarizationAdapter()
 
     def get_voiceprint(self, model_key: str) -> _DummyVoiceprintAdapter:
-        return _DummyVoiceprintAdapter()
+        return self.voiceprint_adapter
 
 
 def test_run_multi_speaker_transcription_attaches_timeline_metadata(monkeypatch) -> None:
@@ -127,6 +134,71 @@ def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch
     assert result.metadata.voiceprint_matches
     assert result.metadata.voiceprint_matches[0].candidate_profile_ids == [profile_id]
     assert result.metadata.voiceprint_matches[0].candidates[0].display_name == "测试候选人"
+
+
+def test_run_multi_speaker_transcription_uses_explicit_voiceprint_profile_ids(
+    monkeypatch,
+) -> None:
+    from apps.api.app.services import job_db
+
+    selected_profile_id = "unit-profile-explicit-selected"
+    ignored_profile_id = "unit-profile-explicit-ignored"
+    with job_db.session() as db:
+        db.merge(
+            job_db.VoiceprintProfileRecord(
+                profile_id=selected_profile_id,
+                display_name="指定候选人",
+                model_key="3dspeaker-embedding",
+                sample_count=1,
+            )
+        )
+        db.merge(
+            job_db.VoiceprintProfileRecord(
+                profile_id=ignored_profile_id,
+                display_name="不应进入候选",
+                model_key="3dspeaker-embedding",
+                sample_count=1,
+            )
+        )
+        db.commit()
+
+    voiceprint_adapter = _DummyVoiceprintAdapter()
+    monkeypatch.setattr(
+        multi_speaker,
+        "get_worker_registry",
+        lambda: _DummyRegistry(voiceprint_adapter),
+    )
+    monkeypatch.setattr(multi_speaker, "preprocess_audio", lambda asset: asset)
+    monkeypatch.setattr(
+        multi_speaker,
+        "_adapter_asset",
+        lambda asset_name: AudioAsset(path=asset_name),
+    )
+    monkeypatch.setattr(
+        multi_speaker,
+        "_build_speaker_probe_assets",
+        lambda asset, segments, speakers, tmpdir: [
+            (speaker, AudioAsset(path=f"{speaker}.wav"))
+            for speaker in speakers
+        ],
+    )
+
+    result = multi_speaker.run_multi_speaker_transcription(
+        job_id="job-voiceprint-explicit",
+        asset_name="demo.wav",
+        voiceprint_profile_ids=[selected_profile_id],
+    )
+
+    assert result.metadata is not None
+    assert result.metadata.voiceprint_matches
+    assert result.metadata.voiceprint_matches[0].scope_mode == "none"
+    assert result.metadata.voiceprint_matches[0].candidate_profile_ids == [selected_profile_id]
+    assert result.metadata.voiceprint_matches[0].candidates[0].profile_id == selected_profile_id
+    assert voiceprint_adapter.seen_profile_ids
+    assert all(
+        profile_ids == [selected_profile_id]
+        for profile_ids in voiceprint_adapter.seen_profile_ids
+    )
 
 
 def test_build_speaker_probe_assets_prefers_clean_high_energy_segments(tmp_path) -> None:
