@@ -867,6 +867,7 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
             "mean_der": _mean_metric(samples, "speaker_reference", "der"),
             "mean_jer": _mean_metric(samples, "speaker_reference", "jer"),
         },
+        "timeline_diagnostics": aggregate_timeline_diagnostics(samples),
         "voiceprint": {
             "available_count": _available_count(samples, "voiceprint"),
             "mean_matched_speaker_count": _mean_metric(
@@ -980,6 +981,63 @@ def aggregate_core_pipeline_reports(samples: list[dict[str, Any]]) -> dict[str, 
     }
 
 
+def aggregate_timeline_diagnostics(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    best_source_counts: dict[str, int] = {}
+    best_scores: list[float] = []
+    rows_by_source: dict[str, list[dict[str, Any]]] = {}
+
+    for sample in samples:
+        timeline_report = sample.get("timeline_diagnostics") or {}
+        if not isinstance(timeline_report, dict) or not timeline_report.get("available"):
+            continue
+        best_source = str(timeline_report.get("best_source") or "").strip()
+        if best_source:
+            best_source_counts[best_source] = best_source_counts.get(best_source, 0) + 1
+        if (best_score := timeline_report.get("best_quality_score")) is not None:
+            best_scores.append(float(best_score))
+        for row in timeline_report.get("timelines") or []:
+            if isinstance(row, dict) and str(row.get("source") or "").strip():
+                rows_by_source.setdefault(str(row["source"]), []).append(row)
+
+    return {
+        "available_count": sum(best_source_counts.values()),
+        "best_source_counts": best_source_counts,
+        "mean_best_quality_score": _mean_values(best_scores),
+        "sources": {
+            source: _aggregate_timeline_source_rows(rows)
+            for source, rows in sorted(rows_by_source.items())
+        },
+    }
+
+
+def _aggregate_timeline_source_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "available_count": len(rows),
+        "mean_segment_count": _mean_values(row.get("segment_count") for row in rows),
+        "mean_quality_score": _mean_values(row.get("quality_score") for row in rows),
+        "mean_der": _mean_values(
+            (row.get("speaker_reference") or {}).get("der")
+            for row in rows
+        ),
+        "mean_jer": _mean_values(
+            (row.get("speaker_reference") or {}).get("jer")
+            for row in rows
+        ),
+        "mean_short_fragment_ratio": _mean_values(
+            ((row.get("speakers") or {}).get("short_fragment_ratio"))
+            for row in rows
+        ),
+        "mean_cjk_split_boundary_ratio": _mean_values(
+            ((row.get("speakers") or {}).get("cjk_split_boundary_ratio"))
+            for row in rows
+        ),
+        "mean_leading_punctuation_ratio": _mean_values(
+            ((row.get("speakers") or {}).get("leading_punctuation_ratio"))
+            for row in rows
+        ),
+    }
+
+
 def render_dataset_markdown_report(report: dict[str, Any]) -> str:
     suite = report.get("suite") or {}
     aggregate = report.get("aggregate") or {}
@@ -987,6 +1045,7 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
     asr = aggregate.get("asr") or {}
     speakers = aggregate.get("speakers") or {}
     speaker_reference = aggregate.get("speaker_reference") or {}
+    timeline_diagnostics_report = aggregate.get("timeline_diagnostics") or {}
     voiceprint_probe = aggregate.get("voiceprint_probe") or {}
     voiceprint_scan = aggregate.get("voiceprint_threshold_scan") or {}
     voiceprint_identification = aggregate.get("voiceprint_identification") or {}
@@ -1007,6 +1066,10 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"- 平均短碎片率: {_format_percent(speakers.get('mean_short_fragment_ratio'))}",
         f"- 平均 DER: {_format_percent(speaker_reference.get('mean_der'))}",
         f"- 平均 JER: {_format_percent(speaker_reference.get('mean_jer'))}",
+        f"- 平均最佳 Timeline 分数: "
+        f"{_format_number(timeline_diagnostics_report.get('mean_best_quality_score'))}",
+        f"- 推荐 Timeline 分布: "
+        f"{_format_counts(timeline_diagnostics_report.get('best_source_counts'))}",
         f"- 平均中文断词边界数: "
         f"{_format_number(speakers.get('mean_cjk_split_boundary_count'))}",
         f"- 平均中文断词边界率: "
@@ -1033,6 +1096,11 @@ def render_dataset_markdown_report(report: dict[str, Any]) -> str:
         f"{_format_number(minutes.get('mean_decision_low_evidence_count'))}/"
         f"{_format_number(minutes.get('mean_action_item_low_evidence_count'))}/"
         f"{_format_number(minutes.get('mean_risk_low_evidence_count'))}",
+        "",
+        "## Timeline 聚合",
+        "| Timeline | 样本数 | 分段 | DER | JER | 短碎片率 | 断词率 | 前导标点率 | 分数 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        *_render_timeline_aggregate_rows(timeline_diagnostics_report),
         "",
         "## 样本明细",
         "| 样本 | CER | DER | JER | EER | Top1 | TopK | 决策覆盖 | 行动项覆盖 | 风险覆盖 |",
@@ -1095,10 +1163,11 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         f"- 参考基线: {(report.get('comparison') or {}).get('reference') or 'N/A'}",
         "",
         "## 指标对比",
-        "| 基线 | 样本数 | CER | DER | JER | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+        "| 基线 | 样本数 | CER | DER | JER | Timeline分数 | "
+        "断词数 | 断词率 | 前导标点数 | 前导标点率 | "
         "Probe | EER | Top1 | TopK | "
         "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
         "---: | ---: | ---: | ---: | "
         "---: | ---: | ---: |",
     ]
@@ -1113,6 +1182,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_percent(metrics.get("mean_cer")),
                     _format_percent(metrics.get("mean_der")),
                     _format_percent(metrics.get("mean_jer")),
+                    _format_number(metrics.get("mean_best_timeline_quality_score")),
                     _format_number(metrics.get("mean_cjk_split_boundary_count")),
                     _format_percent(metrics.get("mean_cjk_split_boundary_ratio")),
                     _format_number(metrics.get("mean_leading_punctuation_count")),
@@ -1133,10 +1203,10 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "## 相对首个基线变化",
-            "| 基线 | CER | DER | JER | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
+            "| 基线 | CER | DER | JER | Timeline分数 | 断词数 | 断词率 | 前导标点数 | 前导标点率 | "
             "Probe | EER | Top1 | TopK | "
             "决策覆盖 | 行动项覆盖 | 风险覆盖 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
             "---: | ---: | ---: | ---: | "
             "---: | ---: | ---: |",
         ]
@@ -1151,6 +1221,7 @@ def render_baseline_comparison_markdown(report: dict[str, Any]) -> str:
                     _format_signed_percent(delta.get("mean_cer")),
                     _format_signed_percent(delta.get("mean_der")),
                     _format_signed_percent(delta.get("mean_jer")),
+                    _format_signed_number(delta.get("mean_best_timeline_quality_score")),
                     _format_signed_number(delta.get("mean_cjk_split_boundary_count")),
                     _format_signed_percent(delta.get("mean_cjk_split_boundary_ratio")),
                     _format_signed_number(delta.get("mean_leading_punctuation_count")),
@@ -1589,6 +1660,11 @@ def _baseline_summary(report: dict[str, Any]) -> dict[str, Any]:
             ),
             "mean_der": ((aggregate.get("speaker_reference") or {}).get("mean_der")),
             "mean_jer": ((aggregate.get("speaker_reference") or {}).get("mean_jer")),
+            "mean_best_timeline_quality_score": (
+                (aggregate.get("timeline_diagnostics") or {}).get(
+                    "mean_best_quality_score"
+                )
+            ),
             "mean_approx_eer": (
                 (aggregate.get("voiceprint_threshold_scan") or {}).get("mean_approx_eer")
             ),
@@ -1656,6 +1732,11 @@ def _mean_nested_metric(
         if (value := ((sample.get(section) or {}).get(nested) or {}).get(key)) is not None
     ]
     return sum(values) / len(values) if values else None
+
+
+def _mean_values(values: Any) -> float | None:
+    numeric_values = [float(value) for value in values if value is not None]
+    return sum(numeric_values) / len(numeric_values) if numeric_values else None
 
 
 def _timeline_quality_score(row: dict[str, Any]) -> float:
@@ -2064,6 +2145,44 @@ def _render_timeline_rows(report: dict[str, Any]) -> list[str]:
             + " |"
         )
     return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+
+
+def _render_timeline_aggregate_rows(report: dict[str, Any]) -> list[str]:
+    sources = report.get("sources") if isinstance(report, dict) else None
+    if not isinstance(sources, dict) or not sources:
+        return ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+
+    rendered: list[str] = []
+    for source, row in sorted(sources.items()):
+        if not isinstance(row, dict):
+            continue
+        rendered.append(
+            "| "
+            + " | ".join(
+                [
+                    str(source),
+                    str(row.get("available_count", "N/A")),
+                    _format_number(row.get("mean_segment_count")),
+                    _format_percent(row.get("mean_der")),
+                    _format_percent(row.get("mean_jer")),
+                    _format_percent(row.get("mean_short_fragment_ratio")),
+                    _format_percent(row.get("mean_cjk_split_boundary_ratio")),
+                    _format_percent(row.get("mean_leading_punctuation_ratio")),
+                    _format_number(row.get("mean_quality_score")),
+                ]
+            )
+            + " |"
+        )
+    return rendered or ["| N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |"]
+
+
+def _format_counts(value: Any) -> str:
+    if not isinstance(value, dict) or not value:
+        return "N/A"
+    return "、".join(
+        f"{key}={count}"
+        for key, count in sorted(value.items(), key=lambda item: str(item[0]))
+    )
 
 
 def _format_percent(value: Any) -> str:

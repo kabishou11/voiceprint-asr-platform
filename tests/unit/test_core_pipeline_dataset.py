@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from scripts.core_pipeline_metrics import (
+    aggregate_core_pipeline_reports,
     build_baseline_comparison_report,
     build_core_pipeline_dataset_report,
     load_dataset_manifest,
@@ -194,6 +195,22 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
             "asr": {"mean_cer": 0.1, "mean_sequence_ratio": 0.9, "mean_hotword_recall": None},
             "speakers": {"mean_speaker_count": 2, "mean_short_fragment_ratio": 0.2},
             "speaker_reference": {"mean_der": 0.3, "mean_jer": 0.4},
+            "timeline_diagnostics": {
+                "mean_best_quality_score": 0.12,
+                "best_source_counts": {"exclusive": 1},
+                "sources": {
+                    "exclusive": {
+                        "available_count": 1,
+                        "mean_segment_count": 2,
+                        "mean_der": 0.3,
+                        "mean_jer": 0.4,
+                        "mean_short_fragment_ratio": 0.2,
+                        "mean_cjk_split_boundary_ratio": 0.1,
+                        "mean_leading_punctuation_ratio": 0.0,
+                        "mean_quality_score": 0.12,
+                    }
+                },
+            },
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.6},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.15},
             "voiceprint_identification": {
@@ -229,10 +246,78 @@ def test_render_dataset_markdown_includes_sample_table() -> None:
     markdown = render_dataset_markdown_report(report)
 
     assert "# 核心流水线样本集基线报告" in markdown
+    assert "- 推荐 Timeline 分布: exclusive=1" in markdown
+    assert "| exclusive | 1 | 2.00 | 30.00% | 40.00% | 20.00% | 10.00% | 0.00% | 0.12 |" in markdown
     assert (
         "| sample_1 | 10.00% | 30.00% | 40.00% | 15.00% | "
         "70.00% | 90.00% | 100.00% | 50.00% | N/A |"
     ) in markdown
+
+
+def test_aggregate_core_pipeline_reports_summarizes_timeline_diagnostics() -> None:
+    samples = [
+        {
+            "timeline_diagnostics": {
+                "available": True,
+                "best_source": "exclusive",
+                "best_quality_score": 0.1,
+                "timelines": [
+                    {
+                        "source": "exclusive",
+                        "segment_count": 2,
+                        "quality_score": 0.1,
+                        "speaker_reference": {"der": 0.0, "jer": 0.2},
+                        "speakers": {
+                            "short_fragment_ratio": 0.1,
+                            "cjk_split_boundary_ratio": 0.0,
+                            "leading_punctuation_ratio": 0.0,
+                        },
+                    },
+                    {
+                        "source": "display",
+                        "segment_count": 1,
+                        "quality_score": 0.5,
+                        "speaker_reference": {"der": 0.4, "jer": 0.4},
+                        "speakers": {
+                            "short_fragment_ratio": 0.0,
+                            "cjk_split_boundary_ratio": 0.0,
+                            "leading_punctuation_ratio": 0.0,
+                        },
+                    },
+                ],
+            }
+        },
+        {
+            "timeline_diagnostics": {
+                "available": True,
+                "best_source": "exclusive",
+                "best_quality_score": 0.2,
+                "timelines": [
+                    {
+                        "source": "exclusive",
+                        "segment_count": 4,
+                        "quality_score": 0.2,
+                        "speaker_reference": {"der": 0.2, "jer": 0.2},
+                        "speakers": {
+                            "short_fragment_ratio": 0.2,
+                            "cjk_split_boundary_ratio": 0.1,
+                            "leading_punctuation_ratio": 0.0,
+                        },
+                    }
+                ],
+            }
+        },
+    ]
+
+    aggregate = aggregate_core_pipeline_reports(samples)
+    timeline = aggregate["timeline_diagnostics"]
+
+    assert timeline["available_count"] == 2
+    assert timeline["best_source_counts"] == {"exclusive": 2}
+    assert timeline["mean_best_quality_score"] == pytest.approx(0.15)
+    assert timeline["sources"]["exclusive"]["mean_segment_count"] == 3.0
+    assert timeline["sources"]["exclusive"]["mean_der"] == pytest.approx(0.1)
+    assert timeline["sources"]["display"]["mean_quality_score"] == 0.5
 
 
 def test_baseline_comparison_reports_delta_from_first() -> None:
@@ -247,6 +332,7 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_leading_punctuation_ratio": 0.2,
             },
             "speaker_reference": {"mean_der": 0.4, "mean_jer": 0.5},
+            "timeline_diagnostics": {"mean_best_quality_score": 0.8},
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.4},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.3},
             "voiceprint_identification": {
@@ -267,6 +353,7 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
                 "mean_leading_punctuation_ratio": 0.05,
             },
             "speaker_reference": {"mean_der": 0.25, "mean_jer": 0.35},
+            "timeline_diagnostics": {"mean_best_quality_score": 0.3},
             "voiceprint_probe": {"mean_probe_ready_ratio": 0.9},
             "voiceprint_threshold_scan": {"mean_approx_eer": 0.2},
             "voiceprint_identification": {
@@ -286,6 +373,9 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     assert report["baselines"][1]["delta_from_first"][
         "mean_cjk_split_boundary_ratio"
     ] == pytest.approx(-0.2)
+    assert report["baselines"][1]["delta_from_first"][
+        "mean_best_timeline_quality_score"
+    ] == pytest.approx(-0.5)
     assert report["baselines"][1]["delta_from_first"]["mean_leading_punctuation_count"] == -1.5
     assert report["baselines"][1]["delta_from_first"][
         "mean_leading_punctuation_ratio"
@@ -294,6 +384,6 @@ def test_baseline_comparison_reports_delta_from_first() -> None:
     assert report["baselines"][1]["delta_from_first"]["mean_voiceprint_top1_accuracy"] == 0.25
     assert report["baselines"][1]["delta_from_first"]["mean_decision_coverage"] == 0.25
     assert (
-        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -2.00 | -20.00% | "
+        "| baseline_v2 | -10.00% | -15.00% | -15.00% | -0.50 | -2.00 | -20.00% | "
         "-1.50 | -15.00% | +50.00% | -10.00% | +25.00% | +10.00% | +25.00%"
     ) in markdown
