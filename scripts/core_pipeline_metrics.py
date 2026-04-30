@@ -484,12 +484,21 @@ def voiceprint_threshold_scan(
             if row.get("missing_positive") and str(row.get("speaker") or "")
         }
     )
+    missing_result_speakers = sorted(
+        {
+            str(row.get("speaker") or "")
+            for row in score_rows
+            if row.get("missing_result") and str(row.get("speaker") or "")
+        }
+    )
     return {
         "available": True,
         "label_count": len(ground_truth),
         "sample_count": len(score_rows),
         "positive_count": positive_count,
         "negative_count": len(score_rows) - positive_count,
+        "missing_result_count": len(missing_result_speakers),
+        "missing_result_speakers": missing_result_speakers,
         "missing_positive_count": missing_positive_count,
         "missing_positive_speakers": missing_positive_speakers,
         "approx_eer": best_eer,
@@ -1408,6 +1417,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- EER 阈值: {_format_number((voiceprint_scan.get('approx_eer') or {}).get('threshold'))}",
         f"- 阈值扫描缺失正确候选: "
         f"{voiceprint_scan.get('missing_positive_count', 'N/A')}",
+        f"- 阈值扫描缺失结果 speaker: "
+        f"{', '.join(voiceprint_scan.get('missing_result_speakers') or []) or 'N/A'}",
         f"- 阈值扫描缺失 speaker: "
         f"{', '.join(voiceprint_scan.get('missing_positive_speakers') or []) or 'N/A'}",
         f"- Top1 命中率: {_format_percent(voiceprint_identification.get('top1_accuracy'))}",
@@ -2120,13 +2131,27 @@ def _voiceprint_score_rows(
     ground_truth: dict[str, str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for item in matches:
-        if not isinstance(item, dict):
+    match_by_speaker = {
+        str(item.get("speaker") or "").strip(): item
+        for item in matches
+        if isinstance(item, dict) and str(item.get("speaker") or "").strip()
+    }
+    for speaker, expected in ground_truth.items():
+        item = match_by_speaker.get(speaker)
+        if not item:
+            rows.append(
+                {
+                    "speaker": speaker,
+                    "profile_id": expected,
+                    "display_name": expected,
+                    "score": None,
+                    "is_match": True,
+                    "missing_result": True,
+                    "missing_positive": True,
+                }
+            )
             continue
-        speaker = str(item.get("speaker") or "").strip()
-        expected = ground_truth.get(speaker)
-        if not expected:
-            continue
+
         candidates = item.get("candidates") or []
         found_positive = False
         for candidate in candidates:

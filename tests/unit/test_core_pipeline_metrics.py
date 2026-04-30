@@ -269,6 +269,35 @@ def test_voiceprint_threshold_scan_counts_missing_positive_as_false_negative() -
     assert result["score_rows"][1]["score"] is None
 
 
+def test_voiceprint_threshold_scan_counts_missing_result_as_false_negative() -> None:
+    metadata = {
+        "voiceprint_matches": [
+            {
+                "speaker": "SPEAKER_00",
+                "candidates": [
+                    {"profile_id": "alice", "display_name": "Alice", "score": 0.9},
+                ],
+            }
+        ]
+    }
+
+    result = voiceprint_threshold_scan(
+        metadata,
+        {"SPEAKER_00": "alice", "SPEAKER_01": "bob"},
+        thresholds=[0.0, 0.5],
+    )
+
+    assert result["available"] is True
+    assert result["positive_count"] == 2
+    assert result["missing_result_count"] == 1
+    assert result["missing_result_speakers"] == ["SPEAKER_01"]
+    assert result["missing_positive_speakers"] == ["SPEAKER_01"]
+    assert result["approx_eer"]["eer"] > 0.0
+    assert result["roc_points"][0]["fn"] == 1
+    assert result["score_rows"][1]["missing_result"] is True
+    assert result["score_rows"][1]["missing_positive"] is True
+
+
 def test_voiceprint_identification_metrics_reports_topk_and_missing_positive() -> None:
     metadata = {
         "voiceprint_matches": [
