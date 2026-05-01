@@ -7,10 +7,12 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import cast
 from uuid import uuid4
 
 from domain.schemas.transcript import JobDetail, JobSummary, Segment, TranscriptResult
@@ -33,6 +35,11 @@ from . import job_db
 logger = logging.getLogger(__name__)
 
 CANCELABLE_JOB_STATUSES = {"pending", "queued", "running"}
+RETRYABLE_JOB_STATUSES = {"failed", "canceled"}
+
+
+class JobRetryError(RuntimeError):
+    """Raised when a job cannot be retried safely."""
 
 
 def _sync_transcription_fallback_enabled() -> bool:
@@ -41,6 +48,41 @@ def _sync_transcription_fallback_enabled() -> bool:
         "true",
         "yes",
         "on",
+    }
+
+
+def _build_transcription_request_payload(
+    *,
+    asset_name: str,
+    job_type: str,
+    asr_model: str,
+    diarization_model: str | None,
+    hotwords: list[str] | None,
+    language: str,
+    vad_enabled: bool,
+    itn: bool,
+    voiceprint_scope_mode: str,
+    voiceprint_group_id: str | None,
+    voiceprint_profile_ids: list[str] | None,
+    num_speakers: int | None,
+    min_speakers: int | None,
+    max_speakers: int | None,
+) -> dict[str, object]:
+    return {
+        "asset_name": asset_name,
+        "job_type": job_type,
+        "asr_model": asr_model,
+        "diarization_model": diarization_model,
+        "hotwords": hotwords,
+        "language": language,
+        "vad_enabled": vad_enabled,
+        "itn": itn,
+        "voiceprint_scope_mode": voiceprint_scope_mode,
+        "voiceprint_group_id": voiceprint_group_id,
+        "voiceprint_profile_ids": voiceprint_profile_ids,
+        "num_speakers": num_speakers,
+        "min_speakers": min_speakers,
+        "max_speakers": max_speakers,
     }
 
 
@@ -153,6 +195,47 @@ class JobService:
             db.refresh(record)
             return self._with_status_explanation(record.to_job_detail())
 
+    def retry_job(self, job_id: str) -> JobDetail | None:
+        """基于原始创建参数重新创建一个转写任务。"""
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            if record is None:
+                return None
+            if record.status not in RETRYABLE_JOB_STATUSES:
+                raise JobRetryError(f"任务当前状态为 {record.status}，仅失败或已取消任务可重试")
+            if record.job_type not in job_db.TRANSCRIPTION_JOB_TYPES:
+                raise JobRetryError("当前仅转写任务支持重试")
+            if not record.request_payload:
+                raise JobRetryError("历史任务缺少创建参数，无法安全重试")
+            try:
+                payload = json.loads(record.request_payload)
+            except json.JSONDecodeError as exc:
+                raise JobRetryError("历史任务创建参数已损坏，无法安全重试") from exc
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("asset_name"), str):
+            raise JobRetryError("历史任务创建参数不完整，无法安全重试")
+
+        job_type = payload.get("job_type", "transcription")
+        if job_type not in job_db.TRANSCRIPTION_JOB_TYPES:
+            raise JobRetryError("历史任务类型不支持重试")
+
+        return self.create_transcription_job(
+            asset_name=payload["asset_name"],
+            job_type=cast(str, job_type),
+            asr_model=cast(str, payload.get("asr_model") or "funasr-nano"),
+            diarization_model=cast(str | None, payload.get("diarization_model")),
+            hotwords=cast(list[str] | None, payload.get("hotwords")),
+            language=cast(str, payload.get("language") or "zh-cn"),
+            vad_enabled=bool(payload.get("vad_enabled", True)),
+            itn=bool(payload.get("itn", True)),
+            voiceprint_scope_mode=cast(str, payload.get("voiceprint_scope_mode") or "none"),
+            voiceprint_group_id=cast(str | None, payload.get("voiceprint_group_id")),
+            voiceprint_profile_ids=cast(list[str] | None, payload.get("voiceprint_profile_ids")),
+            num_speakers=cast(int | None, payload.get("num_speakers")),
+            min_speakers=cast(int | None, payload.get("min_speakers")),
+            max_speakers=cast(int | None, payload.get("max_speakers")),
+        )
+
     def create_transcription_job(
         self,
         asset_name: str,
@@ -197,6 +280,22 @@ class JobService:
         """
         job_id = str(uuid4())
         now = datetime.now(timezone.utc)
+        request_payload = _build_transcription_request_payload(
+            asset_name=asset_name,
+            job_type=job_type,
+            asr_model=asr_model,
+            diarization_model=diarization_model,
+            hotwords=hotwords,
+            language=language,
+            vad_enabled=vad_enabled,
+            itn=itn,
+            voiceprint_scope_mode=voiceprint_scope_mode,
+            voiceprint_group_id=voiceprint_group_id,
+            voiceprint_profile_ids=voiceprint_profile_ids,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
 
         # 先创建任务记录（状态为 queued）
         job = JobDetail(
@@ -217,6 +316,7 @@ class JobService:
                 job_type=job.job_type,
                 status=job.status,
                 asset_name=job.asset_name,
+                request_payload=json.dumps(request_payload, ensure_ascii=False),
                 result=None,
                 error_message=None,
                 created_at=job.created_at,

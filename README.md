@@ -286,6 +286,7 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 - 前端 Dockerfile 当前运行 Vite dev server。生产环境建议 `npm run build` 后用 Nginx/Caddy 静态托管，并反向代理 `/api` 到 API 服务。
 - Worker 必须启动 `python -m apps.worker.app.worker` 或等价 Celery worker；`apps.worker.app.main` 只用于打印能力，不会消费队列。
 - 队列任务支持轻量取消：`POST /api/v1/jobs/{job_id}/cancel` 会把 `pending/queued/running` 标记为 `canceled`。该操作不会强杀已经进入模型推理的进程，但 Worker 在开始前和写回结果时会尊重取消状态，避免取消后又被覆盖为成功或失败。
+- 失败或已取消的转写任务支持后端重试：`POST /api/v1/jobs/{job_id}/retry` 会读取原始创建参数，重新创建一个新任务，而不是把旧任务状态改回队列。历史任务如果缺少创建参数，会返回 409，避免用不完整参数误跑。
 - 创建转写任务默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误，而不会在请求线程里同步跑大模型。仅本地调试小音频时可设置 `ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1`。
 
 生产验收推荐顺序：
@@ -329,6 +330,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-embedding/warmup-work
 - `任务队列`
   - 用于持续查看后台异步任务
   - 刷新页面后仍可追踪排队中、处理中和已完成任务
+  - 失败或已取消任务可直接重试，系统会按原始参数创建新任务
 - `任务详情`
   - 以 speaker 过滤、时间线、分段阅读流为核心
   - 支持导出、快速重跑、跳转声纹库继续处理

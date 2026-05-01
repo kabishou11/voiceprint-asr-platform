@@ -22,7 +22,7 @@ import { alpha } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { cancelJob, deleteJob, fetchHealth, fetchJobs } from '../../api/client';
+import { cancelJob, deleteJob, fetchHealth, fetchJobs, retryJob } from '../../api/client';
 import { formatDateTime, jobTypeLabels, type HealthResponse, type JobDetail } from '../../api/types';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
@@ -44,8 +44,10 @@ function JobCard({
   onToggle,
   onDelete,
   onCancel,
+  onRetry,
   deleting,
   canceling,
+  retrying,
   queueBlocked,
 }: {
   job: JobDetail;
@@ -53,8 +55,10 @@ function JobCard({
   onToggle: () => void;
   onDelete: (jobId: string) => void;
   onCancel: (jobId: string) => void;
+  onRetry: (jobId: string) => void;
   deleting: boolean;
   canceling: boolean;
+  retrying: boolean;
   queueBlocked: boolean;
 }) {
   const navigate = useNavigate();
@@ -114,6 +118,20 @@ function JobCard({
                 disabled={canceling}
               >
                 {canceling ? '取消中' : '取消'}
+              </Button>
+            ) : null}
+            {job.status === 'failed' || job.status === 'canceled' ? (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<RefreshRounded />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(job.job_id);
+                }}
+                disabled={retrying}
+              >
+                {retrying ? '重试中' : '重试'}
               </Button>
             ) : null}
             <Button
@@ -270,9 +288,9 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
   if (!health.broker_available) {
     return (
       <Alert severity="warning">
-        <AlertTitle>当前为同步模式</AlertTitle>
-        Redis Broker 不可用，新任务会回退到 API 进程同步执行。错误：
-        {health.broker_error ?? 'broker_unavailable'}
+        <AlertTitle>异步队列不可用</AlertTitle>
+        Redis Broker 不可用，新转写任务默认会快速失败，不会在 API 请求线程里同步跑模型。
+        仅本地小音频调试时可启用同步回退。错误：{health.broker_error ?? 'broker_unavailable'}
       </Alert>
     );
   }
@@ -281,7 +299,7 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
     return (
       <Alert severity="warning">
         <AlertTitle>Worker 未连接</AlertTitle>
-        Redis Broker 可用，但没有检测到在线 Worker。已排队任务不会继续推进。错误：
+        Redis Broker 可用，但没有检测到在线 Worker。新转写任务默认会快速失败，已排队任务不会继续推进。错误：
         {health.worker_error ?? 'worker_offline'}
       </Alert>
     );
@@ -303,6 +321,7 @@ export function TaskQueuePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set());
   const [cancelingJobIds, setCancelingJobIds] = useState<Set<string>>(new Set());
+  const [retryingJobIds, setRetryingJobIds] = useState<Set<string>>(new Set());
   const [health, setHealth] = useState<HealthResponse | null>(null);
 
   const loadJobs = useCallback(async (isManual = false) => {
@@ -387,8 +406,26 @@ export function TaskQueuePage() {
     }
   }, []);
 
+  const handleRetry = useCallback(async (jobId: string) => {
+    setRetryingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      const created = await retryJob(jobId);
+      setJobs((current) => [created, ...current.filter((item) => item.job_id !== created.job_id)]);
+      setExpanded((current) => ({ ...current, [created.job_id]: true }));
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '重试任务失败');
+    } finally {
+      setRetryingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  }, []);
+
   const queueBlocked = !!health?.broker_available && !health?.worker_available;
-  const executionLabel = health?.execution_mode === 'async' ? '异步模式' : '同步模式';
+  const executionLabel = health?.async_available ? '异步模式' : '队列未就绪';
 
   return (
     <PageSection
@@ -468,8 +505,10 @@ export function TaskQueuePage() {
               onToggle={() => toggleExpanded(job.job_id)}
               onDelete={handleDelete}
               onCancel={handleCancel}
+              onRetry={handleRetry}
               deleting={deletingJobIds.has(job.job_id)}
               canceling={cancelingJobIds.has(job.job_id)}
+              retrying={retryingJobIds.has(job.job_id)}
               queueBlocked={queueBlocked}
             />
           ))

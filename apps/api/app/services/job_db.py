@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
-
 from domain.schemas.transcript import JobDetail, JobSummary, TranscriptResult
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, inspect, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 TRANSCRIPTION_JOB_TYPES = {"transcription", "multi_speaker_transcription"}
 
@@ -22,6 +21,7 @@ class JobRecord(Base):
     job_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     asset_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -99,7 +99,9 @@ class VoiceprintProfileRecord(Base):
 
     profile_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    model_key: Mapped[str] = mapped_column(String(64), nullable=False, default="3dspeaker-embedding")
+    model_key: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="3dspeaker-embedding"
+    )
     sample_count: Mapped[int] = mapped_column(nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -113,7 +115,9 @@ class VoiceprintSampleRecord(Base):
     __tablename__ = "voiceprint_samples"
 
     sample_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    profile_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_profiles.profile_id"), nullable=False)
+    profile_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("voiceprint_profiles.profile_id"), nullable=False
+    )
     asset_name: Mapped[str] = mapped_column(Text, nullable=False)
     source_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -137,8 +141,12 @@ class VoiceprintGroupRecord(Base):
 class VoiceprintGroupMemberRecord(Base):
     __tablename__ = "voiceprint_group_members"
 
-    group_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_groups.group_id"), primary_key=True)
-    profile_id: Mapped[str] = mapped_column(String(64), ForeignKey("voiceprint_profiles.profile_id"), primary_key=True)
+    group_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("voiceprint_groups.group_id"), primary_key=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("voiceprint_profiles.profile_id"), primary_key=True
+    )
 
 
 def _storage_path() -> Path:
@@ -149,14 +157,29 @@ _engine = None
 _SessionFactory: type[Session] | None = None
 
 
+def _ensure_jobs_schema(engine) -> None:
+    """SQLite 轻量迁移：为旧 jobs.db 补齐新增列。"""
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("jobs")}
+    if "request_payload" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN request_payload TEXT"))
+
+
 def get_engine():
     global _engine
     if _engine is None:
         db_path = _storage_path() / "jobs.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         from sqlalchemy import create_engine
-        _engine = create_engine(f"sqlite:///{db_path.as_posix()}", connect_args={"check_same_thread": False})
+        _engine = create_engine(
+            f"sqlite:///{db_path.as_posix()}",
+            connect_args={"check_same_thread": False},
+        )
         Base.metadata.create_all(_engine)
+        _ensure_jobs_schema(_engine)
     return _engine
 
 

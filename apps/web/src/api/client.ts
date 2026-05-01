@@ -84,6 +84,10 @@ export function cancelJob(jobId: string): Promise<JobDetail> {
   return request<JobDetail>(`/jobs/${jobId}/cancel`, { method: 'POST' });
 }
 
+export function retryJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health');
 }

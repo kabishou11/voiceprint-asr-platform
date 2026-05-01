@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from ...services.job_service import job_service
+from ...services.job_service import JobRetryError, job_service
 from ..schemas import JobListResponse, PaginationMeta
 
 router = APIRouter(tags=["任务管理"])
@@ -67,6 +67,23 @@ def cancel_job(job_id: str):
         raise HTTPException(status_code=404, detail="任务不存在")
     if job.status != "canceled":
         raise HTTPException(status_code=409, detail=f"任务当前状态为 {job.status}，不可取消")
+    return job
+
+
+@router.post(
+    "/jobs/{job_id}/retry",
+    summary="重试任务",
+    description="对失败或已取消的转写任务，使用原始创建参数重新创建一个新任务。",
+)
+def retry_job(job_id: str):
+    try:
+        job = job_service.retry_job(job_id)
+    except JobRetryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
     return job
 
 
