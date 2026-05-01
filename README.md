@@ -268,6 +268,8 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 - 当前业务数据真实落在 `storage/jobs.db`、`storage/uploads`、`storage/voiceprints`、`storage/minutes` 等本地目录；`POSTGRES_DSN` 与 `S3_*` 目前是部署预留配置，尚未承载主业务持久化。
 - 前端 Dockerfile 当前运行 Vite dev server。生产环境建议 `npm run build` 后用 Nginx/Caddy 静态托管，并反向代理 `/api` 到 API 服务。
 - Worker 必须启动 `python -m apps.worker.app.worker` 或等价 Celery worker；`apps.worker.app.main` 只用于打印能力，不会消费队列。
+- 队列任务支持轻量取消：`POST /api/v1/jobs/{job_id}/cancel` 会把 `pending/queued/running` 标记为 `canceled`。该操作不会强杀已经进入模型推理的进程，但 Worker 在开始前和写回结果时会尊重取消状态，避免取消后又被覆盖为成功或失败。
+- 创建转写任务默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误，而不会在请求线程里同步跑大模型。仅本地调试小音频时可设置 `ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1`。
 
 生产验收推荐顺序：
 

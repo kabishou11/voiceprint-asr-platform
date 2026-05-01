@@ -1,4 +1,4 @@
-export type JobStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed';
+export type JobStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 export type JobType =
   | 'transcription'
   | 'multi_speaker_transcription'
@@ -21,6 +21,7 @@ export const jobStatusLabels: Record<JobStatus, string> = {
   running: '处理中',
   succeeded: '已完成',
   failed: '失败',
+  canceled: '已取消',
 };
 
 export const jobTypeLabels: Record<JobType, string> = {

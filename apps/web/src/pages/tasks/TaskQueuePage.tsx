@@ -22,7 +22,7 @@ import { alpha } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { deleteJob, fetchHealth, fetchJobs } from '../../api/client';
+import { cancelJob, deleteJob, fetchHealth, fetchJobs } from '../../api/client';
 import { formatDateTime, jobTypeLabels, type HealthResponse, type JobDetail } from '../../api/types';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
@@ -43,14 +43,18 @@ function JobCard({
   expanded,
   onToggle,
   onDelete,
+  onCancel,
   deleting,
+  canceling,
   queueBlocked,
 }: {
   job: JobDetail;
   expanded: boolean;
   onToggle: () => void;
   onDelete: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
   deleting: boolean;
+  canceling: boolean;
   queueBlocked: boolean;
 }) {
   const navigate = useNavigate();
@@ -98,6 +102,20 @@ function JobCard({
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
+            {job.status === 'queued' || job.status === 'running' ? (
+              <Button
+                size="small"
+                color="warning"
+                variant="text"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel(job.job_id);
+                }}
+                disabled={canceling}
+              >
+                {canceling ? '取消中' : '取消'}
+              </Button>
+            ) : null}
             <Button
               size="small"
               color="error"
@@ -149,10 +167,17 @@ function JobCard({
           <Divider sx={{ my: 2 }} />
           <Stack spacing={1.8}>
             {/* Error message */}
-            {job.error_message ? (
+            {job.status === 'failed' && job.error_message ? (
               <Alert severity="error">
                 <AlertTitle>任务失败</AlertTitle>
                 {job.error_message}
+              </Alert>
+            ) : null}
+
+            {job.status === 'canceled' ? (
+              <Alert severity="info">
+                <AlertTitle>任务已取消</AlertTitle>
+                {job.status_explanation ?? '任务已被标记为取消，后续结果不会覆盖该状态。'}
               </Alert>
             ) : null}
 
@@ -218,7 +243,7 @@ function JobCard({
                   查看详情
                 </Button>
               </Stack>
-            ) : job.status !== 'failed' ? (
+            ) : job.status !== 'failed' && job.status !== 'canceled' ? (
               <Alert severity="info">任务尚在处理中，结果暂不可用。</Alert>
             ) : null}
           </Stack>
@@ -277,6 +302,7 @@ export function TaskQueuePage() {
   const [expanded, setExpanded] = useState<ExpandedJobs>({});
   const [refreshing, setRefreshing] = useState(false);
   const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set());
+  const [cancelingJobIds, setCancelingJobIds] = useState<Set<string>>(new Set());
   const [health, setHealth] = useState<HealthResponse | null>(null);
 
   const loadJobs = useCallback(async (isManual = false) => {
@@ -311,7 +337,7 @@ export function TaskQueuePage() {
   }, [loadJobs]);
 
   const stats = useMemo(() => {
-    const counts = { queued: 0, running: 0, succeeded: 0, failed: 0 };
+    const counts = { queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0 };
     jobs.forEach((job) => {
       if (job.status in counts) {
         counts[job.status as keyof typeof counts]++;
@@ -345,6 +371,22 @@ export function TaskQueuePage() {
     }
   }, []);
 
+  const handleCancel = useCallback(async (jobId: string) => {
+    setCancelingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      const updated = await cancelJob(jobId);
+      setJobs((current) => current.map((item) => (item.job_id === jobId ? updated : item)));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '取消任务失败');
+    } finally {
+      setCancelingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  }, []);
+
   const queueBlocked = !!health?.broker_available && !health?.worker_available;
   const executionLabel = health?.execution_mode === 'async' ? '异步模式' : '同步模式';
 
@@ -368,6 +410,7 @@ export function TaskQueuePage() {
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" color="warning" label={`处理中 ${stats.queued + stats.running}`} />
         <Chip size="small" color="success" label={`已完成 ${stats.succeeded}`} />
+        <Chip size="small" color="default" label={`已取消 ${stats.canceled}`} />
         <Chip
           size="small"
           color={health?.async_available ? 'success' : 'warning'}
@@ -424,7 +467,9 @@ export function TaskQueuePage() {
               expanded={!!expanded[job.job_id]}
               onToggle={() => toggleExpanded(job.job_id)}
               onDelete={handleDelete}
+              onCancel={handleCancel}
               deleting={deletingJobIds.has(job.job_id)}
+              canceling={cancelingJobIds.has(job.job_id)}
               queueBlocked={queueBlocked}
             />
           ))

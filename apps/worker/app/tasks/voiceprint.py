@@ -13,7 +13,7 @@ from model_adapters import resolve_audio_asset_path
 from ..celery_app import get_celery_app, is_async_available
 from ..pipelines.audio_preprocess import preprocess_audio
 from ..worker_runtime import get_worker_registry
-from ._base import update_job_result, update_job_status
+from ._base import is_job_canceled, update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +88,15 @@ def execute_enroll_voiceprint_task(
     mode: str = "replace",
 ) -> dict:
     """执行声纹注册任务（Celery Worker 入口）。"""
+    if is_job_canceled(job_id):
+        logger.info(f"声纹注册任务 {job_id} 已取消，跳过执行")
+        return {"job_id": job_id, "status": "canceled"}
     update_job_status(job_id, "running")
 
     try:
+        if is_job_canceled(job_id):
+            logger.info(f"声纹注册任务 {job_id} 已取消，跳过执行")
+            return {"job_id": job_id, "status": "canceled"}
         result = _enroll_voiceprint_sync(
             job_id=job_id,
             asset_name=asset_name,
@@ -114,9 +120,25 @@ def execute_verify_voiceprint_task(
     model_key: str = "3dspeaker-embedding",
 ) -> VoiceprintVerificationResult:
     """执行声纹验证任务（Celery Worker 入口）。"""
+    if is_job_canceled(job_id):
+        logger.info(f"声纹验证任务 {job_id} 已取消，跳过执行")
+        return VoiceprintVerificationResult(
+            profile_id=profile_id,
+            score=0.0,
+            threshold=threshold,
+            matched=False,
+        )
     update_job_status(job_id, "running")
 
     try:
+        if is_job_canceled(job_id):
+            logger.info(f"声纹验证任务 {job_id} 已取消，跳过执行")
+            return VoiceprintVerificationResult(
+                profile_id=profile_id,
+                score=0.0,
+                threshold=threshold,
+                matched=False,
+            )
         result = _verify_voiceprint_sync(
             job_id=job_id,
             asset_name=asset_name,
@@ -140,9 +162,15 @@ def execute_identify_voiceprint_task(
     profile_ids: list[str] | None = None,
 ) -> VoiceprintIdentificationResult:
     """执行声纹识别任务（Celery Worker 入口）。"""
+    if is_job_canceled(job_id):
+        logger.info(f"声纹识别任务 {job_id} 已取消，跳过执行")
+        return VoiceprintIdentificationResult(candidates=[], matched=False)
     update_job_status(job_id, "running")
 
     try:
+        if is_job_canceled(job_id):
+            logger.info(f"声纹识别任务 {job_id} 已取消，跳过执行")
+            return VoiceprintIdentificationResult(candidates=[], matched=False)
         result = _identify_voiceprint_sync(
             job_id=job_id,
             asset_name=asset_name,

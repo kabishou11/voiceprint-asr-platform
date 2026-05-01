@@ -12,7 +12,7 @@ from model_adapters import resolve_audio_asset_path
 from ..celery_app import get_celery_app, is_async_available
 from ..pipelines.audio_preprocess import preprocess_audio
 from ..worker_runtime import get_worker_registry
-from ._base import update_job_result, update_job_status
+from ._base import is_job_canceled, update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +71,17 @@ def execute_transcription_task(
     更新任务状态为 running，执行转写，然后更新结果。
     此函数会被 Celery 自动调用。
     """
+    if is_job_canceled(job_id):
+        logger.info(f"任务 {job_id} 已取消，跳过转写执行")
+        return TranscriptResult(text="", language=language, segments=[])
+
     # 更新状态为 running
     update_job_status(job_id, "running")
 
     try:
+        if is_job_canceled(job_id):
+            logger.info(f"任务 {job_id} 已取消，跳过转写执行")
+            return TranscriptResult(text="", language=language, segments=[])
         result = _run_transcription_sync(
             job_id=job_id,
             asset_name=asset_name,
@@ -105,7 +112,10 @@ def _init_celery_task():
     try:
         celery = get_celery_app()
         if celery is not None:
-            _run_transcription_task = celery.task(execute_transcription_task, name="apps.worker.app.tasks.transcription.execute_transcription_task")
+            _run_transcription_task = celery.task(
+                execute_transcription_task,
+                name="apps.worker.app.tasks.transcription.execute_transcription_task",
+            )
             logger.info("Celery 转写任务已注册: execute_transcription_task")
             return _run_transcription_task
     except Exception as e:

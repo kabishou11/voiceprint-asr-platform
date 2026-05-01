@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -30,6 +31,17 @@ from apps.worker.app.tasks.transcription import run_transcription, run_transcrip
 from . import job_db
 
 logger = logging.getLogger(__name__)
+
+CANCELABLE_JOB_STATUSES = {"pending", "queued", "running"}
+
+
+def _sync_transcription_fallback_enabled() -> bool:
+    return os.environ.get("ALLOW_SYNC_TRANSCRIPTION_FALLBACK", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _init_demo_job() -> None:
@@ -121,6 +133,26 @@ class JobService:
             db.commit()
             return True
 
+    def cancel_job(self, job_id: str) -> JobDetail | None:
+        """将可取消任务标记为 canceled。
+
+        取消是轻量语义：不强杀已经进入模型推理的 Worker，但会阻止 Worker 在开始前
+        或收尾写结果时把任务覆盖为 succeeded/failed。
+        """
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            if record is None:
+                return None
+            if record.status not in CANCELABLE_JOB_STATUSES:
+                return self._with_status_explanation(record.to_job_detail())
+
+            record.status = "canceled"
+            record.error_message = "用户取消任务"
+            record.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(record)
+            return self._with_status_explanation(record.to_job_detail())
+
     def create_transcription_job(
         self,
         asset_name: str,
@@ -196,6 +228,7 @@ class JobService:
         # 检查是否启用异步模式
         async_available = is_async_available(refresh=True)
 
+        async_submit_error: str | None = None
         if async_available:
             # 异步模式：推送到 Celery 队列
             try:
@@ -238,8 +271,26 @@ class JobService:
                 return job
 
             except Exception as e:
+                async_submit_error = str(e)
                 logger.warning(f"异步提交失败，回退到同步执行: {e}")
-                # 回退到同步执行
+                # 根据配置决定是否允许回退同步执行
+
+        if not async_available or async_submit_error:
+            reason = (
+                async_submit_error
+                or worker_error()
+                or broker_error()
+                or "async_queue_unavailable"
+            )
+            if not _sync_transcription_fallback_enabled():
+                message = (
+                    "异步任务队列不可用，已拒绝在 API 请求线程中同步执行大模型任务。"
+                    "请启动 Redis/Celery Worker，或仅在本地调试时设置 "
+                    "ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1。"
+                    f"原因：{reason}"
+                )
+                self._update_job_result(job_id, status="failed", error_message=message)
+                raise RuntimeError(message)
 
         # 同步模式：直接执行任务
         logger.info(f"任务 {job_id} 同步执行")
@@ -349,6 +400,9 @@ class JobService:
             with job_db.session() as db:
                 record = db.get(job_db.JobRecord, job_id)
                 if record:
+                    if record.status == "canceled" and status != "canceled":
+                        logger.info(f"任务 {job_id} 已取消，忽略状态更新: {status}")
+                        return False
                     record.status = status
                     record.updated_at = datetime.now(timezone.utc)
                     db.commit()
@@ -371,6 +425,9 @@ class JobService:
             with job_db.session() as db:
                 record = db.get(job_db.JobRecord, job_id)
                 if record:
+                    if record.status == "canceled" and status != "canceled":
+                        logger.info(f"任务 {job_id} 已取消，忽略结果更新: status={status}")
+                        return False
                     record.status = status
                     record.updated_at = datetime.now(timezone.utc)
                     if error_message is not None:
@@ -445,6 +502,11 @@ def explain_job_status(job: JobDetail) -> str | None:
         return _explain_failure(job.error_message)
     if job.status == "succeeded":
         return "任务已完成。"
+    if job.status == "canceled":
+        return (
+            "任务已取消；若 Worker 已开始模型推理，本次取消不会强杀进程，"
+            "但后续结果不会覆盖取消状态。"
+        )
     return None
 
 

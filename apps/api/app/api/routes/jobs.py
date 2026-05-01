@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from ..schemas import JobListResponse, PaginationMeta
 from ...services.job_service import job_service
+from ..schemas import JobListResponse, PaginationMeta
 
 router = APIRouter(tags=["任务管理"])
 
@@ -15,8 +15,17 @@ router = APIRouter(tags=["任务管理"])
 def list_jobs(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=50, ge=1, le=200, description="每页条数，最大 200"),
-    status: str | None = Query(default=None, description="按状态过滤：queued / running / succeeded / failed"),
-    job_type: str | None = Query(default=None, description="按类型过滤：transcription / multi_speaker_transcription / voiceprint_enroll / voiceprint_verify / voiceprint_identify"),
+    status: str | None = Query(
+        default=None,
+        description="按状态过滤：queued / running / succeeded / failed / canceled",
+    ),
+    job_type: str | None = Query(
+        default=None,
+        description=(
+            "按类型过滤：transcription / multi_speaker_transcription / "
+            "voiceprint_enroll / voiceprint_verify / voiceprint_identify"
+        ),
+    ),
     keyword: str | None = Query(default=None, description="关键词搜索，匹配文件名或任务 ID"),
 ) -> JobListResponse:
     items, total = job_service.list_job_details(
@@ -41,6 +50,23 @@ def get_job(job_id: str):
     job = job_service.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="任务不存在")
+    return job
+
+
+@router.post(
+    "/jobs/{job_id}/cancel",
+    summary="取消任务",
+    description=(
+        "将 pending / queued / running 任务标记为已取消。"
+        "已完成、失败或已取消任务不可重复取消。"
+    ),
+)
+def cancel_job(job_id: str):
+    job = job_service.cancel_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status != "canceled":
+        raise HTTPException(status_code=409, detail=f"任务当前状态为 {job.status}，不可取消")
     return job
 
 

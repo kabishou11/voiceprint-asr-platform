@@ -9,11 +9,13 @@ import { appTheme } from '../../theme/appTheme';
 const fetchJobs = vi.fn();
 const fetchHealth = vi.fn();
 const deleteJob = vi.fn();
+const cancelJob = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchJobs: () => fetchJobs(),
   fetchHealth: () => fetchHealth(),
   deleteJob: (...args: unknown[]) => deleteJob(...args),
+  cancelJob: (...args: unknown[]) => cancelJob(...args),
 }));
 
 function renderPage() {
@@ -55,6 +57,17 @@ describe('TaskQueuePage', () => {
       ],
     });
     deleteJob.mockResolvedValue({ job_id: 'job-running', deleted: true });
+    cancelJob.mockResolvedValue({
+      job_id: 'job-running',
+      job_type: 'multi_speaker_transcription',
+      status: 'canceled',
+      created_at: '2026-04-23T08:00:00Z',
+      updated_at: '2026-04-23T08:06:00Z',
+      asset_name: 'meeting.wav',
+      result: null,
+      error_message: '用户取消任务',
+      status_explanation: '任务已取消',
+    });
   });
 
   it('shows queue blockage and allows deleting stuck jobs', async () => {
@@ -73,6 +86,12 @@ describe('TaskQueuePage', () => {
     expect(screen.getAllByText('meeting.wav').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '展开详情' }));
     expect(screen.getAllByText(/不会继续推进/).length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => {
+      expect(cancelJob).toHaveBeenCalledWith('job-running');
+    });
+    expect(await screen.findByText('已取消')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
     await waitFor(() => {

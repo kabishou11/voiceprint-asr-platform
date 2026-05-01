@@ -10,7 +10,7 @@ JobType = Literal[
     "voiceprint_verify",
     "voiceprint_identify",
 ]
-JobStatus = Literal["pending", "queued", "running", "succeeded", "failed"]
+JobStatus = Literal["pending", "queued", "running", "succeeded", "failed", "canceled"]
 
 
 class Segment(BaseModel):
