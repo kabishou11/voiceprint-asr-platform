@@ -214,6 +214,13 @@ uv run pytest tests/integration/test_health.py -q
 
 pytest 默认会把临时目录写入 `storage/pytest-tmp`。如果你在 Windows 上遇到 `.pytest_cache` 或系统临时目录权限警告，优先确认没有旧测试进程占用文件；通常不需要再手动传 `--basetemp`。
 
+如果 `uv` 访问用户目录缓存时报 `AppData\Local\uv\cache ... 拒绝访问`，可以临时把缓存放到仓库内的忽略目录：
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+uv run pytest tests/unit -q
+```
+
 再跑前端测试：
 
 ```powershell
