@@ -19,9 +19,18 @@ class ModelStatus(str, Enum):
     load_failed = "load_failed"
 
 
+class AudioDecoderInfo(BaseModel):
+    backend: Literal["ffmpeg", "torchaudio", "none"]
+    ffmpeg_available: bool = False
+    ffmpeg_path: str | None = None
+    torchaudio_available: bool = False
+    warning: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     app_name: str
+    audio_decoder: AudioDecoderInfo
     broker_available: bool = False
     worker_available: bool = False
     async_available: bool = False
@@ -209,3 +218,4 @@ class ModelUnloadResponse(BaseModel):
 class ModelListWithGPUResponse(BaseModel):
     items: list[ModelInfoWithStatus]
     gpu: GPUInfo
+    audio_decoder: AudioDecoderInfo

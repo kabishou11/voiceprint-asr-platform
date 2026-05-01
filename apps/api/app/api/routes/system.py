@@ -1,22 +1,21 @@
 from fastapi import APIRouter, HTTPException
 
-from ..schemas import (
-    HealthResponse,
-    GPUInfo,
-    ModelInfoWithStatus,
-    ModelListWithGPUResponse,
-    ModelLoadResponse,
-    ModelStatus,
-    ModelUnloadResponse,
-)
-from ...core.config import get_settings
-from ...services.model_registry import ModelRegistryService
 from apps.worker.app.celery_app import (
     broker_available,
     broker_error,
     is_async_available,
     worker_available,
     worker_error,
+)
+
+from ...core.config import get_settings
+from ...services.audio_decoder import get_audio_decoder_info
+from ...services.model_registry import ModelRegistryService
+from ..schemas import (
+    HealthResponse,
+    ModelListWithGPUResponse,
+    ModelLoadResponse,
+    ModelUnloadResponse,
 )
 
 router = APIRouter(tags=["系统与模型"])
@@ -37,6 +36,7 @@ def health():
     return HealthResponse(
         status="ok",
         app_name=settings.app_name,
+        audio_decoder=get_audio_decoder_info(),
         broker_available=broker_ready,
         worker_available=worker_ready,
         async_available=async_ready,
@@ -55,7 +55,7 @@ def health():
 def list_models():
     items = registry.list_models()
     gpu = registry.get_gpu_info()
-    return ModelListWithGPUResponse(items=items, gpu=gpu)
+    return ModelListWithGPUResponse(items=items, gpu=gpu, audio_decoder=get_audio_decoder_info())
 
 
 @router.post(
@@ -74,9 +74,9 @@ def load_model(model_key: str):
             error=result.error,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete(
@@ -94,6 +94,6 @@ def unload_model(model_key: str):
             released_mb=result.gpu_memory_mb,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

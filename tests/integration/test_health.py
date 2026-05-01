@@ -25,12 +25,14 @@ def test_health_endpoint_returns_ok() -> None:
     assert 'worker_available' in response.json()
     assert 'async_available' in response.json()
     assert response.json()['execution_mode'] in {'async', 'sync'}
+    assert response.json()['audio_decoder']['backend'] in {'ffmpeg', 'torchaudio', 'none'}
 
 
 def test_models_endpoint_marks_empty_local_model_directories_unavailable() -> None:
     response = client.get('/api/v1/models')
 
     assert response.status_code == 200
+    assert response.json()['audio_decoder']['backend'] in {'ffmpeg', 'torchaudio', 'none'}
     items = {item['key']: item for item in response.json()['items']}
     expected_cuda_availability = 'available' if has_cuda_runtime() else 'unavailable'
     assert items['funasr-nano']['availability'] == expected_cuda_availability

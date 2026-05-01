@@ -194,6 +194,14 @@ export interface GPUInfo {
   cuda_available: boolean;
 }
 
+export interface AudioDecoderInfo {
+  backend: 'ffmpeg' | 'torchaudio' | 'none';
+  ffmpeg_available: boolean;
+  ffmpeg_path: string | null;
+  torchaudio_available: boolean;
+  warning: string | null;
+}
+
 export interface ModelInfoWithStatus {
   key: string;
   display_name: string;
@@ -223,11 +231,13 @@ export interface ModelUnloadResponse {
 export interface ModelListWithGPUResponse {
   items: ModelInfoWithStatus[];
   gpu: GPUInfo;
+  audio_decoder: AudioDecoderInfo;
 }
 
 export interface HealthResponse {
   status: string;
   app_name: string;
+  audio_decoder: AudioDecoderInfo;
   broker_available: boolean;
   worker_available: boolean;
   async_available: boolean;

@@ -50,6 +50,7 @@
   作用：稳定解码 `.mp3/.m4a/.mp4`
 
 如果你只是想跑最小高精度链路，`ffmpeg` 不是硬性前提，但没有它时，压缩音频解码能力会变差。
+后端 `/api/v1/health` 与 `/api/v1/models` 会返回 `audio_decoder`，用于确认当前是 `ffmpeg`、`torchaudio` 回退还是无可用解码后端。
 
 ### 2. 克隆项目并创建环境
 
@@ -492,6 +493,7 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 
 优先安装 `ffmpeg`。  
 如果环境里没有可用解码后端，先把音频转成 `16k wav` 再跑。
+也可以先调用 `/api/v1/health` 查看 `audio_decoder.warning`，确认当前压缩音频解码是否处于回退状态。
 
 ### 3. `pyannote` 为什么默认不可用
 
