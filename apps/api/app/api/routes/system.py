@@ -12,12 +12,13 @@ from ...core.config import get_settings
 from ...services.audio_decoder import get_audio_decoder_info
 from ...services.meeting_minutes_config import get_meeting_minutes_llm_info
 from ...services.model_registry import ModelRegistryService
-from ...services.worker_model_status import get_worker_model_status
+from ...services.worker_model_status import get_worker_model_status, warmup_worker_model
 from ..schemas import (
     HealthResponse,
     ModelListWithGPUResponse,
     ModelLoadResponse,
     ModelUnloadResponse,
+    WorkerModelWarmupResponse,
 )
 
 router = APIRouter(tags=["系统与模型"])
@@ -85,6 +86,24 @@ def load_model(model_key: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/models/{model_key}/warmup-worker",
+    response_model=WorkerModelWarmupResponse,
+    summary="预热 Worker 进程模型",
+    description=(
+        "通过 Celery 在 Worker 进程中加载指定模型，"
+        "用于确认真实任务执行进程已准备好模型和 CUDA。"
+    ),
+)
+def warmup_worker_model_route(model_key: str):
+    result = warmup_worker_model(model_key)
+    if result.online is False:
+        raise HTTPException(status_code=409, detail=result.error or "Worker 不可用")
+    if result.status == "load_failed":
+        raise HTTPException(status_code=409, detail=result.error or "Worker 模型预热失败")
+    return result
 
 
 @router.delete(

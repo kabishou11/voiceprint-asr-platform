@@ -242,6 +242,16 @@ export interface WorkerModelStatusResponse {
   error: string | null;
 }
 
+export interface WorkerModelWarmupResponse {
+  online: boolean;
+  source: string;
+  key: string;
+  status: ModelStatus;
+  hostname: string | null;
+  gpu: GPUInfo | null;
+  error: string | null;
+}
+
 export interface ModelLoadResponse {
   key: string;
   status: ModelStatus;

@@ -230,6 +230,16 @@ class WorkerModelStatusResponse(BaseModel):
     error: str | None = None
 
 
+class WorkerModelWarmupResponse(BaseModel):
+    online: bool = False
+    source: str = "celery_task"
+    key: str
+    status: ModelStatus
+    hostname: str | None = None
+    gpu: GPUInfo | None = None
+    error: str | None = None
+
+
 class ModelLoadResponse(BaseModel):
     key: str
     status: ModelStatus
