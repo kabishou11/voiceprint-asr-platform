@@ -1,8 +1,12 @@
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ReplayRounded from '@mui/icons-material/ReplayRounded';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -20,7 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchMeetingMinutes, fetchTranscript, generateMeetingMinutes } from '../../api/client';
-import type { MeetingMinutesResponse } from '../../api/types';
+import type { MeetingMinutesEvidenceItem, MeetingMinutesResponse } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { MarkdownArticle } from '../../components/MarkdownArticle';
 import { PageSection } from '../../components/PageSection';
@@ -35,6 +39,79 @@ const COLUMN_COLORS: Record<string, string> = {
   '风险与阻塞': '#dc2626',
   '议题': '#7c3aed',
 };
+
+const EVIDENCE_LABELS: Record<string, string> = {
+  decisions: '决策',
+  action_items: '行动项',
+  risks: '风险',
+};
+
+const LOW_EVIDENCE_THRESHOLD = 0.35;
+
+interface EvidenceSummary {
+  total: number;
+  averageScore: number | null;
+  lowCount: number;
+  categories: Array<{
+    key: string;
+    label: string;
+    items: MeetingMinutesEvidenceItem[];
+    averageScore: number | null;
+    lowCount: number;
+  }>;
+}
+
+function formatEvidenceScore(score?: number | null) {
+  if (typeof score !== 'number' || Number.isNaN(score)) {
+    return '未评分';
+  }
+  return `${Math.round(score * 100)}%`;
+}
+
+function formatEvidenceTime(item: MeetingMinutesEvidenceItem) {
+  const start = typeof item.start_ms === 'number' ? item.start_ms : null;
+  const end = typeof item.end_ms === 'number' ? item.end_ms : null;
+  if (start === null && end === null) {
+    return '无时间戳';
+  }
+  const formatSeconds = (value: number) => `${(value / 1000).toFixed(1)}s`;
+  if (start !== null && end !== null) {
+    return `${formatSeconds(start)} - ${formatSeconds(end)}`;
+  }
+  return start !== null ? `${formatSeconds(start)} 起` : `${formatSeconds(end as number)} 止`;
+}
+
+function averageEvidenceScore(items: MeetingMinutesEvidenceItem[]) {
+  const scores = items
+    .map((item) => item.evidence_score)
+    .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score));
+  if (!scores.length) {
+    return null;
+  }
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+}
+
+function summarizeEvidence(evidence?: MeetingMinutesResponse['evidence']): EvidenceSummary {
+  const categories = Object.entries(evidence ?? {})
+    .filter(([, items]) => Array.isArray(items) && items.length > 0)
+    .map(([key, items]) => {
+      const lowCount = items.filter((item) => typeof item.evidence_score === 'number' && item.evidence_score < LOW_EVIDENCE_THRESHOLD).length;
+      return {
+        key,
+        label: EVIDENCE_LABELS[key] ?? key,
+        items,
+        averageScore: averageEvidenceScore(items),
+        lowCount,
+      };
+    });
+  const allItems = categories.flatMap((category) => category.items);
+  return {
+    total: allItems.length,
+    averageScore: averageEvidenceScore(allItems),
+    lowCount: categories.reduce((sum, category) => sum + category.lowCount, 0),
+    categories,
+  };
+}
 
 function MinutesColumn({ title, items }: { title: string; items: string[] }) {
   const accentColor = COLUMN_COLORS[title] ?? '#64748b';
@@ -72,6 +149,83 @@ function MinutesColumn({ title, items }: { title: string; items: string[] }) {
               暂无明确内容。
             </Typography>
           )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EvidenceDiagnostics({ summary }: { summary: EvidenceSummary }) {
+  if (!summary.total) {
+    return (
+      <Card>
+        <CardContent>
+          <Stack spacing={1.2}>
+            <Typography variant="h6">证据覆盖</Typography>
+            <Alert severity="info">当前纪要未返回 evidence，暂无法核验决策、行动项与风险的转写来源。</Alert>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const severity = summary.lowCount > 0 ? 'warning' : 'success';
+  return (
+    <Card>
+      <CardContent>
+        <Stack spacing={1.35}>
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+            <Typography variant="h6">证据覆盖</Typography>
+            <Chip
+              size="small"
+              color={summary.lowCount > 0 ? 'warning' : 'success'}
+              label={`平均 ${formatEvidenceScore(summary.averageScore)}`}
+            />
+          </Stack>
+          <Alert severity={severity}>
+            已关联 {summary.total} 条证据，{summary.lowCount ? `${summary.lowCount} 条低证据需要复核。` : '当前证据可信度良好。'}
+          </Alert>
+          <Stack spacing={1}>
+            {summary.categories.map((category) => (
+              <Accordion key={category.key} disableGutters elevation={0} sx={{ border: '1px solid', borderColor: alpha('#1c2431', 0.08), borderRadius: 2.5, '&:before': { display: 'none' } }}>
+                <AccordionSummary expandIcon={<ExpandMoreRounded />}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography fontWeight={700}>{category.label}</Typography>
+                    <Chip size="small" variant="outlined" label={`${category.items.length} 条`} />
+                    <Chip size="small" variant="outlined" label={`平均 ${formatEvidenceScore(category.averageScore)}`} />
+                    {category.lowCount ? <Chip size="small" color="warning" label={`${category.lowCount} 条低证据`} /> : null}
+                  </Stack>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Stack spacing={1}>
+                    {category.items.slice(0, 5).map((item, index) => (
+                      <Box key={`${category.key}-${item.item ?? item.segment ?? index}`} sx={{ p: 1.1, borderRadius: 2.5, bgcolor: alpha('#ffffff', 0.72), border: '1px solid', borderColor: alpha('#1c2431', 0.06) }}>
+                        <Stack spacing={0.55}>
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Chip size="small" color={(item.evidence_score ?? 1) < LOW_EVIDENCE_THRESHOLD ? 'warning' : 'default'} label={formatEvidenceScore(item.evidence_score)} />
+                            <Typography variant="caption" color="text.secondary">
+                              {item.speaker || '未知说话人'} · {formatEvidenceTime(item)}
+                            </Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={700} sx={{ textWrap: 'pretty' }}>
+                            {item.item || '未命名纪要条目'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ textWrap: 'pretty', lineHeight: 1.55 }}>
+                            {item.reason || item.segment || '无证据说明。'}
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    ))}
+                    {category.items.length > 5 ? (
+                      <Typography variant="caption" color="text.secondary">
+                        还有 {category.items.length - 5} 条证据未展开展示，可在接口返回中查看完整 evidence。
+                      </Typography>
+                    ) : null}
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
+            ))}
+          </Stack>
         </Stack>
       </CardContent>
     </Card>
@@ -136,6 +290,7 @@ export function MeetingMinutesPage() {
     () => (minutes?.speaker_stats ?? []).reduce((sum, item) => sum + item.segment_count, 0),
     [minutes?.speaker_stats],
   );
+  const evidenceSummary = useMemo(() => summarizeEvidence(minutes?.evidence), [minutes?.evidence]);
 
   const handleGenerate = async (useLlm: boolean) => {
     setGenerating(true);
@@ -205,6 +360,8 @@ export function MeetingMinutesPage() {
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip label={minutes?.mode === 'llm' ? `模型生成 · ${minutes.model ?? 'LLM'}` : '本地规则'} color={minutes?.mode === 'llm' ? 'primary' : 'default'} />
+          <Chip label={minutes?.reasoning ? 'reasoning 已返回' : '无 reasoning'} variant="outlined" />
+          <Chip label={evidenceSummary.total ? `证据 ${evidenceSummary.total} 条` : '无证据'} variant="outlined" />
           <Chip label={`${stats.speakerCount} 位说话人`} variant="outlined" />
           <Chip label={`${stats.segmentCount} 段`} variant="outlined" />
         </Stack>
@@ -322,6 +479,8 @@ export function MeetingMinutesPage() {
                 </CardContent>
               </Card>
 
+              <EvidenceDiagnostics summary={evidenceSummary} />
+
               <Card>
                 <CardContent>
                   <Stack spacing={1.3}>
@@ -341,20 +500,25 @@ export function MeetingMinutesPage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent>
-                  <Stack spacing={1.3}>
+              <Accordion disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreRounded />}>
+                  <Stack spacing={0.35}>
                     <Typography variant="h6">模型思考</Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto', lineHeight: 1.62 }}
-                    >
-                      {minutes?.reasoning || '当前纪要未返回 reasoning_details。'}
+                    <Typography variant="body2" color="text.secondary">
+                      {minutes?.reasoning ? '已返回 reasoning_details，展开查看模型归纳过程。' : '当前纪要未返回 reasoning_details。'}
                     </Typography>
                   </Stack>
-                </CardContent>
-              </Card>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto', lineHeight: 1.62 }}
+                  >
+                    {minutes?.reasoning || '当前纪要未返回 reasoning_details。'}
+                  </Typography>
+                </AccordionDetails>
+              </Accordion>
             </Stack>
           </Grid>
         </Grid>

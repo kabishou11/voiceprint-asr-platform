@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,10 +36,13 @@ class Settings(BaseSettings):
         default=True,
         alias="ENABLE_3D_SPEAKER_ADAPTIVE_CLUSTERING",
     )
-    minutes_llm_api_key: str | None = Field(default=None, alias="MINUTES_LLM_API_KEY")
+    minutes_llm_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MINUTES_LLM_API_KEY", "OPENAI_API_KEY"),
+    )
     minutes_llm_base_url: str = Field(
         default="https://api.minimax.chat/v1",
-        alias="MINUTES_LLM_BASE_URL",
+        validation_alias=AliasChoices("MINUTES_LLM_BASE_URL", "OPENAI_BASE_URL"),
     )
     minutes_llm_model: str = Field(default="MiniMax-M2.7", alias="MINUTES_LLM_MODEL")
     minutes_llm_reasoning_split: bool = Field(default=True, alias="MINUTES_LLM_REASONING_SPLIT")

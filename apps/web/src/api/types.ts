@@ -112,6 +112,7 @@ export interface JobDetail {
   asset_name?: string | null;
   result?: TranscriptResult | Record<string, unknown> | null;
   error_message?: string | null;
+  status_explanation?: string | null;
 }
 
 export interface PaginationMeta {
@@ -171,7 +172,19 @@ export interface MeetingMinutesResponse {
   mode?: 'local' | 'llm';
   model?: string | null;
   reasoning?: string | null;
-  evidence?: Record<string, Array<Record<string, unknown>>> | null;
+  evidence?: Record<string, MeetingMinutesEvidenceItem[]> | null;
+}
+
+export interface MeetingMinutesEvidenceItem {
+  item?: string | null;
+  evidence_score?: number | null;
+  reason?: string | null;
+  segment?: string | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+  speaker?: string | null;
+  matched_tokens?: string[] | null;
+  missing_tokens?: string[] | null;
 }
 
 export interface ModelInfo {
@@ -194,6 +207,23 @@ export interface GPUInfo {
   cuda_available: boolean;
 }
 
+export interface AudioDecoderInfo {
+  backend: 'ffmpeg' | 'torchaudio' | 'none';
+  ffmpeg_available: boolean;
+  ffmpeg_path: string | null;
+  torchaudio_available: boolean;
+  warning: string | null;
+}
+
+export interface MeetingMinutesLLMInfo {
+  configured: boolean;
+  model: string;
+  base_url: string;
+  reasoning_split: boolean;
+  timeout_seconds: number;
+  warning: string | null;
+}
+
 export interface ModelInfoWithStatus {
   key: string;
   display_name: string;
@@ -205,6 +235,34 @@ export interface ModelInfoWithStatus {
   load_progress: number | null;
   error: string | null;
   experimental: boolean;
+}
+
+export interface WorkerModelInfo {
+  key: string;
+  display_name: string;
+  task: ModelTask;
+  provider: string;
+  availability: ModelAvailability;
+  experimental: boolean;
+}
+
+export interface WorkerModelStatusResponse {
+  online: boolean;
+  source: string;
+  hostname: string | null;
+  items: WorkerModelInfo[];
+  gpu: GPUInfo | null;
+  error: string | null;
+}
+
+export interface WorkerModelWarmupResponse {
+  online: boolean;
+  source: string;
+  key: string;
+  status: ModelStatus;
+  hostname: string | null;
+  gpu: GPUInfo | null;
+  error: string | null;
 }
 
 export interface ModelLoadResponse {
@@ -223,11 +281,15 @@ export interface ModelUnloadResponse {
 export interface ModelListWithGPUResponse {
   items: ModelInfoWithStatus[];
   gpu: GPUInfo;
+  audio_decoder: AudioDecoderInfo;
+  worker_model_status?: WorkerModelStatusResponse | null;
 }
 
 export interface HealthResponse {
   status: string;
   app_name: string;
+  audio_decoder: AudioDecoderInfo;
+  meeting_minutes_llm: MeetingMinutesLLMInfo;
   broker_available: boolean;
   worker_available: boolean;
   async_available: boolean;

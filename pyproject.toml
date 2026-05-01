@@ -66,6 +66,9 @@ pythonpath = [
   "packages/python/domain/src"
 ]
 asyncio_mode = "auto"
+addopts = [
+  "--basetemp=storage/pytest-tmp"
+]
 testpaths = ["tests/unit"]
 norecursedirs = [
   ".git",

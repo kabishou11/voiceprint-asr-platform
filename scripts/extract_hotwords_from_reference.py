@@ -42,7 +42,12 @@ def slice_reference_text_by_ratio(
     payload = text or ""
     if not payload.strip():
         return payload
-    if max_seconds is None or max_seconds <= 0 or audio_duration_seconds <= 0 or max_seconds >= audio_duration_seconds:
+    if (
+        max_seconds is None
+        or max_seconds <= 0
+        or audio_duration_seconds <= 0
+        or max_seconds >= audio_duration_seconds
+    ):
         return payload
 
     ratio = max(0.0, min(1.0, float(max_seconds) / float(audio_duration_seconds)))
@@ -70,7 +75,9 @@ def extract_hotwords(text: str, limit: int = 80, baseline_text: str | None = Non
     direct_terms = _extract_direct_terms(normalized)
     delta_counter = _collect_delta_candidates(normalized, baseline_normalized)
     phrase_counter = _collect_candidate_scores(normalized)
-    baseline_counter = _collect_candidate_scores(baseline_normalized) if baseline_normalized else Counter()
+    baseline_counter = (
+        _collect_candidate_scores(baseline_normalized) if baseline_normalized else Counter()
+    )
 
     ranked: list[tuple[str, int]] = []
     for term in set(direct_terms) | set(delta_counter) | set(phrase_counter):
@@ -119,7 +126,9 @@ def extract_hotwords(text: str, limit: int = 80, baseline_text: str | None = Non
     for term, _ in ordered:
         if term in seen:
             continue
-        if any(term != existing and (term in existing or existing in term) for existing in hotwords):
+        if any(
+            term != existing and (term in existing or existing in term) for existing in hotwords
+        ):
             continue
         hotwords.append(term)
         seen.add(term)
@@ -131,13 +140,32 @@ def extract_hotwords(text: str, limit: int = 80, baseline_text: str | None = Non
 def _extract_direct_terms(text: str) -> list[str]:
     preferred: list[str] = []
     seen: set[str] = set()
-    for term in re.findall(r"(?:陈涛|陈燕|陈哥|陈月|郭莹|吕德峰|吕东生|朱总|联合银行|联社|太仓|无锡|江南)", text):
+    for term in re.findall(
+        r"(?:陈涛|陈燕|陈哥|陈月|郭莹|吕德峰|吕东生|朱总|联合银行|联社|太仓|无锡|江南)", text
+    ):
         clean = _sanitize_term(term)
         if clean and clean not in seen and not _is_bad_term(clean):
             preferred.append(clean)
             seen.add(clean)
 
-    suffixes = ("平台", "系统", "资产", "分级", "分类", "治理", "银行", "联社", "仓库", "标准", "日志", "代码", "影像", "功能", "规则")
+    suffixes = (
+        "平台",
+        "系统",
+        "资产",
+        "分级",
+        "分类",
+        "治理",
+        "银行",
+        "联社",
+        "仓库",
+        "标准",
+        "日志",
+        "代码",
+        "影像",
+        "功能",
+        "规则",
+        "文件",
+    )
     for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", text):
         for suffix in suffixes:
             start = 0
@@ -146,7 +174,7 @@ def _extract_direct_terms(text: str) -> list[str]:
                 if index < 0:
                     break
                 for prefix_len in range(2, min(4, index) + 1):
-                    prefix = _sanitize_term(chunk[index - prefix_len:index])
+                    prefix = _sanitize_term(chunk[index - prefix_len : index])
                     if len(prefix) < 2:
                         continue
                     if not prefix or _looks_like_bad_compound_prefix(prefix):
@@ -179,7 +207,9 @@ def _collect_delta_candidates(reference_text: str, baseline_text: str) -> Counte
             continue
         sentence_ratio = 0.0
         if baseline_sentences:
-            sentence_ratio = max(_simple_ratio(sentence, candidate) for candidate in baseline_sentences)
+            sentence_ratio = max(
+                _simple_ratio(sentence, candidate) for candidate in baseline_sentences
+            )
         if sentence_ratio >= 0.95:
             continue
         for term in _extract_sentence_terms(sentence):
@@ -230,8 +260,10 @@ def _looks_like_bad_compound_prefix(prefix: str) -> bool:
         return True
     if re.search(r"(类似|现在|一个|问题|场景|逻辑|时候|觉得|可以|统一)", prefix):
         return True
-    if re.search(r"(平台|系统|资产|分级|分类|治理|银行|联社|仓库|标准|日志|代码|影像|功能|规则)$", prefix):
-        allowed = {"分类", "数据", "代码", "影像", "营销", "文档云", "联合"}
+    if re.search(
+        r"(平台|系统|资产|分级|分类|治理|银行|联社|仓库|标准|日志|代码|影像|功能|规则)$", prefix
+    ):
+        allowed = {"分类", "数据", "代码", "影像", "营销", "文档云", "联合", "日志", "配置"}
         return prefix not in allowed
     return False
 
@@ -239,9 +271,14 @@ def _looks_like_bad_compound_prefix(prefix: str) -> bool:
 def _looks_like_phrase_noise(term: str) -> bool:
     if re.search(r"(.)(?:\1)[\u4e00-\u9fff]{1,6}", term):
         return True
-    if re.search(r"(我们|你们|他们|可以|觉得|问题|这个|那个|一下|现在|其实|然后|就是|会有|不会|应该|如果)", term):
+    if re.search(
+        r"(我们|你们|他们|可以|觉得|问题|这个|那个|一下|现在|其实|然后|就是|会有|不会|应该|如果)",
+        term,
+    ):
         return True
-    if re.search(r"(去做|去跑|去看|去把|要去|可以去|先去|现在在|我觉得|我其实|通过它的|平台里面)", term):
+    if re.search(
+        r"(去做|去跑|去看|去把|要去|可以去|先去|现在在|我觉得|我其实|通过它的|平台里面)", term
+    ):
         return True
     if re.search(r"(同样按照|局限在|因为本身|据出来做|定不会比|说像现在|直之前跟)", term):
         return True
@@ -300,22 +337,32 @@ def _is_bad_term(term: str) -> bool:
         return True
     if re.search(r"(那个|这个|什么|是不是|就是|然后|觉得|其实|一下|我们|你们|他们)", term):
         return True
+    if re.search(r"^(么|些|个|种|类|样|面|里|边)", term):
+        return True
+    if len(term) <= 4 and re.search(r"(东西|事情|问题)$", term):
+        return True
     if re.search(r"(应用功能上|平台问题的|大概两三周前|这个场景下|有一条路是可以)", term):
         return True
     if re.search(r"^(这些|那些|整个|前不|今天把|一直在|是通过|要去|前不是|面的|多的)", term):
         return True
-    if re.search(r"(通过他的平台|这些数据资产|这些数字资产|据出来做分类|前不是在联社|言回来的分类|今天把联社)", term):
+    if re.search(
+        r"(通过他的平台|这些数据资产|这些数字资产|据出来做分类|前不是在联社|言回来的分类|今天把联社)",
+        term,
+    ):
         return True
     if term[0] in set("的一了是在就和跟把去要有没不这那但而且那么跟该呢啊呃嗯"):
         return True
-    stop_chars = set("的一了是在就和跟把去要有没不这那啊吧呢嘛呃嗯")
+    stop_chars = set("的一了是在就和跟把去要有没不这那啊吧呢嘛呃嗯么些其")
     if len(term) <= 4 and (term[0] in stop_chars or term[-1] in stop_chars):
         return True
     return False
 
 
 def _domain_bonus(term: str) -> int:
-    if re.search(r"(银行|联社|平台|系统|资产|分级|分类|治理|标准|加密|日志|仓库|影像|代码|OCR|数据|规则|功能)", term):
+    if re.search(
+        r"(银行|联社|平台|系统|资产|分级|分类|治理|标准|加密|日志|仓库|影像|代码|OCR|数据|规则|功能)",
+        term,
+    ):
         return 8
     if re.search(r"(陈涛|陈燕|陈哥|陈月|郭莹|吕德峰|吕东生|朱总|太仓|无锡|江南)", term):
         return 12
@@ -350,11 +397,15 @@ def main() -> None:
             audio_duration_seconds=_duration_seconds(Path(args.audio)),
             max_seconds=args.max_seconds,
         )
-    baseline_text = Path(args.baseline_text).read_text(encoding="utf-8") if args.baseline_text else None
+    baseline_text = (
+        Path(args.baseline_text).read_text(encoding="utf-8") if args.baseline_text else None
+    )
     hotwords = extract_hotwords(payload, limit=args.limit, baseline_text=baseline_text)
     output = Path(args.output)
     if output.suffix.lower() == ".json":
-        output.write_text(json.dumps({"hotwords": hotwords}, ensure_ascii=False, indent=2), encoding="utf-8")
+        output.write_text(
+            json.dumps({"hotwords": hotwords}, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     else:
         output.write_text("\n".join(hotwords) + "\n", encoding="utf-8")
 

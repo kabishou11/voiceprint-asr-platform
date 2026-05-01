@@ -19,9 +19,28 @@ class ModelStatus(str, Enum):
     load_failed = "load_failed"
 
 
+class AudioDecoderInfo(BaseModel):
+    backend: Literal["ffmpeg", "torchaudio", "none"]
+    ffmpeg_available: bool = False
+    ffmpeg_path: str | None = None
+    torchaudio_available: bool = False
+    warning: str | None = None
+
+
+class MeetingMinutesLLMInfo(BaseModel):
+    configured: bool = False
+    model: str
+    base_url: str
+    reasoning_split: bool = True
+    timeout_seconds: float
+    warning: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     app_name: str
+    audio_decoder: AudioDecoderInfo
+    meeting_minutes_llm: MeetingMinutesLLMInfo
     broker_available: bool = False
     worker_available: bool = False
     async_available: bool = False
@@ -193,6 +212,34 @@ class ModelInfoWithStatus(BaseModel):
     experimental: bool = False
 
 
+class WorkerModelInfo(BaseModel):
+    key: str
+    display_name: str
+    task: str
+    provider: str
+    availability: ModelAvailability
+    experimental: bool = False
+
+
+class WorkerModelStatusResponse(BaseModel):
+    online: bool = False
+    source: str = "celery_task"
+    hostname: str | None = None
+    items: list[WorkerModelInfo] = Field(default_factory=list)
+    gpu: GPUInfo | None = None
+    error: str | None = None
+
+
+class WorkerModelWarmupResponse(BaseModel):
+    online: bool = False
+    source: str = "celery_task"
+    key: str
+    status: ModelStatus
+    hostname: str | None = None
+    gpu: GPUInfo | None = None
+    error: str | None = None
+
+
 class ModelLoadResponse(BaseModel):
     key: str
     status: ModelStatus
@@ -209,3 +256,5 @@ class ModelUnloadResponse(BaseModel):
 class ModelListWithGPUResponse(BaseModel):
     items: list[ModelInfoWithStatus]
     gpu: GPUInfo
+    audio_decoder: AudioDecoderInfo
+    worker_model_status: WorkerModelStatusResponse | None = None

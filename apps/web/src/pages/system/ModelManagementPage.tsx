@@ -14,9 +14,14 @@ import {
 import { alpha } from '@mui/material/styles';
 import { useCallback, useState } from 'react';
 
-import { fetchModels, loadModel, unloadModel } from '../../api/client';
+import { fetchModels, loadModel, unloadModel, warmupWorkerModel } from '../../api/client';
 import { modelStatusLabels, modelTaskLabels, providerLabels } from '../../api/types';
-import type { GPUInfo, ModelInfoWithStatus } from '../../api/types';
+import type {
+  GPUInfo,
+  ModelInfoWithStatus,
+  WorkerModelInfo,
+  WorkerModelStatusResponse,
+} from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 
@@ -71,12 +76,25 @@ function GPUStatus({ gpu }: GPUStatusProps) {
 
 interface ModelCardProps {
   model: ModelInfoWithStatus;
+  workerModel?: WorkerModelInfo;
+  workerOnline: boolean;
   onLoad: (key: string) => void;
   onUnload: (key: string) => void;
+  onWarmupWorker: (key: string) => void;
   loading: boolean;
+  workerLoading: boolean;
 }
 
-function ModelCard({ model, onLoad, onUnload, loading }: ModelCardProps) {
+function ModelCard({
+  model,
+  workerModel,
+  workerOnline,
+  onLoad,
+  onUnload,
+  onWarmupWorker,
+  loading,
+  workerLoading,
+}: ModelCardProps) {
   const isLoaded = model.status === 'loaded';
   const isLoading = model.status === 'loading';
   const isFailed = model.status === 'load_failed';
@@ -111,6 +129,32 @@ function ModelCard({ model, onLoad, onUnload, loading }: ModelCardProps) {
                 <Chip label="实验性" color="warning" size="small" />
               ) : null}
             </Stack>
+          </Stack>
+
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`API: ${modelStatusLabels[model.status]}`}
+            />
+            <Chip
+              size="small"
+              variant="outlined"
+              color={
+                !workerOnline
+                  ? 'warning'
+                  : workerModel?.availability === 'available'
+                    ? 'success'
+                    : 'default'
+              }
+              label={
+                !workerOnline
+                  ? 'Worker: 离线'
+                  : workerModel
+                    ? `Worker: ${workerModel.availability === 'available' ? '可用' : '不可用'}`
+                    : 'Worker: 未上报'
+              }
+            />
           </Stack>
 
           {isLoading && model.load_progress !== null && (
@@ -164,6 +208,15 @@ function ModelCard({ model, onLoad, onUnload, loading }: ModelCardProps) {
                 {isLoading ? '加载中' : '加载'}
               </Button>
             )}
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => onWarmupWorker(model.key)}
+              disabled={!workerOnline || workerLoading || model.availability === 'unavailable'}
+              startIcon={workerLoading ? <CircularProgress size={14} /> : undefined}
+            >
+              {workerLoading ? '预热中' : '预热 Worker'}
+            </Button>
           </Stack>
         </Stack>
       </CardContent>
@@ -203,14 +256,48 @@ function ModelListStats({ items }: ModelListStatsProps) {
   );
 }
 
+interface WorkerStatusPanelProps {
+  workerStatus?: WorkerModelStatusResponse | null;
+}
+
+function WorkerStatusPanel({ workerStatus }: WorkerStatusPanelProps) {
+  if (!workerStatus) {
+    return null;
+  }
+
+  const workerGpu = workerStatus.gpu;
+  return (
+    <Alert severity={workerStatus.online ? 'info' : 'warning'}>
+      <Stack spacing={0.5}>
+        <Typography fontWeight={700}>
+          Worker 模型状态：{workerStatus.online ? '在线' : '不可用'}
+          {workerStatus.hostname ? ` · ${workerStatus.hostname}` : ''}
+        </Typography>
+        <Typography variant="body2">
+          {workerStatus.online
+            ? `Worker 已上报 ${workerStatus.items.length} 个模型。${
+                workerGpu?.cuda_available
+                  ? `CUDA 可用：${workerGpu.name ?? 'GPU'}`
+                  : 'CUDA 未就绪。'
+              }`
+            : workerStatus.error ?? '未检测到在线 Celery Worker。'}
+        </Typography>
+      </Stack>
+    </Alert>
+  );
+}
+
 export function ModelManagementPage() {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
+  const [workerLoadingKeys, setWorkerLoadingKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const { data, loading, error: fetchError, reload } = useAsyncData(() => fetchModels(), []);
 
   const items = data?.items ?? [];
   const gpu = data?.gpu ?? null;
+  const workerStatus = data?.worker_model_status ?? null;
+  const workerItemsByKey = new Map((workerStatus?.items ?? []).map((item) => [item.key, item]));
 
   const handleLoad = useCallback(
     async (modelKey: string) => {
@@ -252,9 +339,33 @@ export function ModelManagementPage() {
     [reload],
   );
 
+  const handleWarmupWorker = useCallback(
+    async (modelKey: string) => {
+      setWorkerLoadingKeys((prev) => new Set(prev).add(modelKey));
+      setError(null);
+      try {
+        await warmupWorkerModel(modelKey);
+        reload();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Worker 预热失败');
+      } finally {
+        setWorkerLoadingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(modelKey);
+          return next;
+        });
+      }
+    },
+    [reload],
+  );
+
   const isLoadingKey = useCallback(
     (key: string) => loadingKeys.has(key),
     [loadingKeys],
+  );
+  const isWorkerLoadingKey = useCallback(
+    (key: string) => workerLoadingKeys.has(key),
+    [workerLoadingKeys],
   );
 
   const loadedCount = items.filter((item) => item.status === 'loaded').length;
@@ -299,6 +410,8 @@ export function ModelManagementPage() {
 
         {gpu && <GPUStatus gpu={gpu} />}
 
+        <WorkerStatusPanel workerStatus={workerStatus} />
+
         {items.length > 0 && <ModelListStats items={items} />}
 
         <Grid container spacing={2.5}>
@@ -306,9 +419,13 @@ export function ModelManagementPage() {
             <Grid key={model.key} size={{ xs: 12, md: 6 }}>
               <ModelCard
                 model={model}
+                workerModel={workerItemsByKey.get(model.key)}
+                workerOnline={workerStatus?.online ?? false}
                 onLoad={handleLoad}
                 onUnload={handleUnload}
+                onWarmupWorker={handleWarmupWorker}
                 loading={isLoadingKey(model.key)}
+                workerLoading={isWorkerLoadingKey(model.key)}
               />
             </Grid>
           ))}

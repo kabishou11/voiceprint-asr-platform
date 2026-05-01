@@ -1,0 +1,16 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.uv-cache
+.venv
+__pycache__
+*.pyc
+apps/web/dist
+apps/web/node_modules
+docs
+models
+storage
+.env
+.env.*
+!.env.example

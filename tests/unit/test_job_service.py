@@ -1,7 +1,7 @@
 from domain.schemas.transcript import Segment, TranscriptResult
 
 from apps.api.app.services import job_service as job_service_module
-from apps.api.app.services.job_service import JobService
+from apps.api.app.services.job_service import JobService, explain_job_status
 
 
 def test_sync_transcription_passes_requested_asr_model(monkeypatch) -> None:
@@ -62,3 +62,31 @@ def test_sync_multi_speaker_passes_requested_asr_model(monkeypatch) -> None:
 
     assert seen["asr_model_key"] == "custom-asr"
     assert job.status == "succeeded"
+
+
+def test_explain_job_status_reports_worker_outage(monkeypatch) -> None:
+    job = job_service_module.JobDetail(
+        job_id="job-queued",
+        job_type="multi_speaker_transcription",
+        status="queued",
+        asset_name="demo.wav",
+    )
+
+    monkeypatch.setattr(job_service_module, "broker_available", lambda refresh=False: True)
+    monkeypatch.setattr(job_service_module, "worker_available", lambda refresh=False: False)
+    monkeypatch.setattr(job_service_module, "worker_error", lambda: "no worker heartbeat")
+
+    assert "未检测到在线 Worker" in (explain_job_status(job) or "")
+    assert "no worker heartbeat" in (explain_job_status(job) or "")
+
+
+def test_explain_job_status_classifies_cuda_failure() -> None:
+    job = job_service_module.JobDetail(
+        job_id="job-failed",
+        job_type="transcription",
+        status="failed",
+        asset_name="demo.wav",
+        error_message="CUDA out of memory",
+    )
+
+    assert "CUDA/GPU" in (explain_job_status(job) or "")

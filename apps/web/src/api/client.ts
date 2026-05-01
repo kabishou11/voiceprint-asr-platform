@@ -11,6 +11,7 @@ import type {
   ModelListWithGPUResponse,
   ModelLoadResponse,
   ModelUnloadResponse,
+  WorkerModelWarmupResponse,
   TranscriptResponse,
   UploadAssetResponse,
   VerifyVoiceprintResponse,
@@ -126,6 +127,10 @@ export function loadModel(modelKey: string): Promise<ModelLoadResponse> {
 
 export function unloadModel(modelKey: string): Promise<ModelUnloadResponse> {
   return request<ModelUnloadResponse>(`/models/${modelKey}`, { method: 'DELETE' });
+}
+
+export function warmupWorkerModel(modelKey: string): Promise<WorkerModelWarmupResponse> {
+  return request<WorkerModelWarmupResponse>(`/models/${modelKey}/warmup-worker`, { method: 'POST' });
 }
 
 export function fetchVoiceprintGroups(): Promise<{ items: Array<{ group_id: string; display_name: string; profile_ids: string[] }> }> {

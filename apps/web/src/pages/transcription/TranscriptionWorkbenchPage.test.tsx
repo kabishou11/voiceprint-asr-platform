@@ -8,12 +8,16 @@ import { appTheme } from '../../theme/appTheme';
 
 const fetchModels = vi.fn();
 const fetchJobs = vi.fn();
+const fetchVoiceprintGroups = vi.fn();
+const fetchVoiceprintProfiles = vi.fn();
 const uploadAudio = vi.fn();
 const createTranscription = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchModels: () => fetchModels(),
   fetchJobs: () => fetchJobs(),
+  fetchVoiceprintGroups: () => fetchVoiceprintGroups(),
+  fetchVoiceprintProfiles: () => fetchVoiceprintProfiles(),
   uploadAudio: (...args: unknown[]) => uploadAudio(...args),
   createTranscription: (...args: unknown[]) => createTranscription(...args),
 }));
@@ -41,6 +45,13 @@ describe('TranscriptionWorkbenchPage', () => {
         total_memory_mb: 8192,
         used_memory_mb: 2048,
         cuda_available: true,
+      },
+      audio_decoder: {
+        backend: 'ffmpeg',
+        ffmpeg_available: true,
+        ffmpeg_path: 'C:/ffmpeg/bin/ffmpeg.exe',
+        torchaudio_available: true,
+        warning: null,
       },
       items: [
         {
@@ -101,6 +112,8 @@ describe('TranscriptionWorkbenchPage', () => {
         },
       ],
     });
+    fetchVoiceprintGroups.mockResolvedValue({ items: [] });
+    fetchVoiceprintProfiles.mockResolvedValue({ items: [] });
     uploadAudio.mockResolvedValue({
       asset_name: 'uploaded.wav',
       original_filename: 'meeting.wav',
@@ -140,11 +153,14 @@ describe('TranscriptionWorkbenchPage', () => {
       expect(uploadAudio).toHaveBeenCalled();
       expect(createTranscription).toHaveBeenCalledWith({
         asset_name: 'uploaded.wav',
+        asr_model: 'funasr-nano',
         diarization_model: '3dspeaker-diarization',
         hotwords: ['阿里云', 'FunASR', '说话人分离'],
         language: 'zh-cn',
         vad_enabled: false,
         itn: true,
+        voiceprint_scope_mode: 'none',
+        voiceprint_group_id: null,
         num_speakers: 3,
         min_speakers: null,
         max_speakers: null,
@@ -170,11 +186,14 @@ describe('TranscriptionWorkbenchPage', () => {
     await waitFor(() => {
       expect(createTranscription).toHaveBeenCalledWith({
         asset_name: 'meeting.wav',
+        asr_model: 'funasr-nano',
         diarization_model: null,
         hotwords: null,
         language: 'en',
         vad_enabled: true,
         itn: true,
+        voiceprint_scope_mode: 'none',
+        voiceprint_group_id: null,
         num_speakers: null,
         min_speakers: null,
         max_speakers: null,
@@ -189,5 +208,48 @@ describe('TranscriptionWorkbenchPage', () => {
     expect(screen.getByText('分离 已就绪')).toBeInTheDocument();
     expect(screen.getByText('pyannote 未启用')).toBeInTheDocument();
     expect(screen.getByText('开始任务')).toBeInTheDocument();
+  });
+
+  it('warns before uploading compressed audio when decoder backend is unavailable', async () => {
+    fetchModels.mockResolvedValueOnce({
+      gpu: {
+        name: 'NVIDIA GeForce RTX 4060 Laptop GPU',
+        total_memory_mb: 8192,
+        used_memory_mb: 2048,
+        cuda_available: true,
+      },
+      audio_decoder: {
+        backend: 'none',
+        ffmpeg_available: false,
+        ffmpeg_path: null,
+        torchaudio_available: false,
+        warning: '没有可用音频解码器',
+      },
+      items: [
+        {
+          key: 'funasr-nano',
+          display_name: 'FunASR Nano',
+          task: 'transcription',
+          provider: 'funasr',
+          status: 'unloaded',
+          gpu_memory_mb: null,
+          load_progress: null,
+          error: null,
+          experimental: false,
+        },
+      ],
+    });
+    const { container } = renderPage();
+
+    await waitFor(() => {
+      expect(fetchModels).toHaveBeenCalled();
+    });
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['meeting'], 'meeting.m4a', { type: 'audio/mp4' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(await screen.findByText(/当前后端没有可用音频解码器/)).toBeInTheDocument();
+    expect(screen.getByText(/建议安装 ffmpeg/)).toBeInTheDocument();
   });
 });

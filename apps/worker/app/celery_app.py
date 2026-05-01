@@ -37,6 +37,7 @@ def _create_celery_app() -> Celery | None:
             "apps.worker.app.tasks.transcription",
             "apps.worker.app.tasks.multi_speaker",
             "apps.worker.app.tasks.voiceprint",
+            "apps.worker.app.tasks.model_status",
         ],
     )
 

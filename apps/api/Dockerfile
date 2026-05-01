@@ -7,7 +7,11 @@ ENV PYTHONUNBUFFERED=1
 
 COPY . /app
 
-RUN pip install uv && uv sync
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install uv \
+    && uv sync --extra asr-funasr --extra speaker-3ds
 
 EXPOSE 8000
 
