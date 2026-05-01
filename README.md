@@ -490,6 +490,30 @@ manifest 每个样本支持：
 
 对比报告会列出每个 baseline 的核心指标，并给出相对首个 baseline 的变化值。除 CER、DER、声纹和纪要覆盖外，对比表也会展示中文断词边界数/比例、前导标点段数/比例，方便评估 speaker 对齐优化是否真实改善可读性，并避免不同长度样本只按绝对数量比较。
 
+## 端到端 API Smoke
+
+离线评测用于比较算法产物，API smoke 用于验证“真实用户路径”是否打通：上传音频、创建任务、轮询状态、读取转写详情，并可选生成会议纪要。
+先分别启动 API 与 worker，然后运行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_api_core_pipeline.py `
+  --base-url http://127.0.0.1:8000 `
+  --audio tests\fixtures\sample-meeting.wav `
+  --minutes-mode local
+```
+
+如果音频已经上传过，可以复用后端返回的 `asset_name`：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_api_core_pipeline.py `
+  --asset-name sample-meeting.wav `
+  --num-speakers 3 `
+  --hotword 分类分级 `
+  --hotword 数据资产
+```
+
+脚本默认创建多人转写任务，报告会写入 `storage/experiments/<sample>/api_smoke_report_*.json`，其中包含每个接口的耗时、状态码、错误详情、任务 ID、最终任务状态、speaker 数量和会议纪要证据计数。需要只验证单人转写时，追加 `--single-speaker`；需要验证 LLM 纪要时，追加 `--minutes-mode llm`。
+
 ## 常见问题
 
 ### 1. 机器有显卡，但任务还是报 CUDA 不可用
