@@ -12,6 +12,7 @@ from ...core.config import get_settings
 from ...services.audio_decoder import get_audio_decoder_info
 from ...services.meeting_minutes_config import get_meeting_minutes_llm_info
 from ...services.model_registry import ModelRegistryService
+from ...services.worker_model_status import get_worker_model_status
 from ..schemas import (
     HealthResponse,
     ModelListWithGPUResponse,
@@ -57,7 +58,12 @@ def health():
 def list_models():
     items = registry.list_models()
     gpu = registry.get_gpu_info()
-    return ModelListWithGPUResponse(items=items, gpu=gpu, audio_decoder=get_audio_decoder_info())
+    return ModelListWithGPUResponse(
+        items=items,
+        gpu=gpu,
+        audio_decoder=get_audio_decoder_info(),
+        worker_model_status=get_worker_model_status(),
+    )
 
 
 @router.post(

@@ -224,6 +224,24 @@ export interface ModelInfoWithStatus {
   experimental: boolean;
 }
 
+export interface WorkerModelInfo {
+  key: string;
+  display_name: string;
+  task: ModelTask;
+  provider: string;
+  availability: ModelAvailability;
+  experimental: boolean;
+}
+
+export interface WorkerModelStatusResponse {
+  online: boolean;
+  source: string;
+  hostname: string | null;
+  items: WorkerModelInfo[];
+  gpu: GPUInfo | null;
+  error: string | null;
+}
+
 export interface ModelLoadResponse {
   key: string;
   status: ModelStatus;
@@ -241,6 +259,7 @@ export interface ModelListWithGPUResponse {
   items: ModelInfoWithStatus[];
   gpu: GPUInfo;
   audio_decoder: AudioDecoderInfo;
+  worker_model_status?: WorkerModelStatusResponse | null;
 }
 
 export interface HealthResponse {

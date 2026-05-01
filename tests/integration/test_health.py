@@ -43,6 +43,8 @@ def test_models_endpoint_marks_empty_local_model_directories_unavailable() -> No
 
     assert response.status_code == 200
     assert response.json()['audio_decoder']['backend'] in {'ffmpeg', 'torchaudio', 'none'}
+    assert 'worker_model_status' in response.json()
+    assert isinstance(response.json()['worker_model_status']['online'], bool)
     items = {item['key']: item for item in response.json()['items']}
     expected_cuda_availability = 'available' if has_cuda_runtime() else 'unavailable'
     assert items['funasr-nano']['availability'] == expected_cuda_availability

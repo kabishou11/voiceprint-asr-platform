@@ -212,6 +212,24 @@ class ModelInfoWithStatus(BaseModel):
     experimental: bool = False
 
 
+class WorkerModelInfo(BaseModel):
+    key: str
+    display_name: str
+    task: str
+    provider: str
+    availability: ModelAvailability
+    experimental: bool = False
+
+
+class WorkerModelStatusResponse(BaseModel):
+    online: bool = False
+    source: str = "celery_task"
+    hostname: str | None = None
+    items: list[WorkerModelInfo] = Field(default_factory=list)
+    gpu: GPUInfo | None = None
+    error: str | None = None
+
+
 class ModelLoadResponse(BaseModel):
     key: str
     status: ModelStatus
@@ -229,3 +247,4 @@ class ModelListWithGPUResponse(BaseModel):
     items: list[ModelInfoWithStatus]
     gpu: GPUInfo
     audio_decoder: AudioDecoderInfo
+    worker_model_status: WorkerModelStatusResponse | None = None
