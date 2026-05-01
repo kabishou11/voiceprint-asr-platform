@@ -15,7 +15,7 @@ import { alpha } from '@mui/material/styles';
 import { useCallback, useState } from 'react';
 
 import { fetchModels, loadModel, unloadModel, warmupWorkerModel } from '../../api/client';
-import { modelStatusLabels, modelTaskLabels, providerLabels } from '../../api/types';
+import { modelAvailabilityLabels, modelStatusLabels, modelTaskLabels, providerLabels } from '../../api/types';
 import type {
   GPUInfo,
   ModelInfoWithStatus,
@@ -98,6 +98,8 @@ function ModelCard({
   const isLoaded = model.status === 'loaded';
   const isLoading = model.status === 'loading';
   const isFailed = model.status === 'load_failed';
+  const workerRuntimeStatus = workerModel?.runtime_status ?? 'unloaded';
+  const workerLoaded = workerModel?.loaded ?? workerRuntimeStatus === 'loaded';
 
   return (
     <Card
@@ -143,18 +145,27 @@ function ModelCard({
               color={
                 !workerOnline
                   ? 'warning'
-                  : workerModel?.availability === 'available'
+                  : workerLoaded
                     ? 'success'
-                    : 'default'
+                    : workerRuntimeStatus === 'load_failed'
+                      ? 'error'
+                      : 'default'
               }
               label={
                 !workerOnline
                   ? 'Worker: 离线'
                   : workerModel
-                    ? `Worker: ${workerModel.availability === 'available' ? '可用' : '不可用'}`
+                    ? `Worker: ${modelStatusLabels[workerRuntimeStatus]}`
                     : 'Worker: 未上报'
               }
             />
+            {workerModel ? (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Worker 可用性: ${modelAvailabilityLabels[workerModel.availability]}`}
+              />
+            ) : null}
           </Stack>
 
           {isLoading && model.load_progress !== null && (
@@ -182,6 +193,12 @@ function ModelCard({
               {model.error}
             </Alert>
           )}
+
+          {workerModel?.error ? (
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              Worker: {workerModel.error}
+            </Alert>
+          ) : null}
 
           <Stack direction="row" spacing={1.5}>
             {isLoaded ? (
@@ -266,6 +283,10 @@ function WorkerStatusPanel({ workerStatus }: WorkerStatusPanelProps) {
   }
 
   const workerGpu = workerStatus.gpu;
+  const loadedCount = workerStatus.items.filter((item) => item.loaded).length;
+  const failedCount = workerStatus.items.filter(
+    (item) => item.runtime_status === 'load_failed',
+  ).length;
   return (
     <Alert severity={workerStatus.online ? 'info' : 'warning'}>
       <Stack spacing={0.5}>
@@ -275,7 +296,7 @@ function WorkerStatusPanel({ workerStatus }: WorkerStatusPanelProps) {
         </Typography>
         <Typography variant="body2">
           {workerStatus.online
-            ? `Worker 已上报 ${workerStatus.items.length} 个模型。${
+            ? `Worker 已上报 ${workerStatus.items.length} 个模型，已加载 ${loadedCount} 个，异常 ${failedCount} 个。${
                 workerGpu?.cuda_available
                   ? `CUDA 可用：${workerGpu.name ?? 'GPU'}`
                   : 'CUDA 未就绪。'

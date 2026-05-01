@@ -52,7 +52,9 @@
 如果你只是想跑最小高精度链路，`ffmpeg` 不是硬性前提，但没有它时，压缩音频解码能力会变差。
 后端 `/api/v1/health` 与 `/api/v1/models` 会返回 `audio_decoder`，用于确认当前是 `ffmpeg`、`torchaudio` 回退还是无可用解码后端。
 `/api/v1/models` 还会返回 `worker_model_status`，用于区分 API 进程模型状态和 Celery Worker 进程实际可见的模型/CUDA 状态。
-需要预热真实任务执行进程时，调用 `POST /api/v1/models/{model_key}/warmup-worker`。
+其中每个 Worker 模型项会区分 `availability`（模型文件/依赖/CUDA 是否满足）与
+`runtime_status`（Worker 进程内是否已加载真实推理对象）。需要预热真实任务执行进程时，
+调用 `POST /api/v1/models/{model_key}/warmup-worker`。
 
 ### 2. 克隆项目并创建环境
 

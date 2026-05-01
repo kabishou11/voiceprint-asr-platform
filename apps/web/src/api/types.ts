@@ -244,6 +244,10 @@ export interface WorkerModelInfo {
   task: ModelTask;
   provider: string;
   availability: ModelAvailability;
+  runtime_status?: ModelStatus;
+  loaded?: boolean;
+  gpu_memory_mb?: number | null;
+  error?: string | null;
   experimental: boolean;
 }
 

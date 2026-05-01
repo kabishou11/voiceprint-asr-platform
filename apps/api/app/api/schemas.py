@@ -218,6 +218,10 @@ class WorkerModelInfo(BaseModel):
     task: str
     provider: str
     availability: ModelAvailability
+    runtime_status: ModelStatus = ModelStatus.unloaded
+    loaded: bool = False
+    gpu_memory_mb: int | None = None
+    error: str | None = None
     experimental: bool = False
 
 
