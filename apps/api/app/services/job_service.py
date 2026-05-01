@@ -14,7 +14,13 @@ from uuid import uuid4
 
 from domain.schemas.transcript import JobDetail, JobSummary, Segment, TranscriptResult
 
-from apps.worker.app.celery_app import is_async_available
+from apps.worker.app.celery_app import (
+    broker_available,
+    broker_error,
+    is_async_available,
+    worker_available,
+    worker_error,
+)
 from apps.worker.app.tasks.multi_speaker import (
     run_multi_speaker_transcription,
     run_multi_speaker_transcription_task,
@@ -98,13 +104,13 @@ class JobService:
                 .limit(page_size)
                 .all()
             )
-            details = [record.to_job_detail() for record in records]
+            details = [self._with_status_explanation(record.to_job_detail()) for record in records]
             return [d for d in details if d is not None], total
 
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:
             record = db.get(job_db.JobRecord, job_id)
-            return record.to_job_detail() if record else None
+            return self._with_status_explanation(record.to_job_detail()) if record else None
 
     def delete_job(self, job_id: str) -> bool:
         with job_db.session() as db:
@@ -409,5 +415,52 @@ class JobService:
                 db.add(record)
             db.commit()
 
+    def _with_status_explanation(self, job: JobDetail | None) -> JobDetail | None:
+        if job is None:
+            return None
+        return job.model_copy(update={"status_explanation": explain_job_status(job)})
+
 
 job_service = JobService()
+
+
+def explain_job_status(job: JobDetail) -> str | None:
+    if job.status == "queued":
+        broker_ready = broker_available(refresh=False)
+        worker_ready = worker_available(refresh=False)
+        if not broker_ready:
+            return (
+                "任务仍在排队；当前 broker 不可用，系统会在创建新任务时回退同步模式。"
+                f"{broker_error() or ''}"
+            ).strip()
+        if not worker_ready:
+            return f"任务仍在排队；Redis 可用但未检测到在线 Worker。{worker_error() or ''}".strip()
+        return "任务已进入异步队列，等待 Worker 消费。"
+    if job.status == "running":
+        worker_ready = worker_available(refresh=False)
+        if not worker_ready:
+            return f"任务标记为运行中，但当前未检测到在线 Worker。{worker_error() or ''}".strip()
+        return "任务正在执行，模型推理或音频处理可能需要较长时间。"
+    if job.status == "failed":
+        return _explain_failure(job.error_message)
+    if job.status == "succeeded":
+        return "任务已完成。"
+    return None
+
+
+def _explain_failure(error_message: str | None) -> str:
+    if not error_message:
+        return "任务失败，但未记录错误详情。"
+    lowered = error_message.lower()
+    if "cuda" in lowered or "gpu" in lowered:
+        return f"任务失败：CUDA/GPU 运行时不可用或显存不足。原始错误：{error_message}"
+    if "ffmpeg" in lowered or "decode" in lowered or "解码" in error_message:
+        return (
+            "任务失败：音频解码失败，请检查 ffmpeg 或先转为 16k mono wav。"
+            f"原始错误：{error_message}"
+        )
+    if "model" in lowered or "模型" in error_message or "unavailable" in lowered:
+        return f"任务失败：模型不可用或本地权重不完整。原始错误：{error_message}"
+    if "minutes" in lowered or "纪要" in error_message or "llm" in lowered:
+        return f"任务失败：会议纪要生成失败或 LLM 配置不可用。原始错误：{error_message}"
+    return f"任务失败：{error_message}"

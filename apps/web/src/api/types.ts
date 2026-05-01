@@ -112,6 +112,7 @@ export interface JobDetail {
   asset_name?: string | null;
   result?: TranscriptResult | Record<string, unknown> | null;
   error_message?: string | null;
+  status_explanation?: string | null;
 }
 
 export interface PaginationMeta {

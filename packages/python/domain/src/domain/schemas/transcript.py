@@ -70,3 +70,4 @@ class JobSummary(BaseModel):
 class JobDetail(JobSummary):
     result: TranscriptResult | None = None
     error_message: str | None = None
+    status_explanation: str | None = None
