@@ -171,7 +171,19 @@ export interface MeetingMinutesResponse {
   mode?: 'local' | 'llm';
   model?: string | null;
   reasoning?: string | null;
-  evidence?: Record<string, Array<Record<string, unknown>>> | null;
+  evidence?: Record<string, MeetingMinutesEvidenceItem[]> | null;
+}
+
+export interface MeetingMinutesEvidenceItem {
+  item?: string | null;
+  evidence_score?: number | null;
+  reason?: string | null;
+  segment?: string | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+  speaker?: string | null;
+  matched_tokens?: string[] | null;
+  missing_tokens?: string[] | null;
 }
 
 export interface ModelInfo {

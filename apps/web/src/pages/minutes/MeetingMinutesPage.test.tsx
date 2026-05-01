@@ -63,6 +63,28 @@ describe('MeetingMinutesPage', () => {
       mode: 'local',
       model: null,
       reasoning: null,
+      evidence: {
+        decisions: [
+          {
+            item: '确认继续推进方案',
+            evidence_score: 0.82,
+            reason: '转写中明确提到继续推进方案。',
+            speaker: 'SPEAKER_00',
+            start_ms: 0,
+            end_ms: 2000,
+          },
+        ],
+        action_items: [
+          {
+            item: '跟进方案',
+            evidence_score: 0.28,
+            reason: '行动责任人不明确。',
+            speaker: 'SPEAKER_00',
+            start_ms: 0,
+            end_ms: 2000,
+          },
+        ],
+      },
     });
     generateMeetingMinutes.mockResolvedValue({
       job_id: 'job-1',
@@ -79,6 +101,18 @@ describe('MeetingMinutesPage', () => {
       mode: 'llm',
       model: 'MiniMax-M2.7',
       reasoning: '分析转写内容。',
+      evidence: {
+        decisions: [
+          {
+            item: 'AI 决策',
+            evidence_score: 0.91,
+            reason: '模型从转写内容中找到明确决策表述。',
+            speaker: 'SPEAKER_00',
+            start_ms: 0,
+            end_ms: 2000,
+          },
+        ],
+      },
     });
   });
 
@@ -87,6 +121,9 @@ describe('MeetingMinutesPage', () => {
 
     expect(await screen.findByText('会议讨论了方案跟进。')).toBeInTheDocument();
     expect(screen.getByText('会议纪要是独立产物，不会污染原文转写视图。')).toBeInTheDocument();
+    expect(screen.getByText('证据覆盖')).toBeInTheDocument();
+    expect(screen.getByText('已关联 2 条证据，1 条低证据需要复核。')).toBeInTheDocument();
+    expect(screen.getByText('无 reasoning')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'AI 生成' }));
 
@@ -94,6 +131,10 @@ describe('MeetingMinutesPage', () => {
       expect(generateMeetingMinutes).toHaveBeenCalledWith('job-1', true);
     });
     expect(await screen.findByText('AI 纪要完成。')).toBeInTheDocument();
-    expect(screen.getByText('AI: MiniMax-M2.7')).toBeInTheDocument();
+    expect(screen.getByText('模型生成 · MiniMax-M2.7')).toBeInTheDocument();
+    expect(screen.getByText('reasoning 已返回')).toBeInTheDocument();
+    expect(screen.getByText('已关联 1 条证据，当前证据可信度良好。')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('模型思考'));
+    expect(screen.getByText('分析转写内容。')).toBeInTheDocument();
   });
 });
