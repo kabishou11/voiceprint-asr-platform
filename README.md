@@ -139,6 +139,10 @@ MINUTES_LLM_REASONING_SPLIT=true
 MINUTES_LLM_TIMEOUT_SECONDS=90
 ```
 
+如果你的部署环境已经统一使用 OpenAI-compatible 变量，也可以改用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；
+`MINUTES_LLM_*` 优先级更高，便于单独给会议纪要指定 MiniMax-M2.7 或其他兼容模型。
+后端 `/api/v1/health` 会返回 `meeting_minutes_llm`，用于确认是否已配置 key、模型、base URL、reasoning split 与超时时间；该状态不会泄露 API Key。
+
 ### 7. 准备本地模型目录
 
 所有模型都必须放在仓库根目录 `models/` 下。

@@ -10,6 +10,7 @@ from apps.worker.app.celery_app import (
 
 from ...core.config import get_settings
 from ...services.audio_decoder import get_audio_decoder_info
+from ...services.meeting_minutes_config import get_meeting_minutes_llm_info
 from ...services.model_registry import ModelRegistryService
 from ..schemas import (
     HealthResponse,
@@ -37,6 +38,7 @@ def health():
         status="ok",
         app_name=settings.app_name,
         audio_decoder=get_audio_decoder_info(),
+        meeting_minutes_llm=get_meeting_minutes_llm_info(settings),
         broker_available=broker_ready,
         worker_available=worker_ready,
         async_available=async_ready,

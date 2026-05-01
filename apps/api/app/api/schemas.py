@@ -27,10 +27,20 @@ class AudioDecoderInfo(BaseModel):
     warning: str | None = None
 
 
+class MeetingMinutesLLMInfo(BaseModel):
+    configured: bool = False
+    model: str
+    base_url: str
+    reasoning_split: bool = True
+    timeout_seconds: float
+    warning: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     app_name: str
     audio_decoder: AudioDecoderInfo
+    meeting_minutes_llm: MeetingMinutesLLMInfo
     broker_available: bool = False
     worker_available: bool = False
     async_available: bool = False

@@ -202,6 +202,15 @@ export interface AudioDecoderInfo {
   warning: string | null;
 }
 
+export interface MeetingMinutesLLMInfo {
+  configured: boolean;
+  model: string;
+  base_url: string;
+  reasoning_split: boolean;
+  timeout_seconds: number;
+  warning: string | null;
+}
+
 export interface ModelInfoWithStatus {
   key: string;
   display_name: string;
@@ -238,6 +247,7 @@ export interface HealthResponse {
   status: string;
   app_name: string;
   audio_decoder: AudioDecoderInfo;
+  meeting_minutes_llm: MeetingMinutesLLMInfo;
   broker_available: boolean;
   worker_available: boolean;
   async_available: boolean;
