@@ -135,9 +135,22 @@ class ModelRegistryService:
                 if result is not None:
                     loaded = True
 
-            # Try triggering eager initialization for 3D-Speaker
+            # Try triggering eager initialization only as a last resort. A plain
+            # _ensure_backend() is not enough to claim a heavy model is loaded,
+            # but it is still useful for adapters without a dedicated loader.
             if not loaded and hasattr(adapter, "_ensure_backend"):
-                if adapter._ensure_backend():
+                has_heavy_runtime = any(
+                    getattr(adapter, attr, None) is not None
+                    for attr in (
+                        "_model",
+                        "_vad_runtime_model",
+                        "_pipeline",
+                        "_campplus_model",
+                        "_feature_extractor",
+                        "_sv_model",
+                    )
+                )
+                if adapter._ensure_backend() and has_heavy_runtime:
                     loaded = True
 
             if loaded:
@@ -145,9 +158,9 @@ class ModelRegistryService:
                 runtime.status = ModelRuntimeStatus.loaded
                 runtime.gpu_memory_mb = self._get_cuda_memory_mb()
             else:
-                # No load method available - mark as loaded but don't consume memory
-                runtime.status = ModelRuntimeStatus.loaded
+                runtime.status = ModelRuntimeStatus.load_failed
                 runtime.gpu_memory_mb = None
+                runtime.error = "模型未暴露可加载的真实推理对象，未标记为已加载。"
         except Exception as exc:
             runtime.status = ModelRuntimeStatus.load_failed
             runtime.error = str(exc)
@@ -183,7 +196,16 @@ class ModelRegistryService:
             adapter = entry.adapter
 
             # Properly release GPU memory: delete objects before freeing CUDA cache
-            for attr in ("_model", "_vad_runtime_model", "_pipeline"):
+            for attr in (
+                "_model",
+                "_vad_runtime_model",
+                "_pipeline",
+                "_vad_model",
+                "_campplus_model",
+                "_feature_extractor",
+                "_cluster_backend",
+                "_sv_model",
+            ):
                 if hasattr(adapter, attr) and getattr(adapter, attr, None) is not None:
                     obj = getattr(adapter, attr)
                     setattr(adapter, attr, None)
@@ -203,6 +225,7 @@ class ModelRegistryService:
         except Exception:
             pass
 
+        released_mb = runtime.gpu_memory_mb
         runtime.status = ModelRuntimeStatus.unloaded
         runtime.gpu_memory_mb = None
         runtime.load_progress = None
@@ -215,7 +238,7 @@ class ModelRegistryService:
             provider=entry.provider,
             availability=entry.availability,
             status=ModelStatus.unloaded,
-            gpu_memory_mb=None,
+            gpu_memory_mb=released_mb,
             load_progress=None,
             error=None,
             experimental=entry.experimental,

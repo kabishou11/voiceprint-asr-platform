@@ -66,9 +66,28 @@ pythonpath = [
   "packages/python/domain/src"
 ]
 asyncio_mode = "auto"
+testpaths = ["tests/unit"]
+norecursedirs = [
+  ".git",
+  ".venv",
+  ".uv-cache",
+  ".pytest_cache",
+  "apps/web/node_modules",
+  "models",
+  "storage"
+]
+markers = [
+  "integration: tests that exercise API integration or persisted state",
+  "gpu: tests that require CUDA and local model artifacts"
+]
+tmp_path_retention_policy = "failed"
 
 [tool.ruff]
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/python/model_adapters/src/model_adapters/funasr_adapter.py" = ["E501"]
+"packages/python/model_adapters/src/model_adapters/three_d_speaker_adapter.py" = ["E501"]

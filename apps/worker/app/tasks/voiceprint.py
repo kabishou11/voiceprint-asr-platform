@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from domain.schemas.voiceprint import VoiceprintIdentificationResult, VoiceprintVerificationResult
 from model_adapters import resolve_audio_asset_path
@@ -15,6 +16,10 @@ from ..worker_runtime import get_worker_registry
 from ._base import update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
+
+
+def _queued_receipt(job_id: str) -> dict[str, Any]:
+    return {"job_id": job_id, "status": "queued"}
 
 
 def _enroll_voiceprint_sync(
@@ -241,7 +246,7 @@ def enroll_voiceprint(
     profile_id: str,
     model_key: str = "3dspeaker-embedding",
     mode: str = "replace",
-) -> dict:
+) -> dict[str, Any]:
     """执行声纹注册任务。
 
     Args:
@@ -258,12 +263,7 @@ def enroll_voiceprint(
     if is_async_available() and _enroll_task is not None:
         _enroll_task.apply_async(args=[job_id, asset_name, profile_id, model_key, mode])
         logger.info(f"声纹注册任务 {job_id} 已提交到队列")
-        return {
-            "profile_id": profile_id,
-            "asset_name": asset_name,
-            "status": "queued",
-            "mode": mode,
-        }
+        return _queued_receipt(job_id)
 
     logger.info(f"声纹注册任务 {job_id} 同步执行")
     return _enroll_voiceprint_sync(
@@ -281,7 +281,7 @@ def verify_voiceprint(
     profile_id: str,
     threshold: float,
     model_key: str = "3dspeaker-embedding",
-) -> VoiceprintVerificationResult:
+) -> VoiceprintVerificationResult | dict[str, Any]:
     """执行声纹验证任务。
 
     Args:
@@ -299,12 +299,7 @@ def verify_voiceprint(
     if is_async_available() and _verify_task is not None:
         _verify_task.apply_async(args=[job_id, asset_name, profile_id, threshold, model_key])
         logger.info(f"声纹验证任务 {job_id} 已提交到队列")
-        return VoiceprintVerificationResult(
-            profile_id=profile_id,
-            score=0.0,
-            threshold=threshold,
-            matched=False,
-        )
+        return _queued_receipt(job_id)
 
     logger.info(f"声纹验证任务 {job_id} 同步执行")
     return _verify_voiceprint_sync(
@@ -322,7 +317,7 @@ def identify_voiceprint(
     top_k: int,
     model_key: str = "3dspeaker-embedding",
     profile_ids: list[str] | None = None,
-) -> VoiceprintIdentificationResult:
+) -> VoiceprintIdentificationResult | dict[str, Any]:
     """执行声纹识别任务。
 
     Args:
@@ -339,7 +334,7 @@ def identify_voiceprint(
     if is_async_available() and _identify_task is not None:
         _identify_task.apply_async(args=[job_id, asset_name, top_k, model_key, profile_ids])
         logger.info(f"声纹识别任务 {job_id} 已提交到队列")
-        return VoiceprintIdentificationResult(candidates=[], matched=False)
+        return _queued_receipt(job_id)
 
     logger.info(f"声纹识别任务 {job_id} 同步执行")
     return _identify_voiceprint_sync(

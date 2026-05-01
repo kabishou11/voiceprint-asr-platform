@@ -9,13 +9,13 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-
 from domain.schemas.transcript import Segment
 from domain.schemas.voiceprint import (
     VoiceprintIdentificationCandidate,
     VoiceprintIdentificationResult,
     VoiceprintVerificationResult,
 )
+
 from model_adapters.base import (
     AudioAsset,
     DiarizationAdapter,
@@ -94,12 +94,15 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         return "available" if has_torch and has_modelscope and has_cuda_runtime() else "unavailable"
 
     def _ensure_backend(self) -> bool:
-        try:
-            import torch
-        except ImportError:
+        if importlib.util.find_spec("torch") is None:
             return False
         self._device = self._resolve_device()
         return True
+
+    def _load_model(self) -> object | None:
+        if not self._ensure_backend():
+            return None
+        return self._ensure_reference_embedding_runtime()
 
     def _resolve_device(self) -> str:
         if not has_cuda_runtime():
@@ -132,13 +135,15 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
         try:
             from funasr.auto.auto_model import AutoModel
 
-            vad_model = AutoModel(
-                model=vad_model_path,
-                device=self._device or "cpu",
-                disable_update=True,
-            )
+            if self._vad_model is None:
+                self._vad_model = AutoModel(
+                    model=vad_model_path,
+                    device=self._device or "cpu",
+                    disable_update=True,
+                )
             # VAD 输入可以是音频路径或 numpy 数组
-            result = vad_model.generate(input=audio if isinstance(audio, str) else audio.tolist())
+            vad_input = audio if isinstance(audio, str) else audio.tolist()
+            result = self._vad_model.generate(input=vad_input)
             segments = result[0].get("value", [])
             # 格式为 [[start_ms, end_ms], ...] → 转为 [[start_sec, end_sec], ...]
             return [[s[0] / 1000.0, s[1] / 1000.0] for s in segments]
@@ -1619,6 +1624,14 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
             return self._sv_model
         except Exception:
             return None
+
+    def _load_model(self):
+        require_available_model(
+            self.availability,
+            model_label=self.display_name,
+            purpose="声纹模型加载",
+        )
+        return self._ensure_sv_pipeline()
 
     def _run_sv_score(self, sv_pipeline, enroll_path: str, probe_path: str) -> float:
         tmpdir = Path(tempfile.mkdtemp(prefix="voiceprint-score-"))

@@ -80,6 +80,34 @@ def test_align_transcript_prefers_sentence_boundaries_when_speaker_changes() -> 
     assert result.segments[1].speaker == "SPEAKER_01"
 
 
+def test_align_transcript_absorbs_tiny_middle_diarization_interval_for_readability() -> None:
+    transcript = TranscriptResult(
+        text="第一句已经说完。第二句继续说明。第三句收尾。",
+        language="zh-cn",
+        segments=[
+            Segment(
+                start_ms=0,
+                end_ms=8000,
+                text="第一句已经说完。第二句继续说明。第三句收尾。",
+                speaker=None,
+            ),
+        ],
+    )
+    diarization_segments = [
+        Segment(start_ms=0, end_ms=3600, text="", speaker="SPEAKER_00"),
+        Segment(start_ms=3600, end_ms=4200, text="", speaker="SPEAKER_01"),
+        Segment(start_ms=4200, end_ms=8000, text="", speaker="SPEAKER_00"),
+    ]
+
+    result = align_transcript_with_speakers(transcript, diarization_segments)
+
+    assert len(result.segments) == 1
+    assert result.segments[0].speaker == "SPEAKER_00"
+    assert result.segments[0].text.replace(" ", "") == (
+        "第一句已经说完。第二句继续说明。第三句收尾。"
+    )
+
+
 def test_align_transcript_repairs_cjk_word_split_at_diarization_boundary() -> None:
     transcript = TranscriptResult(
         text="没有应用加工逻辑的时候这个场景是可以做到的",

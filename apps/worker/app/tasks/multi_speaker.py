@@ -36,7 +36,32 @@ from ._base import update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
 
-PARALLEL_ASR_DIARIZATION = os.environ.get("PARALLEL_ASR_DIARIZATION", "1") == "1"
+PARALLEL_ASR_DIARIZATION = os.environ.get("PARALLEL_ASR_DIARIZATION", "auto").lower()
+MIN_PARALLEL_FREE_GPU_MB = int(os.environ.get("MIN_PARALLEL_FREE_GPU_MB", "10000"))
+
+
+def _cuda_free_memory_mb() -> int | None:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+        return int(free_bytes / 1024 / 1024)
+    except Exception:
+        return None
+
+
+def _should_parallelize_asr_diarization() -> bool:
+    if PARALLEL_ASR_DIARIZATION in {"0", "false", "no", "off", "disabled"}:
+        return False
+    if PARALLEL_ASR_DIARIZATION in {"1", "true", "yes", "on", "enabled"}:
+        return True
+
+    free_mb = _cuda_free_memory_mb()
+    if free_mb is None:
+        return False
+    return free_mb >= MIN_PARALLEL_FREE_GPU_MB
 
 
 def _run_multi_speaker_transcription_sync(
@@ -96,7 +121,7 @@ def _run_multi_speaker_transcription_sync(
     if hasattr(diarization_adapter, "max_speakers"):
         diarization_adapter.max_speakers = max_speakers
 
-    if PARALLEL_ASR_DIARIZATION:
+    if _should_parallelize_asr_diarization():
         logger.info(f"任务 {job_id} 并行执行 ASR + Diarization")
         with ThreadPoolExecutor(max_workers=2) as executor:
             asr_future = executor.submit(asr_adapter.transcribe, asset)

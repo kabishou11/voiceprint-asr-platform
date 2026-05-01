@@ -26,6 +26,7 @@ Thumbs.db
 # Runtime
 storage/
 models/
+docs/
 *.log
 
 # Claude Code / Playwright MCP

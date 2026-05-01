@@ -41,7 +41,12 @@ def _init_demo_job() -> None:
                     language="zh",
                     segments=[
                         Segment(start_ms=0, end_ms=2300, text="欢迎使用", speaker="SPEAKER_00"),
-                        Segment(start_ms=2300, end_ms=5200, text="voiceprint-asr-platform。", speaker="SPEAKER_00"),
+                        Segment(
+                            start_ms=2300,
+                            end_ms=5200,
+                            text="voiceprint-asr-platform。",
+                            speaker="SPEAKER_00",
+                        ),
                     ],
                 ).model_dump_json(),
                 error_message=None,
@@ -202,7 +207,12 @@ class JobService:
                     logger.info(f"任务 {job_id} 已提交到队列（转写）")
                 elif job_type == "multi_speaker_transcription":
                     run_multi_speaker_transcription_task.apply_async(
-                        args=[job_id, asset_name, asr_model, diarization_model or "3dspeaker-diarization"],
+                        args=[
+                            job_id,
+                            asset_name,
+                            asr_model,
+                            diarization_model or "3dspeaker-diarization",
+                        ],
                         kwargs={
                             "hotwords": hotwords,
                             "language": language,
@@ -278,6 +288,7 @@ class JobService:
                 result = run_transcription(
                     job_id=job_id,
                     asset_name=asset_name,
+                    model_key=asr_model,
                     hotwords=hotwords,
                     language=language,
                     vad_enabled=vad_enabled,
@@ -287,6 +298,7 @@ class JobService:
                 result = run_multi_speaker_transcription(
                     job_id=job_id,
                     asset_name=asset_name,
+                    asr_model_key=asr_model,
                     diarization_model_key=diarization_model or "3dspeaker-diarization",
                     hotwords=hotwords,
                     language=language,
@@ -306,7 +318,12 @@ class JobService:
             logger.error(f"任务 {job_id} 执行失败: {exc}")
 
         # 更新任务状态
-        self._update_job_result(job_id, result=result, status="succeeded" if result is not None else "failed", error_message=error_message)
+        self._update_job_result(
+            job_id,
+            result=result,
+            status="succeeded" if result is not None else "failed",
+            error_message=error_message,
+        )
 
         # 获取更新后的任务
         return self.get_job(job_id) or JobDetail(

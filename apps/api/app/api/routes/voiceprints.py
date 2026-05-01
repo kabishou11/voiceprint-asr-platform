@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -99,6 +100,21 @@ def _run_sync_voiceprint_job(job_id: str, runner):
 
 def _job_receipt(job_id: str, status: str = "queued") -> VoiceprintAsyncReceipt:
     return VoiceprintAsyncReceipt(job_id=job_id, status=status)
+
+
+def _decode_voiceprint_job_result(raw_result: Any) -> dict[str, Any] | None:
+    if raw_result is None:
+        return None
+    if isinstance(raw_result, dict):
+        return raw_result
+    if not isinstance(raw_result, str) or not raw_result.strip():
+        return None
+    try:
+        parsed = json.loads(raw_result)
+    except (TypeError, json.JSONDecodeError):
+        logger.warning("声纹任务结果不是有效 JSON，忽略原始 result")
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 @router.get(
@@ -270,8 +286,8 @@ def get_voiceprint_job(job_id: str):
             "verification": None,
             "identification": None,
         }
-        if record.result:
-            parsed = json.loads(record.result)
+        parsed = _decode_voiceprint_job_result(record.result)
+        if parsed:
             if record.job_type == "voiceprint_enroll":
                 payload["enrollment"] = parsed
             elif record.job_type == "voiceprint_verify":

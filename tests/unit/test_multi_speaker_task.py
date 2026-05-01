@@ -139,6 +139,18 @@ def test_run_multi_speaker_transcription_uses_adapter_regular_and_exclusive_time
     ]
 
 
+def test_parallel_asr_diarization_auto_requires_enough_free_gpu_memory(monkeypatch) -> None:
+    monkeypatch.setattr(multi_speaker, "PARALLEL_ASR_DIARIZATION", "auto")
+    monkeypatch.setattr(multi_speaker, "MIN_PARALLEL_FREE_GPU_MB", 10000)
+    monkeypatch.setattr(multi_speaker, "_cuda_free_memory_mb", lambda: 8192)
+
+    assert multi_speaker._should_parallelize_asr_diarization() is False
+
+    monkeypatch.setattr(multi_speaker, "_cuda_free_memory_mb", lambda: 12288)
+
+    assert multi_speaker._should_parallelize_asr_diarization() is True
+
+
 def test_run_multi_speaker_transcription_attaches_voiceprint_matches(monkeypatch) -> None:
     from apps.api.app.services import job_db
 

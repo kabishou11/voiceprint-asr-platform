@@ -264,6 +264,7 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         if speaker is None:
             speaker = _nearest_speaker(left, diar_segments) or "SPEAKER_00"
         intervals.append((left, right, speaker))
+    intervals = _collapse_tiny_alignment_intervals(intervals)
 
     sentence_aligned = _split_text_by_sentence_units(seg, intervals)
     if sentence_aligned:
@@ -288,6 +289,55 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         )
 
     return [piece for piece in pieces if piece.end_ms > piece.start_ms]
+
+
+def _collapse_tiny_alignment_intervals(
+    intervals: list[tuple[int, int, str]],
+    *,
+    min_duration_ms: int = 1500,
+) -> list[tuple[int, int, str]]:
+    """吸收对齐毛刺，避免把完整短句塞进极短 speaker interval。
+
+    原始 diarization timeline 仍保留在 metadata 中；这里仅影响最终可读转写。
+    """
+    if len(intervals) <= 2:
+        return intervals
+
+    collapsed = list(intervals)
+    index = 0
+    while index < len(collapsed) and len(collapsed) > 1:
+        left, right, speaker = collapsed[index]
+        duration = right - left
+        if duration >= min_duration_ms:
+            index += 1
+            continue
+
+        previous_item = collapsed[index - 1] if index > 0 else None
+        next_item = collapsed[index + 1] if index + 1 < len(collapsed) else None
+        merge_left = False
+        if previous_item is not None and next_item is not None:
+            prev_duration = previous_item[1] - previous_item[0]
+            next_duration = next_item[1] - next_item[0]
+            merge_left = previous_item[2] == next_item[2] or prev_duration >= next_duration
+        elif previous_item is not None:
+            merge_left = True
+
+        if merge_left and previous_item is not None:
+            prev_left, _prev_right, prev_speaker = previous_item
+            collapsed[index - 1] = (prev_left, right, prev_speaker)
+            collapsed.pop(index)
+            index = max(0, index - 1)
+            continue
+
+        if next_item is not None:
+            _next_left, next_right, next_speaker = next_item
+            collapsed[index + 1] = (left, next_right, next_speaker)
+            collapsed.pop(index)
+            continue
+
+        index += 1
+
+    return collapsed
 
 
 def _proportional_text_slice_indices(

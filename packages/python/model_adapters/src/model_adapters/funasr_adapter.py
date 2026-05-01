@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from domain.schemas.transcript import Segment, TranscriptResult
+
 from model_adapters.base import (
     ASRAdapter,
     AudioAsset,
@@ -73,7 +73,9 @@ class FunASRTranscribeAdapter(ASRAdapter):
         has_local_model = _has_model_artifacts(self.model_name)
         if not has_local_model:
             return "unavailable"
-        return "available" if self._ensure_backend() and has_cuda_runtime() else "unavailable"
+        if importlib.util.find_spec("funasr") is None:
+            return "unavailable"
+        return "available" if has_cuda_runtime() else "unavailable"
 
     def _ensure_backend(self) -> bool:
         if self._auto_model_cls is not None:
@@ -205,8 +207,6 @@ class FunASRTranscribeAdapter(ASRAdapter):
         sample_rate: int,
         generate_kwargs: dict[str, Any],
     ) -> TranscriptResult:
-        import torch
-
         chunks = self._build_audio_chunks(audio_input, sample_rate)
         if len(chunks) <= 1 and not self.vad_enabled:
             result = model.generate(input=audio_input, **generate_kwargs)
