@@ -15,7 +15,14 @@ def test_build_models_report_marks_core_models_available(tmp_path: Path) -> None
 
     assert report["summary"]["all_required_available"] is True
     assert report["summary"]["available_required_count"] == 3
-    assert {row["status"] for row in report["models"]} == {"available"}
+    assert report["summary"]["optional_count"] == 1
+    assert report["summary"]["available_optional_count"] == 0
+    rows = {row["key"]: row for row in report["models"]}
+    assert rows["funasr-nano"]["status"] == "available"
+    assert rows["fsmn-vad"]["status"] == "available"
+    assert rows["3dspeaker-campplus"]["status"] == "available"
+    assert rows["pyannote-community-1"]["required"] is False
+    assert rows["pyannote-community-1"]["status"] == "missing"
 
 
 def test_build_models_report_reports_missing_and_undersized_files(tmp_path: Path) -> None:
@@ -40,6 +47,23 @@ def test_render_markdown_report_includes_model_status(tmp_path: Path) -> None:
     assert "# 本地模型完整性检查" in markdown
     assert "FunASR Nano ASR" in markdown
     assert "| 3D-Speaker CAM++ | 是 | available |" in markdown
+    assert "| pyannote community-1 | 否 | missing |" in markdown
+
+
+def test_build_models_report_marks_optional_pyannote_available_with_marker(tmp_path: Path) -> None:
+    _write_core_model_files(tmp_path)
+    _write_bytes(
+        tmp_path / "pyannote" / "speaker-diarization-community-1" / "pipeline.yaml",
+        8,
+    )
+
+    report = build_models_report(tmp_path)
+    rows = {row["key"]: row for row in report["models"]}
+
+    assert report["summary"]["all_required_available"] is True
+    assert report["summary"]["available_optional_count"] == 1
+    assert rows["pyannote-community-1"]["status"] == "available"
+    assert rows["pyannote-community-1"]["marker_matches"] == ["pipeline.yaml"]
 
 
 def test_main_returns_non_zero_when_required_models_are_missing(tmp_path: Path) -> None:

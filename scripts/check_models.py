@@ -21,6 +21,7 @@ class ModelCheck:
     directory: str
     required: bool
     files: tuple[RequiredFile, ...]
+    artifact_markers: tuple[str, ...] = ()
 
 
 CORE_MODEL_CHECKS: tuple[ModelCheck, ...] = (
@@ -56,6 +57,21 @@ CORE_MODEL_CHECKS: tuple[ModelCheck, ...] = (
             RequiredFile("configuration.json"),
         ),
     ),
+    ModelCheck(
+        key="pyannote-community-1",
+        display_name="pyannote community-1",
+        directory="pyannote/speaker-diarization-community-1",
+        required=False,
+        files=(),
+        artifact_markers=(
+            "config.yaml",
+            "config.yml",
+            "pytorch_model.bin",
+            "model.safetensors",
+            "pipeline.yaml",
+            "pyannote_pipeline.yaml",
+        ),
+    ),
 )
 
 
@@ -77,6 +93,10 @@ def build_models_report(
             "model_count": len(model_rows),
             "required_count": len(required_rows),
             "available_required_count": available_required_count,
+            "optional_count": len(model_rows) - len(required_rows),
+            "available_optional_count": sum(
+                1 for row in model_rows if not row["required"] and row["available"]
+            ),
             "all_required_available": available_required_count == len(required_rows),
         },
         "models": model_rows,
@@ -91,6 +111,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- 模型根目录: {report.get('models_root') or 'models'}",
         f"- 必需模型: {summary.get('available_required_count', 0)}/"
         f"{summary.get('required_count', 0)} 可用",
+        f"- 可选模型: {summary.get('available_optional_count', 0)}/"
+        f"{summary.get('optional_count', 0)} 可用",
         f"- 主链路可用: {bool(summary.get('all_required_available'))}",
         "",
         "| 模型 | 必需 | 状态 | 目录 | 缺失/异常文件 | 大小 |",
@@ -103,6 +125,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
             f"{item.get('path')}<{item.get('min_bytes')}B"
             for item in row.get("undersized_files") or []
         )
+        if row.get("artifact_markers") and not row.get("marker_matches"):
+            issues.append("未发现模型 artifact marker")
         lines.append(
             "| "
             + " | ".join(
@@ -125,6 +149,7 @@ def _check_model(root: Path, check: ModelCheck, *, include_sha256: bool) -> dict
     file_rows: list[dict[str, Any]] = []
     missing_files: list[str] = []
     undersized_files: list[dict[str, Any]] = []
+    marker_matches: list[str] = []
     total_size = 0
 
     for required_file in check.files:
@@ -154,7 +179,20 @@ def _check_model(root: Path, check: ModelCheck, *, include_sha256: bool) -> dict
             file_row["sha256"] = _sha256_file(path)
         file_rows.append(file_row)
 
-    available = bool(directory.is_dir()) and not missing_files and not undersized_files
+    if check.artifact_markers and directory.is_dir():
+        marker_matches = sorted(
+            str(path.relative_to(directory))
+            for path in directory.rglob("*")
+            if path.is_file() and path.name in check.artifact_markers
+        )
+
+    missing_markers = bool(check.artifact_markers) and not marker_matches
+    available = (
+        bool(directory.is_dir())
+        and not missing_files
+        and not undersized_files
+        and not missing_markers
+    )
     status = "available" if available else ("missing" if not directory.exists() else "incomplete")
     return {
         "key": check.key,
@@ -165,6 +203,8 @@ def _check_model(root: Path, check: ModelCheck, *, include_sha256: bool) -> dict
         "status": status,
         "missing_files": missing_files,
         "undersized_files": undersized_files,
+        "artifact_markers": list(check.artifact_markers),
+        "marker_matches": marker_matches,
         "total_size_bytes": total_size,
         "files": file_rows,
     }

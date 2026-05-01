@@ -174,6 +174,9 @@ models/
 uv run python scripts/check_models.py
 ```
 
+报告会区分“必需模型”和“可选模型”。`FunASR Nano`、`FSMN-VAD`、`3D-Speaker CAM++`
+决定主链路是否可用；`pyannote community-1` 只作为可选增强显示，不完整时不会阻断默认链路。
+
 如需输出机器可读 JSON，或发布前计算关键文件哈希：
 
 ```powershell
