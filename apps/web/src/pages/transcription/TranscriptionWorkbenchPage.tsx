@@ -22,7 +22,14 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { createTranscription, fetchJobs, fetchModels, fetchVoiceprintGroups, fetchVoiceprintProfiles, uploadAudio } from '../../api/client';
+import {
+  createTranscription,
+  fetchJobs,
+  fetchModels,
+  fetchVoiceprintGroups,
+  fetchVoiceprintProfiles,
+  uploadAudio,
+} from '../../api/client';
 import { formatDateTime, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
@@ -32,6 +39,7 @@ import { StatusChip } from '../../components/StatusChip';
 
 const RECENT_ACTIVE_JOB_STORAGE_KEY = 'voiceprint-active-job-ids';
 type RuntimeState = 'ready' | 'loading' | 'loadable' | 'unavailable';
+const COMPRESSED_AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'mp4', 'aac', 'ogg', 'wma']);
 
 function runtimeLabel(label: string, state: RuntimeState) {
   if (state === 'ready') {
@@ -59,6 +67,11 @@ function runtimeColor(state: RuntimeState): 'success' | 'warning' | 'info' | 'de
   return 'default';
 }
 
+function getAudioExtension(fileName: string): string {
+  const lastPart = fileName.split('.').pop() ?? '';
+  return lastPart.toLowerCase();
+}
+
 export function TranscriptionWorkbenchPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -84,6 +97,7 @@ export function TranscriptionWorkbenchPage() {
   const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
   const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
   const modelItems = modelsState.data?.items ?? [];
+  const audioDecoder = modelsState.data?.audio_decoder ?? null;
   const voiceprintGroups = groupsState.data?.items ?? [];
   const voiceprintProfiles = profilesState.data?.items ?? [];
   const gpuReady = modelsState.data?.gpu?.cuda_available ?? false;
@@ -115,6 +129,11 @@ export function TranscriptionWorkbenchPage() {
   const voiceprintState = resolveRuntimeState('3dspeaker-embedding');
   const pyannoteState = resolveRuntimeState('pyannote-community-1');
   const asrLoadable = asrState !== 'unavailable';
+  const selectedAudioName = selectedFile?.name ?? uploadedAssetName;
+  const selectedAudioExtension = getAudioExtension(selectedAudioName);
+  const compressedAudioSelected = COMPRESSED_AUDIO_EXTENSIONS.has(selectedAudioExtension);
+  const showDecoderWarning = compressedAudioSelected && audioDecoder?.backend === 'none';
+  const showDecoderFallbackInfo = compressedAudioSelected && audioDecoder?.backend === 'torchaudio';
 
   useEffect(() => {
     if (taskMode === 'multi' && !diarizationModel && diarizationOptions.length > 0) {
@@ -316,6 +335,19 @@ export function TranscriptionWorkbenchPage() {
                       }
                     }}
                   />
+
+                  {showDecoderWarning ? (
+                    <Alert severity="warning" sx={{ borderRadius: 3 }}>
+                      当前后端没有可用音频解码器，压缩音频（{selectedAudioExtension}）可能无法转写。
+                      建议安装 ffmpeg，或先转为 16k mono wav 后再上传。
+                    </Alert>
+                  ) : null}
+
+                  {showDecoderFallbackInfo ? (
+                    <Alert severity="info" sx={{ borderRadius: 3 }}>
+                      当前压缩音频将使用 torchaudio 回退解码；若遇到 m4a/mp3 失败或时间轴异常，建议安装 ffmpeg。
+                    </Alert>
+                  ) : null}
 
                   {uploadedAssetName && !selectedFile ? (
                     <Box
