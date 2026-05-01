@@ -161,6 +161,19 @@ models/
 - `models/3D-Speaker/campplus`：已接入，可用于真实 diarization / voiceprint
 - `models/pyannote/speaker-diarization-community-1`：默认仍不完整，不参与主链路
 
+检查核心模型完整性：
+
+```powershell
+uv run python scripts/check_models.py
+```
+
+如需输出机器可读 JSON，或发布前计算关键文件哈希：
+
+```powershell
+uv run python scripts/check_models.py --json
+uv run python scripts/check_models.py --json --sha256
+```
+
 更多说明见：
 
 - [models/README.md](F:/1work/音频识别/voiceprint-asr-platform/models/README.md)
