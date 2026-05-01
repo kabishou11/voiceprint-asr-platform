@@ -33,6 +33,23 @@ def test_extract_hotwords_filters_conversational_noise_phrases() -> None:
     assert "平台里面去抽取" not in hotwords
 
 
+def test_extract_hotwords_filters_truncated_conversational_fragments() -> None:
+    reference = (
+        "日志分级需要看泄露影响。"
+        "有么东西可以先粗分，些东西还要人工复核，现在其实只是探索。"
+        "代码仓库和配置文件需要重点关注。"
+    )
+
+    hotwords = extract_hotwords(reference, limit=30, baseline_text="")
+
+    assert "日志分级" in hotwords
+    assert "代码仓库" in hotwords
+    assert "配置文件" in hotwords
+    assert "么东西" not in hotwords
+    assert "些东西" not in hotwords
+    assert "现在其" not in hotwords
+
+
 def test_slice_reference_text_by_ratio_keeps_front_window_sentences() -> None:
     text = "第一句。第二句更长一些。第三句收尾。"
 
