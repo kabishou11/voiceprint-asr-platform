@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 # 设置路径以支持模块导入
@@ -21,7 +22,7 @@ project_root = Path(__file__).resolve().parents[3]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from apps.worker.app.celery_app import get_celery_app
+from apps.worker.app.celery_app import get_celery_app  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +30,30 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def build_worker_main_args() -> list[str]:
+    """构建 Celery worker 启动参数。
+
+    Celery 的 prefork/spawn 池在 Windows 上容易因为 billiard semaphore 权限失败。
+    本地 Windows 开发默认使用 solo 单进程，Linux/容器仍沿用 Celery 默认池。
+    """
+    loglevel = os.environ.get("CELERY_WORKER_LOGLEVEL", "info")
+    args = ["worker", f"--loglevel={loglevel}"]
+    pool = os.environ.get("CELERY_WORKER_POOL")
+    concurrency = os.environ.get("CELERY_WORKER_CONCURRENCY")
+
+    if not pool and sys.platform.startswith("win"):
+        pool = "solo"
+    if pool:
+        args.append(f"--pool={pool}")
+
+    if not concurrency and sys.platform.startswith("win"):
+        concurrency = "1"
+    if concurrency:
+        args.append(f"--concurrency={concurrency}")
+
+    return args
 
 
 def main():
@@ -43,8 +68,11 @@ def main():
     logger.info(f"Broker: {celery_app.conf.broker_url}")
     logger.info("按 Ctrl+C 停止 worker")
 
+    worker_args = build_worker_main_args()
+    logger.info("Worker 参数: %s", " ".join(worker_args))
+
     # 启动 worker（Celery 5.x 使用 worker_main()，不是 start()）
-    celery_app.worker_main(["worker", "--loglevel=info"])
+    celery_app.worker_main(worker_args)
 
 
 if __name__ == "__main__":

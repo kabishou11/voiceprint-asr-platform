@@ -213,6 +213,21 @@ uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
 uv run python -m apps.worker.app.worker
 ```
 
+Windows 本地开发会默认使用 `--pool=solo --concurrency=1`，避免 Celery/billiard
+多进程池在 Windows 上报 `PermissionError: [WinError 5] 拒绝访问`。如果你手动用
+`celery -A ... worker` 启动，也请带上：
+
+```powershell
+uv run celery -A apps.worker.app.celery_app worker --loglevel=info --pool=solo --concurrency=1
+```
+
+如果日志出现 `Cannot connect to redis://localhost:6379/0`，说明 Redis 没启动。
+本地可先启动基础依赖：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml up -d redis
+```
+
 终端 3，启动前端：
 
 ```powershell
