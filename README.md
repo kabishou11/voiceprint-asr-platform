@@ -184,6 +184,13 @@ uv run python scripts/check_models.py --json
 uv run python scripts/check_models.py --json --sha256
 ```
 
+交接或生产部署前建议再跑一次环境自检：
+
+```powershell
+uv run python scripts/deployment_preflight.py
+uv run python scripts/deployment_preflight.py --json --strict
+```
+
 更多说明见：
 
 - [models/README.md](F:/1work/音频识别/voiceprint-asr-platform/models/README.md)
@@ -203,7 +210,7 @@ uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-uv run python -m apps.worker.app.main
+uv run python -m apps.worker.app.worker
 ```
 
 终端 3，启动前端：
@@ -249,6 +256,34 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\run_multi_speaker_sample.py storage\experiments\standard_recording_1\standard_recording_1_15min.wav storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_verify.json --output-text storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_verify.txt --title "标准录音 1（前15分钟）"
+```
+
+### 10. 生产部署交接要点
+
+当前仓库的容器配置是“可交接的部署骨架”，不是已经完成 GPU 生产镜像的最终形态。正式部署前必须确认：
+
+- API 与 Worker 镜像需要 `ffmpeg`、本地模型卷、持久化 `storage/` 卷。
+- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`，`uv.lock` 中的 PyPI `torch` 不能替代 CUDA wheel。
+- `infra/compose/docker-compose.yml` 会把容器内 DSN 覆盖为 `postgres`、`redis`、`minio` 服务名；如果手动启动，`.env` 中可以继续使用 `localhost`。
+- 当前业务数据真实落在 `storage/jobs.db`、`storage/uploads`、`storage/voiceprints`、`storage/minutes` 等本地目录；`POSTGRES_DSN` 与 `S3_*` 目前是部署预留配置，尚未承载主业务持久化。
+- 前端 Dockerfile 当前运行 Vite dev server。生产环境建议 `npm run build` 后用 Nginx/Caddy 静态托管，并反向代理 `/api` 到 API 服务。
+- Worker 必须启动 `python -m apps.worker.app.worker` 或等价 Celery worker；`apps.worker.app.main` 只用于打印能力，不会消费队列。
+
+生产验收推荐顺序：
+
+```powershell
+uv run python scripts/deployment_preflight.py --strict
+uv run python scripts/check_models.py
+curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/models
+```
+
+确认 `health.execution_mode=async`、`audio_decoder.backend=ffmpeg`、`worker_model_status.online=true` 后，再预热 Worker 模型：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/models/funasr-nano/warmup-worker
+curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-diarization/warmup-worker
+curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-embedding/warmup-worker
 ```
 
 ## 项目目录
@@ -514,10 +549,11 @@ manifest 每个样本支持：
   --asset-name sample-meeting.wav `
   --num-speakers 3 `
   --hotword 分类分级 `
-  --hotword 数据资产
+  --hotword 数据资产 `
+  --hotwords-file hotwords.txt
 ```
 
-脚本默认创建多人转写任务，报告会写入 `storage/experiments/<sample>/api_smoke_report_*.json`，其中包含每个接口的耗时、状态码、错误详情、任务 ID、最终任务状态、speaker 数量和会议纪要证据计数。需要只验证单人转写时，追加 `--single-speaker`；需要验证 LLM 纪要时，追加 `--minutes-mode llm`。
+脚本默认创建多人转写任务，报告会写入 `storage/experiments/<sample>/api_smoke_report_*.json`，其中包含每个接口的耗时、状态码、错误详情、任务 ID、最终任务状态、speaker 数量和会议纪要证据计数。最终任务不是 `succeeded` 时，脚本会返回非零退出码并保留失败报告，方便接入发布前验收。需要只验证单人转写时，追加 `--single-speaker`；需要验证 LLM 纪要时，追加 `--minutes-mode llm`。
 
 ## 常见问题
 

@@ -50,6 +50,12 @@ class SmokeReport:
         }
 
 
+class SmokeRunFailed(RuntimeError):
+    def __init__(self, message: str, report: SmokeReport) -> None:
+        super().__init__(message)
+        self.report = report
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -85,6 +91,38 @@ def build_transcription_payload(args: argparse.Namespace, asset_name: str) -> di
     if args.voiceprint_profile_ids:
         payload["voiceprint_profile_ids"] = args.voiceprint_profile_ids
     return payload
+
+
+def load_hotwords_file(path: str | Path) -> list[str]:
+    payload = Path(path).read_text(encoding="utf-8")
+    if Path(path).suffix.lower() == ".json":
+        data = json.loads(payload)
+        words = data.get("hotwords") if isinstance(data, dict) else data
+        if not isinstance(words, list):
+            raise ValueError(f"热词 JSON 格式错误: {path}")
+        return [str(word) for word in words]
+    return payload.splitlines()
+
+
+def normalize_hotwords(words: list[str], *, limit: int = 120, max_length: int = 64) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        clean = " ".join(str(word).strip().split())
+        if not clean or len(clean) > max_length or clean in seen:
+            continue
+        normalized.append(clean)
+        seen.add(clean)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def collect_hotwords(args: argparse.Namespace) -> list[str]:
+    words = list(args.hotwords or [])
+    for hotwords_file in args.hotwords_files or []:
+        words.extend(load_hotwords_file(hotwords_file))
+    return normalize_hotwords(words)
 
 
 def summarize_transcript_response(payload: dict[str, Any]) -> dict[str, Any]:
@@ -258,13 +296,18 @@ def run_smoke(args: argparse.Namespace) -> SmokeReport:
             raise RuntimeError("创建转写任务未返回 job.job_id")
         report.job_id = job_id
 
-        wait_for_job(
+        final_payload = wait_for_job(
             client,
             report,
             job_id=job_id,
             poll_interval_seconds=args.poll_interval_seconds,
             timeout_seconds=args.job_timeout_seconds,
         )
+        if report.final_status != "succeeded":
+            report.finished_at = utc_now_iso()
+            job_error = final_payload.get("error_message") or final_payload.get("error")
+            detail = f": {job_error}" if job_error else ""
+            raise SmokeRunFailed(f"任务 {job_id} 最终状态为 {report.final_status}{detail}", report)
 
         transcript_payload = request_json(
             client,
@@ -313,6 +356,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-itn", dest="itn", action="store_false")
     parser.set_defaults(itn=True)
     parser.add_argument("--hotword", dest="hotwords", action="append", default=[])
+    parser.add_argument(
+        "--hotwords-file",
+        dest="hotwords_files",
+        action="append",
+        default=[],
+        help="热词文件，支持 txt 或 {hotwords: []} JSON，可重复传入。",
+    )
     parser.add_argument("--num-speakers", type=int)
     parser.add_argument("--min-speakers", type=int)
     parser.add_argument("--max-speakers", type=int)
@@ -333,7 +383,9 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="报告输出路径。默认写入 storage/experiments/<sample>/。",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.hotwords = collect_hotwords(args)
+    return args
 
 
 def main() -> int:
@@ -347,6 +399,14 @@ def main() -> int:
             json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+    except SmokeRunFailed as exc:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = exc.report.to_dict()
+        payload["error"] = str(exc)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"API smoke 失败，报告已写入: {output_path}")
+        print(exc)
+        return 1
     except Exception as exc:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         failure = {

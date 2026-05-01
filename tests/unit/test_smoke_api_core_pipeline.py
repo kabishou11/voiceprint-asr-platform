@@ -2,7 +2,10 @@ import argparse
 
 from scripts.smoke_api_core_pipeline import (
     build_transcription_payload,
+    collect_hotwords,
+    load_hotwords_file,
     normalize_api_base_url,
+    normalize_hotwords,
     summarize_minutes_response,
     summarize_transcript_response,
 )
@@ -15,6 +18,7 @@ def _args(**overrides):
         "vad_enabled": False,
         "itn": True,
         "hotwords": [],
+        "hotwords_files": [],
         "single_speaker": False,
         "diarization_model": "3dspeaker-diarization",
         "num_speakers": None,
@@ -41,6 +45,25 @@ def test_build_transcription_payload_defaults_to_multi_speaker() -> None:
     assert payload["diarization_model"] == "3dspeaker-diarization"
     assert payload["hotwords"] == ["分类分级"]
     assert "voiceprint_scope_mode" not in payload
+
+
+def test_normalize_hotwords_trims_deduplicates_and_limits() -> None:
+    assert normalize_hotwords([" 分类分级 ", "分类分级", "", "x" * 65, "数据资产"]) == [
+        "分类分级",
+        "数据资产",
+    ]
+
+
+def test_collect_hotwords_reads_text_and_json_files(tmp_path) -> None:
+    txt = tmp_path / "hotwords.txt"
+    txt.write_text("分类分级\n 数据资产 \n", encoding="utf-8")
+    json_file = tmp_path / "hotwords.json"
+    json_file.write_text('{"hotwords": ["分类分级", "日志分级"]}', encoding="utf-8")
+
+    args = _args(hotwords=["代码仓库"], hotwords_files=[str(txt), str(json_file)])
+
+    assert load_hotwords_file(txt) == ["分类分级", " 数据资产 "]
+    assert collect_hotwords(args) == ["代码仓库", "分类分级", "数据资产", "日志分级"]
 
 
 def test_build_transcription_payload_can_request_voiceprint_scope() -> None:
