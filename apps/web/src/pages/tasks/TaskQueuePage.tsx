@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { deleteJob, fetchHealth, fetchJobs } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type JobDetail } from '../../api/types';
+import { formatDateTime, jobTypeLabels, type HealthResponse, type JobDetail } from '../../api/types';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
@@ -228,6 +228,48 @@ function JobCard({
   );
 }
 
+function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
+  if (!health) {
+    return null;
+  }
+
+  if (health.async_available) {
+    return (
+      <Alert severity="success">
+        <AlertTitle>异步队列已就绪</AlertTitle>
+        Broker 与 Worker 均在线，新任务会进入 Celery 队列异步执行。
+      </Alert>
+    );
+  }
+
+  if (!health.broker_available) {
+    return (
+      <Alert severity="warning">
+        <AlertTitle>当前为同步模式</AlertTitle>
+        Redis Broker 不可用，新任务会回退到 API 进程同步执行。错误：
+        {health.broker_error ?? 'broker_unavailable'}
+      </Alert>
+    );
+  }
+
+  if (!health.worker_available) {
+    return (
+      <Alert severity="warning">
+        <AlertTitle>Worker 未连接</AlertTitle>
+        Redis Broker 可用，但没有检测到在线 Worker。已排队任务不会继续推进。错误：
+        {health.worker_error ?? 'worker_offline'}
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert severity="info">
+      <AlertTitle>同步执行模式</AlertTitle>
+      当前执行模式为 {health.execution_mode ?? 'sync'}，新任务可能由 API 进程直接处理。
+    </Alert>
+  );
+}
+
 export function TaskQueuePage() {
   const [jobs, setJobs] = useState<JobDetail[]>([]);
   const [loading, setLoading] = useState(false);
@@ -235,7 +277,7 @@ export function TaskQueuePage() {
   const [expanded, setExpanded] = useState<ExpandedJobs>({});
   const [refreshing, setRefreshing] = useState(false);
   const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set());
-  const [health, setHealth] = useState<{ broker_available: boolean; worker_available: boolean; async_available: boolean } | null>(null);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
 
   const loadJobs = useCallback(async (isManual = false) => {
     if (isManual) {
@@ -244,11 +286,7 @@ export function TaskQueuePage() {
     try {
       const [data, runtime] = await Promise.all([fetchJobs(), fetchHealth()]);
       setJobs(data.items);
-      setHealth({
-        broker_available: runtime.broker_available,
-        worker_available: runtime.worker_available,
-        async_available: runtime.async_available,
-      });
+      setHealth(runtime);
       setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载任务失败');
@@ -308,6 +346,7 @@ export function TaskQueuePage() {
   }, []);
 
   const queueBlocked = !!health?.broker_available && !health?.worker_available;
+  const executionLabel = health?.execution_mode === 'async' ? '异步模式' : '同步模式';
 
   return (
     <PageSection
@@ -329,14 +368,16 @@ export function TaskQueuePage() {
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" color="warning" label={`处理中 ${stats.queued + stats.running}`} />
         <Chip size="small" color="success" label={`已完成 ${stats.succeeded}`} />
+        <Chip
+          size="small"
+          color={health?.async_available ? 'success' : 'warning'}
+          label={executionLabel}
+          variant={health ? 'filled' : 'outlined'}
+        />
         <Chip size="small" label={`自动轮询 ${POLL_INTERVAL_MS / 1000}s`} variant="outlined" />
       </Stack>
 
-      {queueBlocked ? (
-        <Alert severity="warning">
-          Worker 未连接。队列不会推进，建议删除卡住任务后重建。
-        </Alert>
-      ) : null}
+      <RuntimeModeAlert health={health} />
 
       {/* Stats row */}
       <Grid container spacing={2}>
