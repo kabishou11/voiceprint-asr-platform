@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel as _BaseModel
 
+from apps.api.app.services import job_db
 from apps.worker.app.celery_app import is_async_available
 from apps.worker.app.tasks._base import update_job_result, update_job_status
 from apps.worker.app.tasks.voiceprint import (
@@ -14,7 +18,7 @@ from apps.worker.app.tasks.voiceprint import (
     verify_voiceprint,
 )
 
-from apps.api.app.services import job_db
+from ...services.voiceprint_service import voiceprint_service
 from ..schemas import (
     CreateVoiceprintProfileRequest,
     CreateVoiceprintProfileResponse,
@@ -28,7 +32,6 @@ from ..schemas import (
     VoiceprintEnrollmentResult,
     VoiceprintProfile,
 )
-from ...services.voiceprint_service import voiceprint_service
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,10 @@ def _create_job_record(
 
 
 def _get_profile_or_404(profile_id: str) -> VoiceprintProfile:
-    profile = next((item for item in voiceprint_service.list_profiles() if item.profile_id == profile_id), None)
+    profile = next(
+        (item for item in voiceprint_service.list_profiles() if item.profile_id == profile_id),
+        None,
+    )
     if profile is None:
         raise HTTPException(status_code=404, detail="声纹档案不存在")
     return profile
@@ -96,15 +102,42 @@ def _job_receipt(job_id: str, status: str = "queued") -> VoiceprintAsyncReceipt:
     return VoiceprintAsyncReceipt(job_id=job_id, status=status)
 
 
-@router.get("/profiles", summary="获取声纹档案列表", description="返回当前所有声纹档案，包含 profile_id、display_name、sample_count 等基本信息。")
+def _decode_voiceprint_job_result(raw_result: Any) -> dict[str, Any] | None:
+    if raw_result is None:
+        return None
+    if isinstance(raw_result, dict):
+        return raw_result
+    if not isinstance(raw_result, str) or not raw_result.strip():
+        return None
+    try:
+        parsed = json.loads(raw_result)
+    except (TypeError, json.JSONDecodeError):
+        logger.warning("声纹任务结果不是有效 JSON，忽略原始 result")
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+@router.get(
+    "/profiles",
+    summary="获取声纹档案列表",
+    description="返回当前所有声纹档案，包含 profile_id、display_name、sample_count 等基本信息。",
+)
 def list_profiles():
     return {"items": voiceprint_service.list_profiles()}
 
 
-@router.get("/groups", summary="获取声纹分组列表", description="返回所有声纹分组及其成员档案 ID 列表。分组用于多人转写时限定候选范围。")
+@router.get(
+    "/groups",
+    summary="获取声纹分组列表",
+    description="返回所有声纹分组及其成员档案 ID 列表。分组用于多人转写时限定候选范围。",
+)
 def list_groups():
     with job_db.session() as db:
-        groups = db.query(job_db.VoiceprintGroupRecord).order_by(job_db.VoiceprintGroupRecord.created_at.desc()).all()
+        groups = (
+            db.query(job_db.VoiceprintGroupRecord)
+            .order_by(job_db.VoiceprintGroupRecord.created_at.desc())
+            .all()
+        )
         result = []
         for group in groups:
             members = (
@@ -120,9 +153,6 @@ def list_groups():
         return {"items": result}
 
 
-from pydantic import BaseModel as _BaseModel
-
-
 class _CreateGroupRequest(_BaseModel):
     display_name: str
 
@@ -131,7 +161,11 @@ class _UpdateGroupRequest(_BaseModel):
     profile_ids: list[str] = []
 
 
-@router.post("/groups", summary="创建声纹分组", description="创建一个新的声纹分组，后续可将多个档案加入该分组，用于多人转写时限定候选范围。")
+@router.post(
+    "/groups",
+    summary="创建声纹分组",
+    description="创建一个新的声纹分组，后续可将多个档案加入该分组，用于多人转写时限定候选范围。",
+)
 def create_group(payload: _CreateGroupRequest):
     display_name = payload.display_name.strip()
     if not display_name:
@@ -143,7 +177,11 @@ def create_group(payload: _CreateGroupRequest):
     return {"group_id": group_id, "display_name": display_name, "profile_ids": []}
 
 
-@router.put("/groups/{group_id}", summary="更新分组成员", description="替换指定分组的成员列表。传入 profile_ids 数组，会覆盖原有成员。")
+@router.put(
+    "/groups/{group_id}",
+    summary="更新分组成员",
+    description="替换指定分组的成员列表。传入 profile_ids 数组，会覆盖原有成员。",
+)
 def update_group(group_id: str, payload: _UpdateGroupRequest):
     with job_db.session() as db:
         group = db.get(job_db.VoiceprintGroupRecord, group_id)
@@ -158,7 +196,11 @@ def update_group(group_id: str, payload: _UpdateGroupRequest):
     return {"group_id": group_id, "profile_ids": payload.profile_ids}
 
 
-@router.get("/profiles/{profile_id}", summary="获取声纹档案详情", description="返回指定档案的基本信息、已注册样本列表和最近操作历史。")
+@router.get(
+    "/profiles/{profile_id}",
+    summary="获取声纹档案详情",
+    description="返回指定档案的基本信息、已注册样本列表和最近操作历史。",
+)
 def get_profile(profile_id: str):
     profile = _get_profile_or_404(profile_id)
     with job_db.session() as db:
@@ -172,7 +214,9 @@ def get_profile(profile_id: str):
             db.query(job_db.JobRecord)
             .filter(
                 job_db.JobRecord.asset_name.isnot(None),
-                job_db.JobRecord.job_type.in_({"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}),
+                job_db.JobRecord.job_type.in_(
+                    {"voiceprint_enroll", "voiceprint_verify", "voiceprint_identify"}
+                ),
                 job_db.JobRecord.asset_name.in_(
                     db.query(job_db.VoiceprintSampleRecord.asset_name)
                     .filter(job_db.VoiceprintSampleRecord.profile_id == profile_id)
@@ -207,13 +251,23 @@ def get_profile(profile_id: str):
         }
 
 
-@router.post("/profiles", response_model=CreateVoiceprintProfileResponse, summary="创建声纹档案", description="创建一个新的声纹档案。创建后需要调用注册接口写入基准音频样本。")
+@router.post(
+    "/profiles",
+    response_model=CreateVoiceprintProfileResponse,
+    summary="创建声纹档案",
+    description="创建一个新的声纹档案。创建后需要调用注册接口写入基准音频样本。",
+)
 def create_profile(payload: CreateVoiceprintProfileRequest) -> CreateVoiceprintProfileResponse:
     profile = voiceprint_service.create_profile(payload.display_name, payload.model_key)
     return CreateVoiceprintProfileResponse(profile=profile)
 
 
-@router.get("/jobs/{job_id}", summary="查询声纹任务结果", description="查询声纹异步任务的最终结果。根据 job_type 返回 enrollment / verification / identification 结果。")
+@router.get(
+    "/jobs/{job_id}",
+    summary="查询声纹任务结果",
+    description="查询声纹异步任务的最终结果。"
+    "根据 job_type 返回 enrollment / verification / identification 结果。",
+)
 def get_voiceprint_job(job_id: str):
     with job_db.session() as db:
         record = db.get(job_db.JobRecord, job_id)
@@ -232,10 +286,8 @@ def get_voiceprint_job(job_id: str):
             "verification": None,
             "identification": None,
         }
-        if record.result:
-            import json
-
-            parsed = json.loads(record.result)
+        parsed = _decode_voiceprint_job_result(record.result)
+        if parsed:
             if record.job_type == "voiceprint_enroll":
                 payload["enrollment"] = parsed
             elif record.job_type == "voiceprint_verify":
@@ -245,7 +297,13 @@ def get_voiceprint_job(job_id: str):
         return payload
 
 
-@router.post("/profiles/{profile_id}/enroll", response_model=EnrollVoiceprintResponse, summary="声纹注册（核心接口）", description="为指定档案注册一段基准音频。支持增量注册多个样本。异步模式下返回 job 回执，同步模式下直接返回注册结果。")
+@router.post(
+    "/profiles/{profile_id}/enroll",
+    response_model=EnrollVoiceprintResponse,
+    summary="声纹注册（核心接口）",
+    description="为指定档案注册一段基准音频。支持增量注册多个样本。"
+    "异步模式下返回 job 回执，同步模式下直接返回注册结果。",
+)
 def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollVoiceprintResponse:
     profile = _get_profile_or_404(profile_id)
     job_id = _create_job_record(
@@ -268,7 +326,11 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
 
     enrolled_profile, enrollment = _run_sync_voiceprint_job(
         job_id,
-        lambda: voiceprint_service.enroll_profile(profile_id, payload.asset_name, mode=payload.mode),
+        lambda: voiceprint_service.enroll_profile(
+            profile_id,
+            payload.asset_name,
+            mode=payload.mode,
+        ),
     )
     return EnrollVoiceprintResponse(
         profile=enrolled_profile,
@@ -276,7 +338,13 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
     )
 
 
-@router.post("/verify", response_model=VerifyVoiceprintResponse, summary="声纹验证（核心接口）", description="判断一段待测音频是否属于指定声纹档案。返回相似度分数和是否通过阈值判断。threshold 范围 0~1，默认 0.7。")
+@router.post(
+    "/verify",
+    response_model=VerifyVoiceprintResponse,
+    summary="声纹验证（核心接口）",
+    description="判断一段待测音频是否属于指定声纹档案。返回相似度分数和是否通过阈值判断。"
+    "threshold 范围 0~1，默认 0.7。",
+)
 def verify(payload: VerifyVoiceprintRequest) -> VerifyVoiceprintResponse:
     _get_profile_or_404(payload.profile_id)
     job_id = _create_job_record(
@@ -300,12 +368,22 @@ def verify(payload: VerifyVoiceprintRequest) -> VerifyVoiceprintResponse:
 
     result = _run_sync_voiceprint_job(
         job_id,
-        lambda: voiceprint_service.verify(payload.profile_id, payload.probe_asset_name, payload.threshold),
+        lambda: voiceprint_service.verify(
+            payload.profile_id,
+            payload.probe_asset_name,
+            payload.threshold,
+        ),
     )
     return VerifyVoiceprintResponse(result=result)
 
 
-@router.post("/identify", response_model=IdentifyVoiceprintResponse, summary="声纹识别（核心接口）", description="在候选声纹库中识别最接近的档案。返回 top_k 个候选及其相似度分数。top_k 范围 1~10，默认 3。")
+@router.post(
+    "/identify",
+    response_model=IdentifyVoiceprintResponse,
+    summary="声纹识别（核心接口）",
+    description="在候选声纹库中识别最接近的档案。返回 top_k 个候选及其相似度分数。"
+    "top_k 范围 1~10，默认 3。",
+)
 def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
     job_id = _create_job_record(
         job_type="voiceprint_identify",
@@ -319,6 +397,7 @@ def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
                 job_id=job_id,
                 asset_name=payload.probe_asset_name,
                 top_k=payload.top_k,
+                profile_ids=payload.profile_ids,
             )
             return IdentifyVoiceprintResponse(job=_job_receipt(job_id))
         except Exception as exc:
@@ -326,6 +405,10 @@ def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
 
     result = _run_sync_voiceprint_job(
         job_id,
-        lambda: voiceprint_service.identify(probe_asset_name=payload.probe_asset_name, top_k=payload.top_k),
+        lambda: voiceprint_service.identify(
+            probe_asset_name=payload.probe_asset_name,
+            top_k=payload.top_k,
+            profile_ids=payload.profile_ids,
+        ),
     )
     return IdentifyVoiceprintResponse(result=result)

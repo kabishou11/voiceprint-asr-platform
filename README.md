@@ -403,7 +403,65 @@ Content-Type: application/json
 - `*_evaluation.json`：结构化指标，便于后续自动对比
 - `*_evaluation.md`：可读报告，包含 ASR、Speaker、声纹和会议纪要诊断
 
-当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计和会议纪要证据覆盖率。
+当前第一版指标包括 CER、文本相似度、热词召回、speaker 短碎片率、换人频率、声纹低置信统计、声纹 Top1/TopK 命中率、近似 EER 和会议纪要证据覆盖率。会议纪要诊断不仅输出决策、行动项、风险的覆盖率，还会为每条纪要生成 `evidence_rows`，记录证据分数、命中的 transcript 片段、弱证据项和缺证据项；会议纪要接口自身的 `evidence` 也会返回 `evidence_score`、`reason`、命中 token 和缺失 token，避免长会议摘要只看总分而无法定位漏召回。
+
+如果要把多个固定样本做成可横向比较的版本基线，先维护一个样本集 manifest。
+示例 manifest 已指向本地 15 分钟参考稿切片；首次运行前，先用完整参考稿导出这个切片：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\export_reference_slice.py `
+  "G:\desktop\通用语音识别_标准录音 1.mp3.txt" `
+  storage\experiments\standard_recording_1_15min_refbench\standard_recording_1_15min_reference_slice.txt `
+  --audio storage\experiments\standard_recording_1\standard_recording_1_16k.wav `
+  --max-seconds 900 `
+  --metadata-json storage\experiments\standard_recording_1_15min_refbench\standard_recording_1_15min_reference_slice.json
+```
+
+manifest 每个样本支持：
+
+- `transcript`：必填，TranscriptResult JSON 或 readable txt
+- `reference_text`：参考稿，用于 CER / 文本相似度
+- `reference_metadata`：可选，参考稿元数据 JSON；比例切片会自动标记为草稿
+- `reference_quality`：可选，只有 `confirmed` / `gold` / `manual` / `aligned` 会进入正式 ASR 聚合
+- `reference_speakers`：RTTM、TranscriptResult JSON 或 readable txt，用于轻量 DER / JER
+- `hotwords_file`：热词 txt 或 `{hotwords: []}` JSON
+- `voiceprint_labels`：`{speaker: profile_id}` JSON，用于阈值扫描与近似 EER
+- `minutes_json`：人工纪要基准，用于决策、行动项、风险覆盖率
+
+注意：`export_reference_slice.py` 生成的 `time_ratio` 参考稿只是启动标注用的草稿。它会保留 ASR 诊断值，但默认不进入样本集的正式 CER 聚合；人工复核或时间戳对齐后，再把 manifest 中的 `reference_quality` 改为 `confirmed`。
+
+批量评测会输出：
+
+- `*_baseline.json`：样本明细 + 聚合指标
+- `*_baseline.md`：适合人工复核的基线报告
+
+然后执行样本集评测：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_core_pipeline_dataset.py configs\evaluation\core_pipeline_dataset.example.json
+```
+
+剩余标注可以先从当前转写结果生成草稿模板，再人工复核：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_evaluation_annotation_templates.py `
+  storage\experiments\standard_recording_1\standard_recording_1_15min_multispeaker_readable_v20_hotwords.txt `
+  --sample-id standard_recording_1_15min `
+  --output-dir storage\experiments\standard_recording_1_15min_refbench `
+  --prefix standard_recording_1_15min
+```
+
+该命令会生成 RTTM、声纹标签 JSON、人工纪要 JSON 与复核清单。它们只是从模型结果转换来的草稿，必须人工校正后再写入 manifest 的 `reference_speakers` / `voiceprint_labels` / `minutes_json`。
+
+有多个版本的 baseline 后，可以横向比较：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\compare_core_pipeline_baselines.py `
+  storage\experiments\core_pipeline_baseline_example\core_pipeline_baseline_example_baseline.json `
+  storage\experiments\core_pipeline_baseline_example\core_pipeline_baseline_example_baseline.json
+```
+
+对比报告会列出每个 baseline 的核心指标，并给出相对首个 baseline 的变化值。除 CER、DER、声纹和纪要覆盖外，对比表也会展示中文断词边界数/比例、前导标点段数/比例，方便评估 speaker 对齐优化是否真实改善可读性，并避免不同长度样本只按绝对数量比较。
 
 ## 常见问题
 

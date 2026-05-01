@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from apps.api.app.core.config import get_settings
+from functools import lru_cache
+
 from model_adapters import ModelRegistry, build_default_registry
 
+from apps.api.app.core.config import get_settings
 
+
+@lru_cache(maxsize=1)
 def get_worker_registry() -> ModelRegistry:
     settings = get_settings()
     return build_default_registry(
@@ -15,12 +19,19 @@ def get_worker_registry() -> ModelRegistry:
     )
 
 
+def reset_worker_registry() -> None:
+    get_worker_registry.cache_clear()
+
+
 class WorkerRuntime:
     def __init__(self) -> None:
         self.registry = get_worker_registry()
 
     def describe_capabilities(self) -> list[str]:
-        return [f"{entry.task}:{entry.key}:{entry.availability}" for entry in self.registry.list_entries()]
+        return [
+            f"{entry.task}:{entry.key}:{entry.availability}"
+            for entry in self.registry.list_entries()
+        ]
 
 
 def get_worker() -> WorkerRuntime:

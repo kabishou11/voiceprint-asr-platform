@@ -76,6 +76,81 @@ def test_llm_meeting_minutes_uses_late_long_transcript_content(monkeypatch) -> N
     assert minutes.evidence is not None
     assert minutes.evidence["action_items"][0]["matched"] is True
     assert minutes.evidence["action_items"][0]["speaker"] == "SPEAKER_01"
+    assert minutes.evidence["action_items"][0]["evidence_score"] == 1.0
+    assert minutes.evidence["action_items"][0]["reason"] == "exact_match"
+
+
+def test_llm_meeting_minutes_backfills_evidenced_items_after_reduce(monkeypatch) -> None:
+    settings = SimpleNamespace(
+        minutes_llm_api_key="test-key",
+        minutes_llm_base_url="https://example.test/v1",
+        minutes_llm_model="test-model",
+        minutes_llm_reasoning_split=True,
+        minutes_llm_timeout_seconds=5.0,
+    )
+    monkeypatch.setattr(meeting_minutes, "get_settings", lambda: settings)
+
+    def fake_post(url, headers, json, timeout):
+        content = json["messages"][-1]["content"]
+        if "同一场长会议按时间顺序生成的分块纪要" in content:
+            return _FakeMinutesResponse(
+                '{"summary":"归并摘要","key_points":["归并重点"],"topics":["归并议题"],'
+                '"decisions":[],"action_items":["行动项A：张三负责完成接口联调"],'
+                '"risks":[],"keywords":["归并"]}'
+            )
+        if "行动项B" in content:
+            return _FakeMinutesResponse(
+                '{"summary":"第二段","key_points":["第二段重点"],"topics":["第二段议题"],'
+                '"decisions":[],"action_items":["行动项B：李四负责补齐验收材料"],'
+                '"risks":[],"keywords":["验收"]}'
+            )
+        return _FakeMinutesResponse(
+            '{"summary":"第一段","key_points":["第一段重点"],"topics":["第一段议题"],'
+            '"decisions":[],"action_items":["行动项A：张三负责完成接口联调"],'
+            '"risks":[],"keywords":["联调"]}'
+        )
+
+    monkeypatch.setattr(meeting_minutes.httpx, "post", fake_post)
+    segment_a = Segment(
+        start_ms=0,
+        end_ms=1000,
+        text=f"行动项A：张三负责完成接口联调。{'铺垫内容。' * 1600}",
+        speaker="SPEAKER_00",
+    )
+    segment_b = Segment(
+        start_ms=1000,
+        end_ms=2000,
+        text=f"行动项B：李四负责补齐验收材料。{'后续讨论。' * 1600}",
+        speaker="SPEAKER_01",
+    )
+    job = JobDetail(
+        job_id="minutes-reduce-backfill",
+        job_type="transcription",
+        status="succeeded",
+        asset_name="reduce-backfill.wav",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        result=TranscriptResult(
+            text="",
+            language="zh-cn",
+            segments=[segment_a, segment_b],
+        ),
+    )
+
+    minutes = meeting_minutes.build_llm_meeting_minutes(job)
+
+    assert "行动项A：张三负责完成接口联调" in minutes.action_items
+    assert "行动项B：李四负责补齐验收材料" in minutes.action_items
+    assert minutes.evidence is not None
+    backfilled_evidence = next(
+        item
+        for item in minutes.evidence["action_items"]
+        if item["item"] == "行动项B：李四负责补齐验收材料"
+    )
+    assert backfilled_evidence["matched"] is True
+    assert backfilled_evidence["speaker"] == "SPEAKER_01"
+    assert backfilled_evidence["start_ms"] == 1000
+    assert backfilled_evidence["reason"] == "exact_match"
 
 
 def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
@@ -113,3 +188,23 @@ def test_local_meeting_minutes_merges_long_transcript_chunks() -> None:
     assert any("后半段行动项" in item for item in minutes.action_items)
     assert minutes.evidence is not None
     assert any(item["matched"] for item in minutes.evidence["action_items"])
+
+
+def test_meeting_minutes_evidence_reports_score_for_partial_match() -> None:
+    segment = Segment(
+        start_ms=0,
+        end_ms=1000,
+        text="会议决定推进日志治理，但敏感字段范围还需要继续确认。",
+        speaker="SPEAKER_00",
+    )
+
+    evidence = meeting_minutes._evidence_for_item(
+        "决定推进日志敏感字段治理并上线",
+        [segment],
+    )
+
+    assert evidence["matched"] is True
+    assert evidence["speaker"] == "SPEAKER_00"
+    assert 0.45 <= evidence["evidence_score"] < 1.0
+    assert evidence["reason"] == "token_overlap"
+    assert "上线" in evidence["missing_tokens"]

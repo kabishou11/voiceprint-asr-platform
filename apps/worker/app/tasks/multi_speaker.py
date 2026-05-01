@@ -36,7 +36,32 @@ from ._base import update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
 
-PARALLEL_ASR_DIARIZATION = os.environ.get("PARALLEL_ASR_DIARIZATION", "1") == "1"
+PARALLEL_ASR_DIARIZATION = os.environ.get("PARALLEL_ASR_DIARIZATION", "auto").lower()
+MIN_PARALLEL_FREE_GPU_MB = int(os.environ.get("MIN_PARALLEL_FREE_GPU_MB", "10000"))
+
+
+def _cuda_free_memory_mb() -> int | None:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+        return int(free_bytes / 1024 / 1024)
+    except Exception:
+        return None
+
+
+def _should_parallelize_asr_diarization() -> bool:
+    if PARALLEL_ASR_DIARIZATION in {"0", "false", "no", "off", "disabled"}:
+        return False
+    if PARALLEL_ASR_DIARIZATION in {"1", "true", "yes", "on", "enabled"}:
+        return True
+
+    free_mb = _cuda_free_memory_mb()
+    if free_mb is None:
+        return False
+    return free_mb >= MIN_PARALLEL_FREE_GPU_MB
 
 
 def _run_multi_speaker_transcription_sync(
@@ -96,7 +121,7 @@ def _run_multi_speaker_transcription_sync(
     if hasattr(diarization_adapter, "max_speakers"):
         diarization_adapter.max_speakers = max_speakers
 
-    if PARALLEL_ASR_DIARIZATION:
+    if _should_parallelize_asr_diarization():
         logger.info(f"任务 {job_id} 并行执行 ASR + Diarization")
         with ThreadPoolExecutor(max_workers=2) as executor:
             asr_future = executor.submit(asr_adapter.transcribe, asset)
@@ -108,10 +133,22 @@ def _run_multi_speaker_transcription_sync(
         transcript = asr_adapter.transcribe(asset)
         diarization_segments = diarization_adapter.diarize(asset)
 
-    diarization_segments = canonicalize_speaker_labels(diarization_segments)
+    adapter_timelines = _get_adapter_diarization_timelines(diarization_adapter)
+    regular_segments = canonicalize_speaker_labels(
+        adapter_timelines.get("regular") or diarization_segments
+    )
+    adapter_exclusive_segments = canonicalize_speaker_labels(
+        adapter_timelines.get("exclusive") or []
+    )
+    diarization_segments = adapter_exclusive_segments or regular_segments
     aligned = align_transcript_with_speakers(transcript, diarization_segments)
-    exclusive_segments = build_exclusive_speaker_timeline(diarization_segments)
-    display_segments = build_display_speaker_timeline(aligned.segments, exclusive_segments or diarization_segments)
+    exclusive_segments = adapter_exclusive_segments or build_exclusive_speaker_timeline(
+        regular_segments or diarization_segments
+    )
+    display_segments = build_display_speaker_timeline(
+        aligned.segments,
+        exclusive_segments or diarization_segments,
+    )
     voiceprint_matches = _build_voiceprint_matches(
         registry=registry,
         asset=asset,
@@ -125,7 +162,11 @@ def _run_multi_speaker_transcription_sync(
         alignment_source="exclusive" if exclusive_segments else "regular",
         voiceprint_matches=voiceprint_matches,
         timelines=[
-            TranscriptTimeline(label="Regular diarization", source="regular", segments=diarization_segments),
+            TranscriptTimeline(
+                label="Regular diarization",
+                source="regular",
+                segments=regular_segments or diarization_segments,
+            ),
             TranscriptTimeline(
                 label="Exclusive alignment timeline",
                 source="exclusive",
@@ -141,6 +182,31 @@ def _run_multi_speaker_transcription_sync(
     return aligned.model_copy(update={"metadata": metadata})
 
 
+def _get_adapter_diarization_timelines(adapter) -> dict[str, list[Segment]]:
+    getter = getattr(adapter, "get_last_outputs", None)
+    if not callable(getter):
+        return {}
+    try:
+        outputs = getter()
+    except Exception as exc:
+        logger.warning("读取 diarization adapter 时间线失败: %s", exc)
+        return {}
+    if not isinstance(outputs, dict):
+        return {}
+
+    timelines: dict[str, list[Segment]] = {}
+    for source in ("regular", "exclusive"):
+        items = outputs.get(source)
+        if not isinstance(items, list):
+            continue
+        timelines[source] = [
+            item.model_copy()
+            for item in items
+            if isinstance(item, Segment) and item.end_ms > item.start_ms
+        ]
+    return timelines
+
+
 def _build_voiceprint_matches(
     *,
     registry,
@@ -150,7 +216,7 @@ def _build_voiceprint_matches(
     group_id: str | None,
     profile_ids: list[str] | None,
 ) -> list[VoiceprintSpeakerMatch]:
-    if scope_mode == "none":
+    if scope_mode == "none" and not profile_ids:
         return []
 
     candidate_ids, display_names = _resolve_voiceprint_candidates(scope_mode, group_id, profile_ids)
@@ -217,7 +283,10 @@ def _build_voiceprint_matches(
                 candidates = [
                     VoiceprintMatchCandidate(
                         profile_id=candidate.profile_id,
-                        display_name=display_names.get(candidate.profile_id, candidate.display_name),
+                        display_name=display_names.get(
+                            candidate.profile_id,
+                            candidate.display_name,
+                        ),
                         score=candidate.score,
                         rank=candidate.rank,
                     )
@@ -289,6 +358,9 @@ def _build_speaker_probe_assets(
     tmpdir: Path,
     *,
     max_probe_seconds: float = 60.0,
+    min_segment_ms: int = 1200,
+    min_confidence: float = 0.35,
+    max_overlap_ratio: float = 0.2,
 ) -> list[tuple[str, AudioAsset]]:
     import numpy as np
     import soundfile as sf
@@ -300,17 +372,20 @@ def _build_speaker_probe_assets(
 
     built: list[tuple[str, AudioAsset]] = []
     max_samples = int(max_probe_seconds * sample_rate)
+    speaker_candidates = _speaker_probe_candidates(
+        audio=audio,
+        sample_rate=sample_rate,
+        segments=segments,
+        min_segment_ms=min_segment_ms,
+        min_confidence=min_confidence,
+        max_overlap_ratio=max_overlap_ratio,
+    )
     for speaker in speakers:
+        candidates = speaker_candidates.get(speaker, [])
         chunks = []
         total_samples = 0
-        for segment in segments:
-            if segment.speaker != speaker or segment.end_ms <= segment.start_ms:
-                continue
-            start = max(0, int(segment.start_ms * sample_rate / 1000))
-            end = min(len(audio), int(segment.end_ms * sample_rate / 1000))
-            if end <= start:
-                continue
-            chunk = audio[start:end]
+        for candidate in candidates:
+            chunk = candidate["chunk"]
             remaining = max_samples - total_samples
             if remaining <= 0:
                 break
@@ -322,6 +397,85 @@ def _build_speaker_probe_assets(
         sf.write(target, np.concatenate(chunks), sample_rate)
         built.append((speaker, AudioAsset(path=str(target), sample_rate=sample_rate, channels=1)))
     return built
+
+
+def _speaker_probe_candidates(
+    *,
+    audio,
+    sample_rate: int,
+    segments: list[Segment],
+    min_segment_ms: int,
+    min_confidence: float,
+    max_overlap_ratio: float,
+) -> dict[str, list[dict]]:
+    import numpy as np
+
+    raw_by_speaker: dict[str, list[dict]] = {}
+    for segment in segments:
+        if not segment.speaker or segment.end_ms <= segment.start_ms:
+            continue
+        start = max(0, int(segment.start_ms * sample_rate / 1000))
+        end = min(len(audio), int(segment.end_ms * sample_rate / 1000))
+        if end <= start:
+            continue
+
+        chunk = audio[start:end]
+        rms = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
+        duration_ms = segment.end_ms - segment.start_ms
+        overlap_ms = _other_speaker_overlap_ms(segment, segments)
+        overlap_ratio = overlap_ms / max(1, duration_ms)
+        confidence = 1.0 if segment.confidence is None else float(segment.confidence)
+        raw_by_speaker.setdefault(segment.speaker, []).append(
+            {
+                "segment": segment,
+                "chunk": chunk,
+                "duration_ms": duration_ms,
+                "rms": rms,
+                "overlap_ratio": overlap_ratio,
+                "confidence": confidence,
+            }
+        )
+
+    selected: dict[str, list[dict]] = {}
+    for speaker, candidates in raw_by_speaker.items():
+        max_rms = max((item["rms"] for item in candidates), default=0.0)
+        energy_floor = max(1e-5, max_rms * 0.08)
+        good = [
+            item
+            for item in candidates
+            if item["duration_ms"] >= min_segment_ms
+            and item["confidence"] >= min_confidence
+            and item["overlap_ratio"] <= max_overlap_ratio
+            and item["rms"] >= energy_floor
+        ]
+        usable = good or [
+            item
+            for item in candidates
+            if item["duration_ms"] >= 500 and item["rms"] >= max(1e-5, max_rms * 0.02)
+        ]
+        selected[speaker] = sorted(
+            usable,
+            key=lambda item: (
+                -item["confidence"],
+                item["overlap_ratio"],
+                -item["rms"],
+                -item["duration_ms"],
+                item["segment"].start_ms,
+            ),
+        )
+    return selected
+
+
+def _other_speaker_overlap_ms(target: Segment, segments: list[Segment]) -> int:
+    overlap = 0
+    for segment in segments:
+        if not segment.speaker or segment.speaker == target.speaker:
+            continue
+        start = max(target.start_ms, segment.start_ms)
+        end = min(target.end_ms, segment.end_ms)
+        if end > start:
+            overlap += end - start
+    return overlap
 
 
 def _adapter_asset(asset_name: str):

@@ -14,7 +14,10 @@ def canonicalize_speaker_labels(segments: list[Segment]) -> list[Segment]:
     """
     mapping: dict[str, str] = {}
     canonicalized: list[Segment] = []
-    for segment in sorted(segments, key=lambda item: (item.start_ms, item.end_ms, item.speaker or "")):
+    for segment in sorted(
+        segments,
+        key=lambda item: (item.start_ms, item.end_ms, item.speaker or ""),
+    ):
         speaker = segment.speaker
         if speaker is None:
             canonicalized.append(segment)
@@ -108,8 +111,21 @@ def build_exclusive_speaker_timeline(diarization_segments: list[Segment]) -> lis
             )
             continue
 
+        if (
+            current.speaker != previous.speaker
+            and previous.start_ms < current.start_ms
+            and current.end_ms < previous.end_ms
+        ):
+            exclusive[-1] = previous.model_copy(update={"end_ms": current.start_ms})
+            exclusive.append(current)
+            exclusive.append(previous.model_copy(update={"start_ms": current.end_ms}))
+            continue
+
         if current.start_ms < previous.end_ms:
-            pivot = max(previous.start_ms, min(current.end_ms, round((previous.end_ms + current.start_ms) / 2)))
+            pivot = max(
+                previous.start_ms,
+                min(current.end_ms, round((previous.end_ms + current.start_ms) / 2)),
+            )
             exclusive[-1] = previous.model_copy(update={"end_ms": max(previous.start_ms, pivot)})
             current = current.model_copy(update={"start_ms": max(pivot, current.start_ms)})
 
@@ -213,7 +229,11 @@ def build_display_speaker_timeline(
 def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> list[Segment]:
     seg_start, seg_end = seg.start_ms, seg.end_ms
     if seg_end <= seg_start:
-        return [seg.model_copy(update={"speaker": _nearest_speaker(seg_start, diar_segments) or "SPEAKER_00"})]
+        return [
+            seg.model_copy(
+                update={"speaker": _nearest_speaker(seg_start, diar_segments) or "SPEAKER_00"}
+            )
+        ]
 
     overlaps = [
         diar_seg
@@ -221,7 +241,11 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         if diar_seg.end_ms > seg_start and diar_seg.start_ms < seg_end
     ]
     if not overlaps:
-        return [seg.model_copy(update={"speaker": _nearest_speaker(seg_start, diar_segments) or "SPEAKER_00"})]
+        return [
+            seg.model_copy(
+                update={"speaker": _nearest_speaker(seg_start, diar_segments) or "SPEAKER_00"}
+            )
+        ]
 
     boundaries = {seg_start, seg_end}
     for diar_seg in overlaps:
@@ -233,13 +257,14 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
         return [seg.model_copy(update={"speaker": best or "SPEAKER_00"})]
 
     intervals = []
-    for left, right in zip(ordered, ordered[1:]):
+    for left, right in zip(ordered, ordered[1:], strict=False):
         if right <= left:
             continue
         speaker = _best_overlap_speaker(left, right, overlaps)
         if speaker is None:
             speaker = _nearest_speaker(left, diar_segments) or "SPEAKER_00"
         intervals.append((left, right, speaker))
+    intervals = _collapse_tiny_alignment_intervals(intervals)
 
     sentence_aligned = _split_text_by_sentence_units(seg, intervals)
     if sentence_aligned:
@@ -248,12 +273,10 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
     pieces: list[Segment] = []
     total_duration = max(1, seg_end - seg_start)
     text = seg.text or ""
-    consumed = 0
-    for left, right, speaker in intervals:
-        piece_duration = right - left
-        start_idx = round(consumed / total_duration * len(text))
-        consumed += piece_duration
-        end_idx = round(consumed / total_duration * len(text))
+    slice_indices = _proportional_text_slice_indices(text, intervals, total_duration)
+    for index, (left, right, speaker) in enumerate(intervals):
+        start_idx = slice_indices[index]
+        end_idx = slice_indices[index + 1]
         piece_text = text[start_idx:end_idx].strip()
         pieces.append(
             Segment(
@@ -268,7 +291,107 @@ def _split_segment_by_speakers(seg: Segment, diar_segments: list[Segment]) -> li
     return [piece for piece in pieces if piece.end_ms > piece.start_ms]
 
 
-def _split_text_by_sentence_units(seg: Segment, intervals: list[tuple[int, int, str]]) -> list[Segment]:
+def _collapse_tiny_alignment_intervals(
+    intervals: list[tuple[int, int, str]],
+    *,
+    min_duration_ms: int = 1500,
+) -> list[tuple[int, int, str]]:
+    """吸收对齐毛刺，避免把完整短句塞进极短 speaker interval。
+
+    原始 diarization timeline 仍保留在 metadata 中；这里仅影响最终可读转写。
+    """
+    if len(intervals) <= 2:
+        return intervals
+
+    collapsed = list(intervals)
+    index = 0
+    while index < len(collapsed) and len(collapsed) > 1:
+        left, right, speaker = collapsed[index]
+        duration = right - left
+        if duration >= min_duration_ms:
+            index += 1
+            continue
+
+        previous_item = collapsed[index - 1] if index > 0 else None
+        next_item = collapsed[index + 1] if index + 1 < len(collapsed) else None
+        merge_left = False
+        if previous_item is not None and next_item is not None:
+            prev_duration = previous_item[1] - previous_item[0]
+            next_duration = next_item[1] - next_item[0]
+            merge_left = previous_item[2] == next_item[2] or prev_duration >= next_duration
+        elif previous_item is not None:
+            merge_left = True
+
+        if merge_left and previous_item is not None:
+            prev_left, _prev_right, prev_speaker = previous_item
+            collapsed[index - 1] = (prev_left, right, prev_speaker)
+            collapsed.pop(index)
+            index = max(0, index - 1)
+            continue
+
+        if next_item is not None:
+            _next_left, next_right, next_speaker = next_item
+            collapsed[index + 1] = (left, next_right, next_speaker)
+            collapsed.pop(index)
+            continue
+
+        index += 1
+
+    return collapsed
+
+
+def _proportional_text_slice_indices(
+    text: str,
+    intervals: list[tuple[int, int, str]],
+    total_duration: int,
+) -> list[int]:
+    if not intervals:
+        return [0, len(text)]
+
+    indices = [0]
+    consumed = 0
+    for left, right, _ in intervals:
+        consumed += right - left
+        indices.append(round(consumed / max(1, total_duration) * len(text)))
+    indices[-1] = len(text)
+    return _repair_cjk_split_indices(text, indices)
+
+
+def _repair_cjk_split_indices(text: str, indices: list[int]) -> list[int]:
+    if len(indices) <= 2:
+        return indices
+
+    repaired = indices[:]
+    for index in range(1, len(repaired) - 1):
+        split_index = repaired[index]
+        prev_index = repaired[index - 1]
+        next_index = repaired[index + 1]
+        if split_index <= prev_index + 1 or split_index >= next_index:
+            continue
+        previous_text = text[prev_index:split_index]
+        current_text = text[split_index:next_index]
+        if _should_shift_cjk_split_left(previous_text, current_text):
+            repaired[index] = split_index - 1
+    return repaired
+
+
+def _should_shift_cjk_split_left(previous_text: str, current_text: str) -> bool:
+    previous = _cleanup_segment_text(previous_text)
+    current = _trim_leading_punctuation(current_text)
+    if not previous or not current:
+        return False
+    if re.search(r"[，。！？!?；;]$", previous):
+        return False
+    if not re.search(r"[\u4e00-\u9fff]$", previous) or not re.match(r"^[\u4e00-\u9fff]", current):
+        return False
+    current_head = re.match(r"^([\u4e00-\u9fff]{1,4})", current)
+    return bool(current_head and _looks_like_split_cjk_word(previous, current_head.group(1)))
+
+
+def _split_text_by_sentence_units(
+    seg: Segment,
+    intervals: list[tuple[int, int, str]],
+) -> list[Segment]:
     text = _cleanup_segment_text(seg.text)
     if not text or len(intervals) <= 1:
         return []
@@ -283,7 +406,9 @@ def _split_text_by_sentence_units(seg: Segment, intervals: list[tuple[int, int, 
     for unit in units:
         unit_start = consumed
         consumed += len(unit)
-        unit_mid_ms = seg.start_ms + round(((unit_start + consumed) / 2) / total_chars * total_duration)
+        unit_mid_ms = seg.start_ms + round(
+            ((unit_start + consumed) / 2) / total_chars * total_duration
+        )
         interval_index = _interval_index_for_timestamp(unit_mid_ms, intervals)
         assigned.setdefault(interval_index, []).append(unit)
 
@@ -373,7 +498,11 @@ def merge_short_segments(
         gap = seg.start_ms - current.end_ms
 
         # 短段落合并到当前段
-        if seg_len < min_duration_ms and gap < max_speaker_gap_ms and seg.speaker == current.speaker:
+        if (
+            seg_len < min_duration_ms
+            and gap < max_speaker_gap_ms
+            and seg.speaker == current.speaker
+        ):
             current = current.model_copy(
                 update={
                     "end_ms": max(current.end_ms, seg.end_ms),
@@ -430,7 +559,10 @@ def _find_text_overlap(left: str, right: str, min_overlap: int = 2, max_window: 
     return 0
 
 
-def _merge_tiny_alternating_segments(segments: list[Segment], min_duration_ms: int) -> list[Segment]:
+def _merge_tiny_alternating_segments(
+    segments: list[Segment],
+    min_duration_ms: int,
+) -> list[Segment]:
     if len(segments) <= 2:
         return segments
 
@@ -442,11 +574,13 @@ def _merge_tiny_alternating_segments(segments: list[Segment], min_duration_ms: i
         prev_seg = items[index - 1]
         next_seg = items[index + 1]
         duration = current.end_ms - current.start_ms
-        if (
+        current_text = _cleanup_segment_text(current.text)
+        is_short_residue = (
             duration <= max(min_duration_ms * 3, 2500)
-            or len(_cleanup_segment_text(current.text)) <= tiny_text_len
-            or _is_filler_segment(current.text)
-        ):
+            and len(current_text) <= tiny_text_len
+            and not re.search(r"[。！？!?；;]$", current_text)
+        )
+        if is_short_residue or _is_filler_segment(current_text):
             if prev_seg.speaker == next_seg.speaker:
                 merged_text = _join_text(prev_seg.text, next_seg.text)
                 items[index - 1] = prev_seg.model_copy(
@@ -472,7 +606,11 @@ def _split_long_segments(segments: list[Segment], max_duration_ms: int) -> list[
             result.append(segment)
             continue
 
-        sentences = [item.strip() for item in re.split(r"(?<=[。！？!?；;，,])", text) if item.strip()]
+        sentences = [
+            item.strip()
+            for item in re.split(r"(?<=[。！？!?；;，,])", text)
+            if item.strip()
+        ]
         if len(sentences) <= 1:
             result.append(segment)
             continue
@@ -549,12 +687,17 @@ def _repair_adjacent_same_speaker_boundaries(segments: list[Segment]) -> list[Se
             for segment in segments
         ]
 
-    repaired = [segment.model_copy(update={"text": _trim_leading_punctuation(segment.text)}) for segment in segments]
+    repaired = [
+        segment.model_copy(update={"text": _trim_leading_punctuation(segment.text)})
+        for segment in segments
+    ]
     for index in range(1, len(repaired)):
         previous = repaired[index - 1]
         current = repaired[index]
         if previous.speaker != current.speaker:
-            repaired[index] = current.model_copy(update={"text": _trim_leading_punctuation(current.text)})
+            repaired[index] = current.model_copy(
+                update={"text": _trim_leading_punctuation(current.text)}
+            )
             continue
 
         previous_text = _cleanup_segment_text(previous.text)

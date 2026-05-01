@@ -1,0 +1,20 @@
+{
+  "suite_name": "core_pipeline_baseline_example",
+  "version": "2026-04-28",
+  "description": "核心流水线真实样本集基线配置示例。补齐 reference_text、reference_speakers、voiceprint_labels 与 minutes_json 后即可做横向比较。",
+  "samples": [
+    {
+      "name": "standard_recording_1_15min_v20",
+      "tags": ["15min", "multi-speaker", "hotwords"],
+      "transcript": "../../storage/experiments/standard_recording_1/standard_recording_1_15min_multispeaker_readable_v20_hotwords.txt",
+      "reference_text": "../../storage/experiments/standard_recording_1_15min_refbench/standard_recording_1_15min_reference_slice.txt",
+      "reference_metadata": "../../storage/experiments/standard_recording_1_15min_refbench/standard_recording_1_15min_reference_slice.json",
+      "reference_quality": "draft_time_ratio",
+      "reference_speakers": null,
+      "hotwords_file": "../../storage/experiments/standard_recording_1/standard_recording_1_hotwords.txt",
+      "voiceprint_labels": null,
+      "minutes_json": null,
+      "notes": "当前已包含 15 分钟参考稿切片与热词；补齐 RTTM/声纹标签/人工纪要后可纳入正式多人质检基线。"
+    }
+  ]
+}
