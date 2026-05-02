@@ -45,6 +45,7 @@ class HealthResponse(BaseModel):
     worker_available: bool = False
     async_available: bool = False
     execution_mode: Literal["async", "sync"] = "sync"
+    sync_fallback_enabled: bool = False
     broker_error: str | None = None
     worker_error: str | None = None
 

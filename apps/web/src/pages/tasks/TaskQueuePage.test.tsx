@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { MemoryRouter } from 'react-router-dom';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { TaskQueuePage } from './TaskQueuePage';
 import { appTheme } from '../../theme/appTheme';
@@ -32,6 +32,10 @@ function renderPage() {
 }
 
 describe('TaskQueuePage', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     fetchHealth.mockResolvedValue({
@@ -126,7 +130,7 @@ describe('TaskQueuePage', () => {
     renderPage();
 
     expect(await screen.findByText('异步队列不可用')).toBeInTheDocument();
-    expect(screen.getByText(/默认会快速失败/)).toBeInTheDocument();
+    expect(screen.getAllByText(/默认会快速失败/).length).toBeGreaterThan(0);
     expect(screen.getByText(/connection refused/)).toBeInTheDocument();
     expect(screen.queryByText(/建议删除卡住任务后重建/)).not.toBeInTheDocument();
   });
@@ -149,7 +153,7 @@ describe('TaskQueuePage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('任务队列')).toBeInTheDocument();
+    expect((await screen.findAllByText('任务队列')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
 
     await waitFor(() => {

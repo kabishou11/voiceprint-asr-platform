@@ -285,6 +285,15 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
     );
   }
 
+  if (health.sync_fallback_enabled) {
+    return (
+      <Alert severity="warning">
+        <AlertTitle>本地同步回退已开启</AlertTitle>
+        异步队列未就绪，但当前允许 API 进程同步执行转写任务。仅建议用于本地小音频调试。
+      </Alert>
+    );
+  }
+
   if (!health.broker_available) {
     return (
       <Alert severity="warning">

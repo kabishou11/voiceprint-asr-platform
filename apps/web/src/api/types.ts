@@ -299,6 +299,7 @@ export interface HealthResponse {
   worker_available: boolean;
   async_available: boolean;
   execution_mode?: 'async' | 'sync';
+  sync_fallback_enabled?: boolean;
   broker_error?: string | null;
   worker_error?: string | null;
 }
