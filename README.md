@@ -199,7 +199,62 @@ uv run python scripts/deployment_preflight.py --json --strict
 
 ### 8. 启动服务
 
-开三个终端。
+方式 A：Docker Compose 一键启动。适合有 Docker 的本地机器、演示机器和交接验收环境。
+
+Windows：
+
+```powershell
+.\scripts\dev-docker.ps1
+```
+
+Linux/macOS：
+
+```bash
+chmod +x scripts/dev-docker.sh
+./scripts/dev-docker.sh
+```
+
+脚本会调用 `infra/compose/docker-compose.yml` 启动 `postgres`、`redis`、`minio`、`api`、`worker`、`web`。如果只想启动部分服务，可以把服务名追加到脚本后面，例如：
+
+```powershell
+.\scripts\dev-docker.ps1 redis api worker
+```
+
+```bash
+./scripts/dev-docker.sh redis api worker
+```
+
+常用访问地址：
+
+- API 健康检查：`http://127.0.0.1:8000/api/v1/health`
+- 前端工作台：`http://127.0.0.1:5173`
+- MinIO 控制台：`http://127.0.0.1:9001`
+
+查看 API 与 Worker 日志：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml logs -f api worker
+```
+
+方式 B：无 Docker 手动启动。适合 Linux 服务器不能安装 Docker，或需要直接接入宿主机 CUDA/驱动/模型目录的场景。
+
+先启动 Redis。Linux 可以二选一：
+
+```bash
+redis-server
+```
+
+```bash
+sudo systemctl start redis
+```
+
+Windows 本地如果没有原生 Redis，建议只用 Docker 启动 Redis 这个基础依赖：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml up -d redis
+```
+
+然后开三个终端。
 
 终端 1，启动 API：
 
@@ -208,10 +263,22 @@ uv run python scripts/deployment_preflight.py --json --strict
 uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Linux 服务器通常使用：
+
+```bash
+uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000
+```
+
 终端 2，启动 Worker：
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
+uv run python -m apps.worker.app.worker
+```
+
+Linux 服务器同样可以直接启动：
+
+```bash
 uv run python -m apps.worker.app.worker
 ```
 
@@ -224,17 +291,21 @@ uv run celery -A apps.worker.app.celery_app worker --loglevel=info --pool=solo -
 ```
 
 如果日志出现 `Cannot connect to redis://localhost:6379/0`，说明 Redis 没启动。
-本地可先启动基础依赖：
-
-```powershell
-docker compose -f infra/compose/docker-compose.yml up -d redis
-```
+Linux/容器内可以通过 `CELERY_WORKER_POOL`、`CELERY_WORKER_CONCURRENCY`、
+`CELERY_WORKER_LOGLEVEL` 覆盖 Worker 启动参数；Windows 默认会自动降到 solo。
 
 终端 3，启动前端：
 
 ```powershell
 cd apps/web
 npm run dev
+```
+
+Linux 服务器如果需要局域网访问前端开发服务：
+
+```bash
+cd apps/web
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 ### 9. 最小验证
