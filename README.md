@@ -247,6 +247,13 @@ uv run pytest tests/integration/test_health.py -q
 
 pytest 默认会把临时目录写入 `storage/pytest-tmp`。如果你在 Windows 上遇到 `.pytest_cache` 或系统临时目录权限警告，优先确认没有旧测试进程占用文件；通常不需要再手动传 `--basetemp`。
 
+默认测试集会跳过真实模型推理和声纹注册类集成测试，避免 Windows native 依赖或 GPU 驱动问题直接导致测试进程崩溃。需要做模型验收时显式开启：
+
+```powershell
+$env:RUN_REAL_MODEL_INTEGRATION="1"
+uv run pytest tests/integration/test_health.py
+```
+
 如果 `uv` 访问用户目录缓存时报 `AppData\Local\uv\cache ... 拒绝访问`，可以临时把缓存放到仓库内的忽略目录：
 
 ```powershell
@@ -288,6 +295,7 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 - 队列任务支持轻量取消：`POST /api/v1/jobs/{job_id}/cancel` 会把 `pending/queued/running` 标记为 `canceled`。该操作不会强杀已经进入模型推理的进程，但 Worker 在开始前和写回结果时会尊重取消状态，避免取消后又被覆盖为成功或失败。
 - 失败或已取消的转写任务支持后端重试：`POST /api/v1/jobs/{job_id}/retry` 会读取原始创建参数，重新创建一个新任务，而不是把旧任务状态改回队列。历史任务如果缺少创建参数，会返回 409，避免用不完整参数误跑。
 - 创建转写任务默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误，而不会在请求线程里同步跑大模型。仅本地调试小音频时可设置 `ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1`。
+- 声纹注册、验证、识别同样默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误。仅本地小音频调试时可设置 `ALLOW_SYNC_VOICEPRINT_FALLBACK=1`。
 
 生产验收推荐顺序：
 

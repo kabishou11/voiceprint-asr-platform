@@ -11,6 +11,7 @@ from domain.schemas.voiceprint import (
 )
 
 from apps.api.app.api.routes import voiceprints as voiceprint_routes
+from apps.api.app.api.schemas import EnrollVoiceprintRequest
 from apps.api.app.services import job_db
 from apps.api.app.services import voiceprint_service as voiceprint_module
 from apps.api.app.services.voiceprint_service import voiceprint_service
@@ -298,3 +299,36 @@ def test_voiceprint_job_endpoint_ignores_invalid_json_result() -> None:
     assert payload["status"] == "failed"
     assert payload["error_message"] == "boom"
     assert payload["verification"] is None
+
+
+def test_voiceprint_enroll_refuses_sync_fallback_when_queue_unavailable(monkeypatch) -> None:
+    profile = voiceprint_service.create_profile("单测声纹队列不可用", "3dspeaker-embedding")
+    monkeypatch.delenv("ALLOW_SYNC_VOICEPRINT_FALLBACK", raising=False)
+    monkeypatch.setattr(voiceprint_routes, "is_async_available", lambda: False)
+    monkeypatch.setattr(
+        voiceprint_service,
+        "enroll_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not sync")),
+    )
+
+    try:
+        voiceprint_routes.enroll_profile(
+            profile.profile_id,
+            EnrollVoiceprintRequest(asset_name="声纹-女1.wav"),
+        )
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 409
+        assert "异步声纹任务队列不可用" in str(getattr(exc, "detail", ""))
+    else:
+        raise AssertionError("queue outage should fail fast")
+
+    with job_db.session() as db:
+        record = (
+            db.query(job_db.JobRecord)
+            .filter(job_db.JobRecord.job_type == "voiceprint_enroll")
+            .order_by(job_db.JobRecord.created_at.desc())
+            .first()
+        )
+        assert record is not None
+        assert record.status == "failed"
+        assert "ALLOW_SYNC_VOICEPRINT_FALLBACK" in (record.error_message or "")

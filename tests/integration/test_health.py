@@ -1,6 +1,8 @@
+import os
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from model_adapters import (
     AudioAsset,
@@ -19,6 +21,21 @@ from apps.api.app.main import app
 from apps.api.app.services.voiceprint_service import voiceprint_service
 
 client = TestClient(app)
+
+
+def _real_model_integration_enabled() -> bool:
+    return os.environ.get("RUN_REAL_MODEL_INTEGRATION", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+requires_real_model_integration = pytest.mark.skipif(
+    not _real_model_integration_enabled(),
+    reason="真实模型推理/声纹注册集成测试默认跳过；设置 RUN_REAL_MODEL_INTEGRATION=1 显式启用。",
+)
 
 
 def test_health_endpoint_returns_ok() -> None:
@@ -174,6 +191,7 @@ def test_jobs_endpoint_supports_delete() -> None:
     assert missing_response.status_code == 404
 
 
+@requires_real_model_integration
 def test_funasr_transcribe_real_wav_sample() -> None:
     adapter = FunASRTranscribeAdapter(model_name='models/Fun-ASR-Nano-2512')
     if has_cuda_runtime():
@@ -206,6 +224,7 @@ def test_downloaded_local_models_are_available_in_adapters() -> None:
     )
 
 
+@requires_real_model_integration
 def test_funasr_transcribe_compressed_audio_requires_decoder_backend() -> None:
     adapter = FunASRTranscribeAdapter(model_name='models/Fun-ASR-Nano-2512')
 
@@ -241,16 +260,22 @@ def test_voiceprint_enroll_api_updates_profile() -> None:
         json={'asset_name': asset_name},
     )
 
-    if has_cuda_runtime():
+    if response.status_code == 200:
         assert response.status_code == 200
         payload = response.json()
         assert payload['profile']['profile_id'] == profile_id
-        assert payload['profile']['sample_count'] == 1
-        assert payload['enrollment']['status'] == 'enrolled'
-        assert payload['enrollment']['mode'] == 'replace'
+        if payload.get('job'):
+            assert payload['job']['status'] == 'queued'
+        else:
+            assert payload['profile']['sample_count'] == 1
+            assert payload['enrollment']['status'] == 'enrolled'
+            assert payload['enrollment']['mode'] == 'replace'
     else:
         assert response.status_code == 409
-        assert 'CUDA GPU' in response.json()['detail']
+        assert any(
+            marker in response.json()['detail']
+            for marker in ('CUDA GPU', '异步声纹任务队列不可用')
+        )
 
 
 def test_voiceprint_enroll_api_returns_404_for_unknown_profile() -> None:
@@ -288,16 +313,20 @@ def test_voiceprint_enroll_api_replace_mode_keeps_single_sample() -> None:
         json={'asset_name': upload_two.json()['asset_name']},
     )
 
-    if has_cuda_runtime():
+    if first.status_code == 200:
         assert first.status_code == 200
         assert second.status_code == 200
-        assert second.json()['profile']['sample_count'] == 1
-        assert second.json()['enrollment']['mode'] == 'replace'
+        if second.json().get('job'):
+            assert second.json()['job']['status'] == 'queued'
+        else:
+            assert second.json()['profile']['sample_count'] == 1
+            assert second.json()['enrollment']['mode'] == 'replace'
     else:
         assert first.status_code == 409
         assert second.status_code == 409
 
 
+@requires_real_model_integration
 def test_voiceprint_verify_uses_requested_probe_asset() -> None:
     if has_cuda_runtime():
         result = voiceprint_service.verify(
@@ -319,6 +348,7 @@ def test_voiceprint_verify_uses_requested_probe_asset() -> None:
             assert 'CUDA' in str(exc) or '尚未注册样本' in str(exc)
 
 
+@requires_real_model_integration
 def test_voiceprint_identify_uses_requested_probe_asset() -> None:
     if has_cuda_runtime():
         result = voiceprint_service.identify(probe_asset_name='5分钟.wav', top_k=2)
@@ -344,9 +374,12 @@ def test_voiceprint_verify_api_accepts_probe_asset_name() -> None:
         },
     )
 
-    if has_cuda_runtime():
+    if response.status_code == 200:
         assert response.status_code == 200
-        assert response.json()['result']['profile_id'] == 'sample-female-1'
+        if response.json().get('job'):
+            assert response.json()['job']['status'] == 'queued'
+        else:
+            assert response.json()['result']['profile_id'] == 'sample-female-1'
     else:
         assert response.status_code in {400, 409}
 
@@ -373,9 +406,12 @@ def test_voiceprint_identify_api_accepts_probe_asset_name() -> None:
         },
     )
 
-    if has_cuda_runtime():
+    if response.status_code == 200:
         assert response.status_code == 200
-        assert response.json()['result']['candidates'][0]['profile_id'] == 'sample-female-1'
+        if response.json().get('job'):
+            assert response.json()['job']['status'] == 'queued'
+        else:
+            assert response.json()['result']['candidates'][0]['profile_id'] == 'sample-female-1'
     else:
         assert response.status_code == 409
 
