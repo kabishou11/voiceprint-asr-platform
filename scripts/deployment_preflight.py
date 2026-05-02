@@ -21,6 +21,7 @@ def build_preflight_report(*, models_root: str | Path = "models") -> dict[str, A
     ffmpeg_path = shutil.which("ffmpeg")
     storage_root = Path("storage")
     models_report = build_models_report(models_root)
+    three_d_speaker_reference = _three_d_speaker_reference_info()
     return {
         "python": {
             "version": sys.version.split()[0],
@@ -41,14 +42,17 @@ def build_preflight_report(*, models_root: str | Path = "models") -> dict[str, A
             "writable": _is_writable_dir(storage_root),
         },
         "models": models_report,
+        "three_d_speaker_reference": three_d_speaker_reference,
         "summary": {
             "production_ready": bool(
                 ffmpeg_path
                 and torch_info.get("cuda_available") is True
                 and models_report["summary"]["all_required_available"]
+                and three_d_speaker_reference["available"]
                 and _is_writable_dir(storage_root)
             ),
             "required_models_ready": models_report["summary"]["all_required_available"],
+            "three_d_speaker_reference_ready": three_d_speaker_reference["available"],
             "cuda_ready": torch_info.get("cuda_available") is True,
             "ffmpeg_ready": bool(ffmpeg_path),
             "storage_ready": _is_writable_dir(storage_root),
@@ -70,6 +74,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         f"- GPU: {torch_info.get('device_name') or 'N/A'}",
         f"- 必需模型: {report['models']['summary']['available_required_count']}/"
         f"{report['models']['summary']['required_count']} 可用",
+        f"- 3D-Speaker 参考源码: "
+        f"{'available' if summary['three_d_speaker_reference_ready'] else 'missing'}",
         f"- storage 可写: {summary['storage_ready']}",
         "",
     ]
@@ -81,6 +87,8 @@ def render_markdown_report(report: dict[str, Any]) -> str:
                 "- 确认安装 ffmpeg，并能在 PATH 中找到。",
                 "- 确认安装 CUDA 版 torch/torchaudio，且 torch.cuda.is_available() 为 True。",
                 "- 确认 models/ 下 FunASR、FSMN-VAD、3D-Speaker CAM++ 必需文件齐全。",
+                "- 确认 THREE_D_SPEAKER_REFERENCE_ROOT 指向包含 speakerlab/ 的 "
+                "3D-Speaker 源码目录。",
                 "- 确认 storage/ 是持久化目录且 API/Worker 都可读写。",
                 "",
             ]
@@ -120,6 +128,32 @@ def _is_writable_dir(path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _three_d_speaker_reference_info() -> dict[str, Any]:
+    env_root = os.getenv("THREE_D_SPEAKER_REFERENCE_ROOT")
+    candidates = [
+        Path(env_root) if env_root else None,
+        Path("/opt/3D-Speaker"),
+        PROJECT_ROOT.parent / "3D-Speaker",
+        Path("F:/1work/音频识别/3D-Speaker"),
+    ]
+    checked: list[str] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        checked.append(str(candidate))
+        if (candidate / "speakerlab").exists():
+            return {
+                "available": True,
+                "path": str(candidate),
+                "checked": checked,
+            }
+    return {
+        "available": False,
+        "path": None,
+        "checked": checked,
+    }
 
 
 def _mask_dsn(value: str) -> str:

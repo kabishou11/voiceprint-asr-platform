@@ -346,6 +346,31 @@ def test_decode_framewise_segments_prefers_temporally_consistent_speaker():
     assert all(speaker == 0 for _, _, speaker in decoded)
 
 
+def test_find_reference_3dspeaker_root_prefers_env_path(monkeypatch, tmp_path):
+    reference_root = tmp_path / "3D-Speaker"
+    (reference_root / "speakerlab").mkdir(parents=True)
+    monkeypatch.setenv("THREE_D_SPEAKER_REFERENCE_ROOT", str(reference_root))
+
+    assert speaker_module._find_reference_3dspeaker_root() == reference_root
+
+
+def test_diarization_load_reports_missing_reference_runtime(monkeypatch, tmp_path):
+    model_dir = tmp_path / "campplus"
+    model_dir.mkdir()
+    (model_dir / "campplus_cn_3dspeaker.bin").write_bytes(b"placeholder")
+    (model_dir / "configuration.json").write_text("{}", encoding="utf-8")
+    adapter = ThreeDSpeakerDiarizationAdapter(model_name=str(model_dir))
+    monkeypatch.setattr(adapter, "_ensure_backend", lambda: True)
+    monkeypatch.setattr(speaker_module, "_find_reference_3dspeaker_root", lambda: None)
+
+    try:
+        adapter._load_model()
+    except RuntimeError as exc:
+        assert "THREE_D_SPEAKER_REFERENCE_ROOT" in str(exc)
+    else:
+        raise AssertionError("missing reference runtime should raise a clear RuntimeError")
+
+
 def test_decode_framewise_segments_repairs_single_frame_bridge_after_vote_decode():
     adapter = ThreeDSpeakerDiarizationAdapter()
     adapter.frame_decode_step_s = 0.25

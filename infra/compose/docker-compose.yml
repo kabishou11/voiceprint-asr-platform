@@ -40,6 +40,7 @@ services:
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
@@ -51,6 +52,7 @@ services:
     volumes:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
+      - ../../../3D-Speaker:/opt/3D-Speaker:ro
     healthcheck:
       test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).read()"]
       interval: 30s
@@ -69,6 +71,7 @@ services:
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
@@ -78,6 +81,7 @@ services:
     volumes:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
+      - ../../../3D-Speaker:/opt/3D-Speaker:ro
     gpus: all
     restart: unless-stopped
 

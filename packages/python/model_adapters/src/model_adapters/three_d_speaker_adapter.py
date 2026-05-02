@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -252,7 +253,10 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             return None
         reference_root = _find_reference_3dspeaker_root()
         if reference_root is None:
-            return None
+            raise RuntimeError(
+                "3D-Speaker 参考运行时代码未就绪：请设置 THREE_D_SPEAKER_REFERENCE_ROOT "
+                "指向包含 speakerlab/ 的 3D-Speaker 项目目录，或在 Docker 中挂载该目录。"
+            )
         reference_root_str = str(reference_root)
         if reference_root_str not in sys.path:
             sys.path.insert(0, reference_root_str)
@@ -291,8 +295,8 @@ class ThreeDSpeakerDiarizationAdapter(DiarizationAdapter):
             self._campplus_model = embedding_model
             self._feature_extractor = feature_extractor
             return self._campplus_model, self._feature_extractor
-        except Exception:
-            return None
+        except Exception as exc:
+            raise RuntimeError(f"3D-Speaker CAM++ embedding runtime 初始化失败：{exc}") from exc
 
     def _cluster_embeddings(
         self,
@@ -1622,8 +1626,8 @@ class ThreeDSpeakerVoiceprintAdapter(VoiceprintAdapter):
                 model=self.model_name,
             )
             return self._sv_model
-        except Exception:
-            return None
+        except Exception as exc:
+            raise RuntimeError(f"3D-Speaker speaker-verification pipeline 初始化失败：{exc}") from exc
 
     def _load_model(self):
         require_available_model(
@@ -1807,12 +1811,15 @@ def _normalize_audio_for_sv(source_path: str | Path, target_path: Path, sample_r
 
 
 def _find_reference_3dspeaker_root() -> Path | None:
+    env_root = os.getenv("THREE_D_SPEAKER_REFERENCE_ROOT")
     candidates = [
+        Path(env_root) if env_root else None,
+        Path("/opt/3D-Speaker"),
         Path("F:/1work/音频识别/3D-Speaker"),
         Path(__file__).resolve().parents[5].parent / "3D-Speaker",
     ]
     for candidate in candidates:
-        if (candidate / "speakerlab").exists():
+        if candidate is not None and (candidate / "speakerlab").exists():
             return candidate
     return None
 

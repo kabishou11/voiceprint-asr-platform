@@ -47,9 +47,24 @@
 建议额外安装：
 
 - `ffmpeg`
-  作用：稳定解码 `.mp3/.m4a/.mp4`
+  作用：稳定解码 `.mp3/.m4a/.mp4/.flac/.wav`，并把输入音频转成模型更稳定的采样率与声道格式。
+
+Windows 推荐安装：
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+安装后重新打开 PowerShell，并确认：
+
+```powershell
+where.exe ffmpeg
+ffmpeg -version
+```
 
 如果你只是想跑最小高精度链路，`ffmpeg` 不是硬性前提，但没有它时，压缩音频解码能力会变差。
+生产环境建议把它当成必需项：手机录音、会议软件导出的 `.m4a/.mp3`、部分变长码率音频，
+都更依赖 `ffmpeg` 做稳定解码；否则会退回 `torchaudio/librosa/audioread` 等能力，兼容性不可控。
 后端 `/api/v1/health` 与 `/api/v1/models` 会返回 `audio_decoder`，用于确认当前是 `ffmpeg`、`torchaudio` 回退还是无可用解码后端。
 `/api/v1/models` 还会返回 `worker_model_status`，用于区分 API 进程模型状态和 Celery Worker 进程实际可见的模型/CUDA 状态。
 其中每个 Worker 模型项会区分 `availability`（模型文件/依赖/CUDA 是否满足）与
@@ -380,7 +395,9 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 当前仓库的容器配置是“可交接的部署骨架”，已经包含本地 CUDA 版 PyTorch 安装与 `api/worker` GPU 透传声明，但不是已经完成镜像瘦身、Nginx 静态托管和生产编排的最终形态。正式部署前必须确认：
 
 - API 与 Worker 镜像需要 `ffmpeg`、C/C++ 构建工具、本地模型卷、持久化 `storage/` 卷。
-- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`。Docker 镜像会在 `uv sync` 后额外安装 `torch==2.6.0+cu124`、`torchvision==0.21.0+cu124`、`torchaudio==2.6.0+cu124`，手动启动仍需按前文安装。
+- Windows 原生生产环境也需要安装 `ffmpeg` 并加入 PATH；`where.exe ffmpeg` 必须能找到可执行文件。
+- `ffmpeg` 缺失时，`scripts/deployment_preflight.py --strict` 会判定 `production_ready=false`，这是故意的生产保护，不是误报。
+- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`。Docker 镜像会先 `uv sync --no-install-project` 构建依赖层，再安装 `torch==2.6.0+cu124`、`torchvision==0.21.0+cu124`、`torchaudio==2.6.0+cu124`，最后用 `uv sync --inexact` 安装项目包以保留 CUDA wheel。手动启动仍需按前文安装。
 - Docker 生产部署必须保证 `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` 通过；否则容器内仍会显示 CUDA 不可用。
 - `infra/compose/docker-compose.yml` 会把容器内 DSN 覆盖为 `postgres`、`redis`、`minio` 服务名；如果手动启动，`.env` 中可以继续使用 `localhost`。
 - 当前业务数据真实落在 `storage/jobs.db`、`storage/uploads`、`storage/voiceprints`、`storage/minutes` 等本地目录；`POSTGRES_DSN` 与 `S3_*` 目前是部署预留配置，尚未承载主业务持久化。
@@ -394,6 +411,8 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 生产验收推荐顺序：
 
 ```powershell
+where.exe ffmpeg
+ffmpeg -version
 uv run python scripts/deployment_preflight.py --strict
 uv run python scripts/check_models.py
 curl http://127.0.0.1:8000/api/v1/health
@@ -407,6 +426,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/models/funasr-nano/warmup-worker
 curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-diarization/warmup-worker
 curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-embedding/warmup-worker
 ```
+
+如果 `3D-Speaker Diarization` 预热提示“参考运行时代码未就绪”，说明只挂载了
+`models/3D-Speaker/campplus` 权重，但没有提供官方 3D-Speaker 参考项目源码。
+当前 diarization 的 CAM++ embedding 路径会导入参考项目中的 `speakerlab/`：
+
+- Docker 开发脚本默认按仓库同级目录查找 `../3D-Speaker`，并挂载为容器内 `/opt/3D-Speaker`。
+- 非 Docker 部署时，设置 `THREE_D_SPEAKER_REFERENCE_ROOT=/opt/3D-Speaker`，该目录下必须存在 `speakerlab/`。
+- 声纹 `3D-Speaker Embedding` 使用 ModelScope speaker-verification pipeline，仍读取 `models/3D-Speaker/campplus` 本地权重。
 
 ## 项目目录
 
