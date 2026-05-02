@@ -31,7 +31,7 @@ import {
   fetchVoiceprintProfiles,
   uploadAudio,
 } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type HealthResponse } from '../../api/types';
+import { formatDateTime, jobDisplayName, jobTypeLabels, type HealthResponse } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
@@ -565,7 +565,7 @@ export function TranscriptionWorkbenchPage() {
                         >
                           <Stack spacing={0.4}>
                             <Stack direction="row" justifyContent="space-between" spacing={1}>
-                              <Typography fontWeight={700} noWrap sx={{ fontSize: '0.92rem' }}>{job.asset_name ?? job.job_id}</Typography>
+                              <Typography fontWeight={700} noWrap sx={{ fontSize: '0.92rem' }}>{jobDisplayName(job)}</Typography>
                               <StatusChip status={job.status} />
                             </Stack>
                             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem' }}>

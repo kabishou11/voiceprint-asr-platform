@@ -5,7 +5,12 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { fetchJobs } from '../../api/client';
-import { formatDateTime, isTranscriptionJobType, jobTypeLabels } from '../../api/types';
+import {
+  formatDateTime,
+  isTranscriptionJobType,
+  jobDisplayName,
+  jobTypeLabels,
+} from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
@@ -82,7 +87,7 @@ export function MeetingMinutesIndexPage() {
                   >
                     <Stack spacing={0.4} sx={{ minWidth: 0 }}>
                       <Typography sx={{ fontWeight: 700, lineHeight: 1.35 }} noWrap>
-                        {job.asset_name ?? job.job_id}
+                        {jobDisplayName(job)}
                       </Typography>
                       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                         <Chip size="small" variant="outlined" label={jobTypeLabels[job.job_type]} />

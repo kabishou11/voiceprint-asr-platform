@@ -15,6 +15,7 @@ import {
   Divider,
   Grid,
   IconButton,
+  Pagination,
   Stack,
   Typography,
 } from '@mui/material';
@@ -23,12 +24,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { cancelJob, deleteJob, fetchHealth, fetchJobs, retryJob } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type HealthResponse, type JobDetail } from '../../api/types';
+import {
+  formatDateTime,
+  jobDisplayName,
+  jobTypeLabels,
+  type HealthResponse,
+  type JobDetail,
+} from '../../api/types';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
 
 const POLL_INTERVAL_MS = 5000;
+const PAGE_SIZE = 10;
 
 interface ExpandedJobs {
   [jobId: string]: boolean;
@@ -93,7 +101,7 @@ function JobCard({
           <Stack spacing={0.75} flex={1} minWidth={0}>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="h6" sx={{ wordBreak: 'break-all' }}>
-                {job.asset_name ?? job.job_id}
+                {jobDisplayName(job)}
               </Typography>
               <StatusChip status={job.status} />
               <Chip size="small" variant="outlined" label={jobTypeLabels[job.job_type]} />
@@ -324,6 +332,8 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
 
 export function TaskQueuePage() {
   const [jobs, setJobs] = useState<JobDetail[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedJobs>({});
@@ -338,8 +348,12 @@ export function TaskQueuePage() {
       setLoading(true);
     }
     try {
-      const [data, runtime] = await Promise.all([fetchJobs(), fetchHealth()]);
+      const [data, runtime] = await Promise.all([
+        fetchJobs({ page, page_size: PAGE_SIZE }),
+        fetchHealth(),
+      ]);
       setJobs(data.items);
+      setTotal(data.meta?.total ?? data.items.length);
       setHealth(runtime);
       setError(null);
     } catch (err: unknown) {
@@ -397,7 +411,7 @@ export function TaskQueuePage() {
         return next;
       });
     }
-  }, []);
+  }, [page]);
 
   const handleCancel = useCallback(async (jobId: string) => {
     setCancelingJobIds((prev) => new Set(prev).add(jobId));
@@ -435,6 +449,7 @@ export function TaskQueuePage() {
 
   const queueBlocked = !!health?.broker_available && !health?.worker_available;
   const executionLabel = health?.async_available ? '异步模式' : '队列未就绪';
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <PageSection
@@ -463,6 +478,7 @@ export function TaskQueuePage() {
           label={executionLabel}
           variant={health ? 'filled' : 'outlined'}
         />
+        <Chip size="small" label={`第 ${page}/${totalPages} 页`} variant="outlined" />
         <Chip size="small" label={`自动轮询 ${POLL_INTERVAL_MS / 1000}s`} variant="outlined" />
       </Stack>
 
@@ -497,7 +513,7 @@ export function TaskQueuePage() {
         <Grid size={{ xs: 6, sm: 3 }}>
           <StatCard
             label="全部任务"
-            value={jobs.length}
+            value={total}
             color="primary"
           />
         </Grid>
@@ -525,6 +541,17 @@ export function TaskQueuePage() {
           <Alert severity="info">暂无任务，请到转写工作台发起任务。</Alert>
         )}
       </Stack>
+
+      {totalPages > 1 ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1 }}>
+          <Pagination
+            count={totalPages}
+            page={page}
+            color="primary"
+            onChange={(_, value) => setPage(value)}
+          />
+        </Box>
+      ) : null}
     </PageSection>
   );
 }

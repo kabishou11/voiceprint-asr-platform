@@ -95,11 +95,13 @@ function ModelCard({
   loading,
   workerLoading,
 }: ModelCardProps) {
-  const isLoaded = model.status === 'loaded';
-  const isLoading = model.status === 'loading';
-  const isFailed = model.status === 'load_failed';
   const workerRuntimeStatus = workerModel?.runtime_status ?? 'unloaded';
   const workerLoaded = workerModel?.loaded ?? workerRuntimeStatus === 'loaded';
+  const effectiveStatus = workerOnline && workerModel ? workerRuntimeStatus : model.status;
+  const optionalUnavailable = model.key.includes('pyannote') && model.availability === 'unavailable';
+  const isLoaded = effectiveStatus === 'loaded';
+  const isLoading = model.status === 'loading';
+  const isFailed = effectiveStatus === 'load_failed' && !optionalUnavailable;
 
   return (
     <Card
@@ -121,7 +123,7 @@ function ModelCard({
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center" flexShrink={0}>
               <Chip
-                label={modelStatusLabels[model.status]}
+                label={optionalUnavailable ? '可选未启用' : modelStatusLabels[effectiveStatus]}
                 color={
                   isLoaded ? 'success' : isFailed ? 'error' : isLoading ? 'warning' : 'default'
                 }
@@ -168,6 +170,18 @@ function ModelCard({
             ) : null}
           </Stack>
 
+          {workerOnline && workerModel ? (
+            <Alert severity={workerLoaded ? 'success' : 'info'} sx={{ py: 0.5 }}>
+              当前页面以 Worker 推理进程为准；GPU 显存占用通常来自 Worker，而不是 API 进程。
+            </Alert>
+          ) : null}
+
+          {optionalUnavailable ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              pyannote community-1 是可选实验后端，默认关闭；主链路使用 3D-Speaker。
+            </Alert>
+          ) : null}
+
           {isLoading && model.load_progress !== null && (
             <Box>
               <Stack direction="row" justifyContent="space-between" spacing={1} mb={0.5}>
@@ -188,7 +202,7 @@ function ModelCard({
             </Typography>
           )}
 
-          {model.error && (
+          {model.error && !optionalUnavailable && (
             <Alert severity="error" sx={{ py: 0.5 }}>
               {model.error}
             </Alert>
@@ -319,6 +333,13 @@ export function ModelManagementPage() {
   const gpu = data?.gpu ?? null;
   const workerStatus = data?.worker_model_status ?? null;
   const workerItemsByKey = new Map((workerStatus?.items ?? []).map((item) => [item.key, item]));
+  const coreWarmupKeys = items
+    .filter(
+      (item) =>
+        item.availability !== 'unavailable' &&
+        ['funasr-nano', '3dspeaker-diarization', '3dspeaker-embedding'].includes(item.key),
+    )
+    .map((item) => item.key);
 
   const handleLoad = useCallback(
     async (modelKey: string) => {
@@ -380,6 +401,26 @@ export function ModelManagementPage() {
     [reload],
   );
 
+  const handleWarmupCoreModels = useCallback(async () => {
+    setError(null);
+    for (const modelKey of coreWarmupKeys) {
+      setWorkerLoadingKeys((prev) => new Set(prev).add(modelKey));
+      try {
+        await warmupWorkerModel(modelKey);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : `核心模型 ${modelKey} 预热失败`);
+        break;
+      } finally {
+        setWorkerLoadingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(modelKey);
+          return next;
+        });
+      }
+    }
+    reload();
+  }, [coreWarmupKeys, reload]);
+
   const isLoadingKey = useCallback(
     (key: string) => loadingKeys.has(key),
     [loadingKeys],
@@ -393,6 +434,9 @@ export function ModelManagementPage() {
   const queueingCount = items.filter((item) => item.status === 'loading').length;
   const failedCount = items.filter((item) => item.status === 'load_failed').length;
 
+  const primaryItems = items.filter((item) => !item.key.includes('pyannote'));
+  const optionalItems = items.filter((item) => item.key.includes('pyannote'));
+
   return (
     <PageSection
       title="模型"
@@ -400,9 +444,18 @@ export function ModelManagementPage() {
       loading={loading}
       error={fetchError}
       actions={
-        <Button variant="outlined" onClick={reload}>
-          刷新
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Button
+            variant="contained"
+            onClick={handleWarmupCoreModels}
+            disabled={!workerStatus?.online || coreWarmupKeys.length === 0 || workerLoadingKeys.size > 0}
+          >
+            一键预热核心模型
+          </Button>
+          <Button variant="outlined" onClick={reload}>
+            刷新
+          </Button>
+        </Stack>
       }
     >
       <Stack spacing={3}>
@@ -436,7 +489,7 @@ export function ModelManagementPage() {
         {items.length > 0 && <ModelListStats items={items} />}
 
         <Grid container spacing={2.5}>
-          {items.map((model) => (
+          {primaryItems.map((model) => (
             <Grid key={model.key} size={{ xs: 12, md: 6 }}>
               <ModelCard
                 model={model}
@@ -451,6 +504,35 @@ export function ModelManagementPage() {
             </Grid>
           ))}
         </Grid>
+
+        {optionalItems.length > 0 ? (
+          <Card>
+            <CardContent>
+              <Stack spacing={1.5}>
+                <Typography fontWeight={800}>可选实验后端</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  不影响主链路。pyannote 需要 gated 权限和完整离线包，未启用时不作为错误处理。
+                </Typography>
+                <Grid container spacing={2}>
+                  {optionalItems.map((model) => (
+                    <Grid key={model.key} size={{ xs: 12, md: 6 }}>
+                      <ModelCard
+                        model={model}
+                        workerModel={workerItemsByKey.get(model.key)}
+                        workerOnline={workerStatus?.online ?? false}
+                        onLoad={handleLoad}
+                        onUnload={handleUnload}
+                        onWarmupWorker={handleWarmupWorker}
+                        loading={isLoadingKey(model.key)}
+                        workerLoading={isWorkerLoadingKey(model.key)}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {items.length === 0 && !loading && (
           <Typography color="text.secondary" textAlign="center" py={4}>

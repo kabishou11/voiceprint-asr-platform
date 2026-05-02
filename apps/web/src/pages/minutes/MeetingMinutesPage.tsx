@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchMeetingMinutes, fetchTranscript, generateMeetingMinutes } from '../../api/client';
+import { jobDisplayName } from '../../api/types';
 import type { MeetingMinutesEvidenceItem, MeetingMinutesResponse } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { MarkdownArticle } from '../../components/MarkdownArticle';
@@ -322,7 +323,7 @@ export function MeetingMinutesPage() {
     const url = window.URL.createObjectURL(blob);
     const link = window.document.createElement('a');
     link.href = url;
-    link.download = `${job?.asset_name || jobId}-minutes.md`;
+    link.download = `${jobDisplayName(job) || jobId}-minutes.md`;
     link.click();
     window.URL.revokeObjectURL(url);
   };
@@ -330,7 +331,7 @@ export function MeetingMinutesPage() {
   return (
     <PageSection
       compact
-      title={job?.asset_name || minutes?.title || '会议纪要'}
+      title={jobDisplayName(job) || minutes?.title || '会议纪要'}
       description="会议纪要是独立产物，不会污染原文转写视图。"
       loading={transcriptState.loading}
       error={transcriptState.error}

@@ -19,7 +19,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { fetchJobs } from '../../api/client';
-import { formatDateTime, jobTypeLabels } from '../../api/types';
+import { formatDateTime, jobDisplayName, jobTypeLabels } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { PageSection } from '../../components/PageSection';
 import { StatusChip } from '../../components/StatusChip';
@@ -193,7 +193,7 @@ export function JobListPage() {
                 >
                   <Stack spacing={0.35} sx={{ minWidth: 0 }}>
                     <Typography sx={{ fontWeight: 700, lineHeight: 1.35 }} noWrap>
-                      {job.asset_name ?? job.job_id}
+                      {jobDisplayName(job)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" noWrap>
                       {job.job_id}

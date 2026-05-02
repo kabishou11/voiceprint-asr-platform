@@ -134,6 +134,21 @@ def test_cancel_job_marks_queued_job_canceled() -> None:
     assert "已取消" in (job.status_explanation or "")
 
 
+def test_list_job_details_searches_original_filename(monkeypatch) -> None:
+    service = JobService()
+    job_id = _insert_job("succeeded")
+    monkeypatch.setattr(
+        job_service_module.asset_storage_service,
+        "get_original_filename",
+        lambda asset_name: "董事会录音.m4a" if asset_name == "demo.wav" else None,
+    )
+
+    jobs, total = service.list_job_details(keyword="董事会")
+
+    assert total >= 1
+    assert any(job.job_id == job_id and job.original_filename == "董事会录音.m4a" for job in jobs)
+
+
 def test_cancel_job_does_not_cancel_terminal_job() -> None:
     service = JobService()
     job_id = _insert_job("succeeded")

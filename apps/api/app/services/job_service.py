@@ -31,6 +31,7 @@ from apps.worker.app.tasks.multi_speaker import (
 from apps.worker.app.tasks.transcription import run_transcription, run_transcription_task
 
 from . import job_db
+from .asset_storage import asset_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +146,25 @@ class JobService:
             if job_type:
                 query = query.filter(job_db.JobRecord.job_type == job_type)
             if keyword:
-                like_keyword = f"%{keyword}%"
-                query = query.filter(
-                    (job_db.JobRecord.asset_name.like(like_keyword))
-                    | (job_db.JobRecord.job_id.like(like_keyword))
+                normalized_keyword = keyword.lower()
+                records = (
+                    query.order_by(job_db.JobRecord.created_at.desc())
+                    .all()
                 )
+                filtered_records = [
+                    record
+                    for record in records
+                    if _job_record_matches_keyword(record, normalized_keyword)
+                ]
+                total = len(filtered_records)
+                page_records = filtered_records[(page - 1) * page_size: page * page_size]
+                details = [
+                    self._with_asset_metadata(
+                        self._with_status_explanation(record.to_job_detail())
+                    )
+                    for record in page_records
+                ]
+                return [d for d in details if d is not None], total
 
             total = query.count()
             records = (
@@ -158,13 +173,17 @@ class JobService:
                 .limit(page_size)
                 .all()
             )
-            details = [self._with_status_explanation(record.to_job_detail()) for record in records]
+            details = [
+                self._with_asset_metadata(self._with_status_explanation(record.to_job_detail()))
+                for record in records
+            ]
             return [d for d in details if d is not None], total
 
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:
             record = db.get(job_db.JobRecord, job_id)
-            return self._with_status_explanation(record.to_job_detail()) if record else None
+            detail = self._with_status_explanation(record.to_job_detail()) if record else None
+            return self._with_asset_metadata(detail)
 
     def delete_job(self, job_id: str) -> bool:
         with job_db.session() as db:
@@ -577,8 +596,30 @@ class JobService:
             return None
         return job.model_copy(update={"status_explanation": explain_job_status(job)})
 
+    def _with_asset_metadata(self, job: JobDetail | None) -> JobDetail | None:
+        if job is None:
+            return None
+        original_filename = asset_storage_service.get_original_filename(job.asset_name)
+        if not original_filename:
+            return job
+        return job.model_copy(update={"original_filename": original_filename})
+
 
 job_service = JobService()
+
+
+def _job_record_matches_keyword(record: job_db.JobRecord, normalized_keyword: str) -> bool:
+    original_filename = asset_storage_service.get_original_filename(record.asset_name)
+    candidates = [
+        record.asset_name,
+        record.job_id,
+        original_filename,
+    ]
+    return any(
+        normalized_keyword in str(candidate).lower()
+        for candidate in candidates
+        if candidate
+    )
 
 
 def explain_job_status(job: JobDetail) -> str | None:

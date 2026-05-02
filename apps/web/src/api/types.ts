@@ -111,6 +111,7 @@ export interface JobDetail {
   created_at: string;
   updated_at: string;
   asset_name?: string | null;
+  original_filename?: string | null;
   result?: TranscriptResult | Record<string, unknown> | null;
   error_message?: string | null;
   status_explanation?: string | null;
@@ -403,9 +404,19 @@ export function formatDateTime(value?: string | null): string {
     return value;
   }
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(date);
+}
+
+export function jobDisplayName(job?: Pick<JobDetail, 'asset_name' | 'original_filename' | 'job_id'> | null): string {
+  if (!job) {
+    return '—';
+  }
+  return job.original_filename || job.asset_name || job.job_id;
 }
