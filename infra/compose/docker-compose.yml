@@ -85,6 +85,8 @@ services:
     build:
       context: ../../
       dockerfile: apps/web/Dockerfile
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
     depends_on:
       - api
     ports:
