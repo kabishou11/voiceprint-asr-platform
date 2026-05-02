@@ -4,12 +4,13 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV TZ=Asia/Shanghai
 ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY pyproject.toml uv.lock README.md /app/
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ffmpeg git \
+    && apt-get install -y --no-install-recommends build-essential ffmpeg git tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && pip install uv \
     && uv sync --extra asr-funasr --extra speaker-3ds --no-install-project \

@@ -2,6 +2,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
       POSTGRES_DB: voiceprint
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,6 +15,8 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "6379:6379"
     restart: unless-stopped
@@ -21,6 +25,7 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
+      TZ: Asia/Shanghai
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
@@ -39,6 +44,7 @@ services:
     env_file:
       - ../../.env
     environment:
+      TZ: Asia/Shanghai
       THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
     volumes:
       - ../../models:/app/models
@@ -58,6 +64,7 @@ services:
     env_file:
       - ../../.env
     environment:
+      TZ: Asia/Shanghai
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
@@ -89,6 +96,7 @@ services:
     env_file:
       - ../../.env
     environment:
+      TZ: Asia/Shanghai
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
@@ -111,6 +119,7 @@ services:
       context: ../../
       dockerfile: apps/web/Dockerfile
     environment:
+      TZ: Asia/Shanghai
       VITE_API_PROXY_TARGET: http://api:8000
     depends_on:
       - api

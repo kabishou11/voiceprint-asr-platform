@@ -1,6 +1,7 @@
 param(
     [switch]$SkipModelDownload,
     [switch]$SkipGpuCheck,
+    [switch]$SkipWarmup,
     [switch]$Pull,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Services
@@ -92,6 +93,41 @@ function Ensure-Directory {
     }
 }
 
+function Wait-ApiReady {
+    param(
+        [int]$TimeoutSeconds = 180
+    )
+    $Deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $HealthUrl = "http://127.0.0.1:8000/api/v1/health"
+    do {
+        try {
+            $Response = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 5
+            if ($Response.status -eq "ok") {
+                Write-Host "API is ready"
+                return
+            }
+        } catch {
+            Start-Sleep -Seconds 3
+        }
+    } while ((Get-Date) -lt $Deadline)
+
+    throw "API did not become ready within $TimeoutSeconds seconds: $HealthUrl"
+}
+
+function Invoke-CoreModelWarmup {
+    $CoreModels = @(
+        "funasr-nano",
+        "3dspeaker-diarization",
+        "3dspeaker-embedding"
+    )
+
+    foreach ($ModelKey in $CoreModels) {
+        Write-Host "Warming worker model: $ModelKey"
+        $WarmupUrl = "http://127.0.0.1:8000/api/v1/models/$ModelKey/warmup-worker"
+        Invoke-RestMethod -Method Post -Uri $WarmupUrl -TimeoutSec 900 | Out-Null
+    }
+}
+
 Set-Location $Root
 
 Write-Step "Checking Docker"
@@ -149,6 +185,12 @@ if ($Services -and $Services.Count -gt 0) {
     $ComposeArgs += $Services
 }
 Invoke-Checked -FilePath "docker" -Arguments $ComposeArgs
+
+if (-not $SkipWarmup -and (-not $Services -or $Services.Count -eq 0)) {
+    Write-Step "Waiting for API and warming core worker models"
+    Wait-ApiReady
+    Invoke-CoreModelWarmup
+}
 
 Write-Step "Runtime endpoints"
 Write-Host "API health:    http://127.0.0.1:8000/api/v1/health"
