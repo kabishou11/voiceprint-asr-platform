@@ -206,6 +206,32 @@ models/
 - `models/3D-Speaker/campplus`：已接入，可用于真实 diarization / voiceprint
 - `models/pyannote/speaker-diarization-community-1`：默认仍不完整，不参与主链路
 
+如果迁移到另一台机器时，`model-init` 或 `scripts/prod-up.ps1` 没有成功自动下载模型，可以手动下载并放到上面的目录。当前对应下载入口如下：
+
+- `models/Fun-ASR-Nano-2512`
+  下载页：[FunAudioLLM/Fun-ASR-Nano-2512](https://www.modelscope.cn/models/FunAudioLLM/Fun-ASR-Nano-2512)
+- `models/FSMN-VAD`
+  下载页：[iic/speech_fsmn_vad_zh-cn-16k-common-pytorch](https://www.modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch)
+- `models/3D-Speaker/campplus`
+  下载页：[iic/speech_campplus_sv_zh-cn_16k-common](https://www.modelscope.cn/models/iic/speech_campplus_sv_zh-cn_16k-common)
+- `../3D-Speaker` 参考源码
+  仓库页：[modelscope/3D-Speaker](https://github.com/modelscope/3D-Speaker)
+- `models/pyannote/speaker-diarization-community-1`
+  下载页：[pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
+
+说明：
+
+- 前三个是当前主链路必需模型，另一台机器至少要准备好它们。
+- `3D-Speaker` 不仅要有 `campplus` 权重，还要有同级目录下的参考源码 `speakerlab/`，否则 diarization 预热会失败。
+- `pyannote` 是可选实验后端，需要先在 Hugging Face 页面接受 gated 条件并准备 token/离线包；默认不影响主链路可用性。
+- 如果你不想手动点网页，也可以继续优先尝试：
+
+```powershell
+.\scripts\prod-up.ps1
+```
+
+它内部会调用 `model-init` 自动拉取前三个必需模型和 `3D-Speaker` 参考源码；只有网络、权限或镜像环境不稳定时，才需要回退到上面的手动下载链接。
+
 检查核心模型完整性：
 
 ```powershell
