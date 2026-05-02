@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -36,6 +37,26 @@ from ..schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voiceprints", tags=["声纹管理"])
+
+
+def _sync_voiceprint_fallback_enabled() -> bool:
+    return os.environ.get("ALLOW_SYNC_VOICEPRINT_FALLBACK", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _raise_voiceprint_queue_unavailable(job_id: str, reason: str | None = None) -> None:
+    message = (
+        "异步声纹任务队列不可用，已拒绝在 API 请求线程中同步执行声纹模型。"
+        "请启动 Redis/Celery Worker，或仅在本地调试时设置 "
+        "ALLOW_SYNC_VOICEPRINT_FALLBACK=1。"
+        f"原因：{reason or 'async_queue_unavailable'}"
+    )
+    update_job_result(job_id, status="failed", error_message=message)
+    raise HTTPException(status_code=409, detail=message)
 
 
 def _create_job_record(
@@ -322,7 +343,11 @@ def enroll_profile(profile_id: str, payload: EnrollVoiceprintRequest) -> EnrollV
             )
             return EnrollVoiceprintResponse(profile=profile, job=_job_receipt(job_id))
         except Exception as exc:
-            logger.warning(f"声纹注册任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
+            logger.warning(f"声纹注册任务 {job_id} 异步提交失败: {exc}")
+            if not _sync_voiceprint_fallback_enabled():
+                _raise_voiceprint_queue_unavailable(job_id, str(exc))
+    elif not _sync_voiceprint_fallback_enabled():
+        _raise_voiceprint_queue_unavailable(job_id)
 
     enrolled_profile, enrollment = _run_sync_voiceprint_job(
         job_id,
@@ -364,7 +389,11 @@ def verify(payload: VerifyVoiceprintRequest) -> VerifyVoiceprintResponse:
             )
             return VerifyVoiceprintResponse(job=_job_receipt(job_id))
         except Exception as exc:
-            logger.warning(f"声纹验证任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
+            logger.warning(f"声纹验证任务 {job_id} 异步提交失败: {exc}")
+            if not _sync_voiceprint_fallback_enabled():
+                _raise_voiceprint_queue_unavailable(job_id, str(exc))
+    elif not _sync_voiceprint_fallback_enabled():
+        _raise_voiceprint_queue_unavailable(job_id)
 
     result = _run_sync_voiceprint_job(
         job_id,
@@ -401,7 +430,11 @@ def identify(payload: IdentifyVoiceprintRequest) -> IdentifyVoiceprintResponse:
             )
             return IdentifyVoiceprintResponse(job=_job_receipt(job_id))
         except Exception as exc:
-            logger.warning(f"声纹识别任务 {job_id} 异步提交失败，回退到同步执行: {exc}")
+            logger.warning(f"声纹识别任务 {job_id} 异步提交失败: {exc}")
+            if not _sync_voiceprint_fallback_enabled():
+                _raise_voiceprint_queue_unavailable(job_id, str(exc))
+    elif not _sync_voiceprint_fallback_enabled():
+        _raise_voiceprint_queue_unavailable(job_id)
 
     result = _run_sync_voiceprint_job(
         job_id,

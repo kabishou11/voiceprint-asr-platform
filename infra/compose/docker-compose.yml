@@ -2,6 +2,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
       POSTGRES_DB: voiceprint
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,6 +15,8 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "6379:6379"
     restart: unless-stopped
@@ -21,6 +25,7 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
+      TZ: Asia/Shanghai
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
@@ -30,6 +35,28 @@ services:
       - minio-data:/data
     restart: unless-stopped
 
+  model-init:
+    profiles:
+      - init
+    build:
+      context: ../../
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      TZ: Asia/Shanghai
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
+    volumes:
+      - ../../models:/app/models
+      - ../../../3D-Speaker:/opt/3D-Speaker
+    command:
+      - .venv/bin/python
+      - scripts/download_models.py
+      - --models-root
+      - /app/models
+      - --reference-root
+      - /opt/3D-Speaker
+
   api:
     build:
       context: ../../
@@ -37,9 +64,13 @@ services:
     env_file:
       - ../../.env
     environment:
+      TZ: Asia/Shanghai
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
       - postgres
       - redis
@@ -49,11 +80,13 @@ services:
     volumes:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
+      - ../../../3D-Speaker:/opt/3D-Speaker:ro
     healthcheck:
-      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).read()"]
+      test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
       retries: 3
+    gpus: all
     restart: unless-stopped
 
   worker:
@@ -63,9 +96,13 @@ services:
     env_file:
       - ../../.env
     environment:
+      TZ: Asia/Shanghai
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
       - postgres
       - redis
@@ -73,20 +110,17 @@ services:
     volumes:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
-    # GPU 生产部署示例。需要宿主机安装 NVIDIA Container Toolkit 后再启用。
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - ../../../3D-Speaker:/opt/3D-Speaker:ro
+    gpus: all
     restart: unless-stopped
 
   web:
     build:
       context: ../../
       dockerfile: apps/web/Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+      VITE_API_PROXY_TARGET: http://api:8000
     depends_on:
       - api
     ports:

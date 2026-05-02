@@ -24,13 +24,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
   createTranscription,
+  fetchHealth,
   fetchJobs,
   fetchModels,
   fetchVoiceprintGroups,
   fetchVoiceprintProfiles,
   uploadAudio,
 } from '../../api/client';
-import { formatDateTime, jobTypeLabels } from '../../api/types';
+import { formatDateTime, jobDisplayName, jobTypeLabels, type HealthResponse } from '../../api/types';
 import { useAsyncData } from '../../app/useAsyncData';
 import { AudioUploadField } from '../../components/AudioUploadField';
 import { PageSection } from '../../components/PageSection';
@@ -40,6 +41,8 @@ import { StatusChip } from '../../components/StatusChip';
 const RECENT_ACTIVE_JOB_STORAGE_KEY = 'voiceprint-active-job-ids';
 type RuntimeState = 'ready' | 'loading' | 'loadable' | 'unavailable';
 const COMPRESSED_AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'mp4', 'aac', 'ogg', 'wma']);
+const REDIS_START_COMMAND = 'docker compose -f infra/compose/docker-compose.yml up -d redis';
+const WORKER_START_COMMAND = 'uv run python -m apps.worker.app.worker';
 
 function runtimeLabel(label: string, state: RuntimeState) {
   if (state === 'ready') {
@@ -72,6 +75,47 @@ function getAudioExtension(fileName: string): string {
   return lastPart.toLowerCase();
 }
 
+function QueueReadinessAlert({ health }: { health: HealthResponse | null }) {
+  if (!health || health.async_available || health.sync_fallback_enabled) {
+    return null;
+  }
+
+  const missingRedis = !health.broker_available;
+  const title = missingRedis ? 'Redis 未启动，暂不能创建转写任务' : 'Worker 未连接，暂不能创建转写任务';
+  const reason = missingRedis
+    ? (health.broker_error ?? 'broker_unavailable')
+    : (health.worker_error ?? 'worker_offline');
+
+  return (
+    <Alert severity="warning" sx={{ borderRadius: 3 }}>
+      <Stack spacing={0.85}>
+        <Typography fontWeight={700}>{title}</Typography>
+        <Typography variant="body2">
+          为避免 API 请求线程直接跑大模型导致前端长时间卡住，系统现在要求转写任务先进入异步队列。
+          请先启动缺失组件，然后再点击“立即开始”。
+        </Typography>
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            px: 1.2,
+            py: 1,
+            borderRadius: 2,
+            bgcolor: alpha('#1c2431', 0.06),
+            whiteSpace: 'pre-wrap',
+            fontSize: '0.82rem',
+          }}
+        >
+          {missingRedis ? REDIS_START_COMMAND : WORKER_START_COMMAND}
+        </Box>
+        <Typography variant="body2" color="text.secondary">
+          当前诊断：{reason}
+        </Typography>
+      </Stack>
+    </Alert>
+  );
+}
+
 export function TranscriptionWorkbenchPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -93,6 +137,7 @@ export function TranscriptionWorkbenchPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const modelsState = useAsyncData(() => fetchModels(), []);
+  const healthState = useAsyncData(() => fetchHealth(), []);
   const jobsState = useAsyncData(() => fetchJobs(), []);
   const groupsState = useAsyncData(() => fetchVoiceprintGroups(), []);
   const profilesState = useAsyncData(() => fetchVoiceprintProfiles(), []);
@@ -134,6 +179,9 @@ export function TranscriptionWorkbenchPage() {
   const compressedAudioSelected = COMPRESSED_AUDIO_EXTENSIONS.has(selectedAudioExtension);
   const showDecoderWarning = compressedAudioSelected && audioDecoder?.backend === 'none';
   const showDecoderFallbackInfo = compressedAudioSelected && audioDecoder?.backend === 'torchaudio';
+  const queueReadyForCreate = healthState.data
+    ? healthState.data.async_available || !!healthState.data.sync_fallback_enabled
+    : true;
 
   useEffect(() => {
     if (taskMode === 'multi' && !diarizationModel && diarizationOptions.length > 0) {
@@ -281,6 +329,13 @@ export function TranscriptionWorkbenchPage() {
       }
     >
       <Stack spacing={1.8}>
+        <QueueReadinessAlert health={healthState.data} />
+        {healthState.error ? (
+          <Alert severity="warning" sx={{ borderRadius: 3 }}>
+            无法读取队列健康状态：{healthState.error}
+          </Alert>
+        ) : null}
+
         <Grid container spacing={1.2}>
           <Grid size={{ xs: 6, md: 3 }}>
             <StatCard label="运行中任务" value={activeJobs.length} />
@@ -463,9 +518,14 @@ export function TranscriptionWorkbenchPage() {
                       variant="contained"
                       fullWidth
                       onClick={handleSubmit}
-                      disabled={submitting || !asrLoadable || (!selectedFile && !uploadedAssetName.trim())}
+                      disabled={
+                        submitting
+                        || !asrLoadable
+                        || !queueReadyForCreate
+                        || (!selectedFile && !uploadedAssetName.trim())
+                      }
                     >
-                      {submitting ? '创建中' : '立即开始'}
+                      {submitting ? '创建中' : queueReadyForCreate ? '立即开始' : '队列未就绪'}
                     </Button>
                     <Button variant="outlined" fullWidth onClick={() => navigate('/tasks')}>
                       查看任务队列
@@ -505,7 +565,7 @@ export function TranscriptionWorkbenchPage() {
                         >
                           <Stack spacing={0.4}>
                             <Stack direction="row" justifyContent="space-between" spacing={1}>
-                              <Typography fontWeight={700} noWrap sx={{ fontSize: '0.92rem' }}>{job.asset_name ?? job.job_id}</Typography>
+                              <Typography fontWeight={700} noWrap sx={{ fontSize: '0.92rem' }}>{jobDisplayName(job)}</Typography>
                               <StatusChip status={job.status} />
                             </Stack>
                             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem' }}>

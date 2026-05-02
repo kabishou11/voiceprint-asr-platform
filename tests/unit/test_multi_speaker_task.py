@@ -1,7 +1,13 @@
+import pytest
 from domain.schemas.transcript import Segment, TranscriptResult
 from model_adapters import AudioAsset
 
 from apps.worker.app.tasks import multi_speaker
+
+
+@pytest.fixture(autouse=True)
+def _force_sync_multi_speaker_execution(monkeypatch):
+    monkeypatch.setattr(multi_speaker, "is_async_available", lambda: False)
 
 
 class _DummyAsrAdapter:

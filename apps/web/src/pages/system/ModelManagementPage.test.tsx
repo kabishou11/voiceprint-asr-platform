@@ -57,6 +57,10 @@ describe('ModelManagementPage', () => {
             task: 'transcription',
             provider: 'funasr',
             availability: 'available',
+            runtime_status: 'loaded',
+            loaded: true,
+            gpu_memory_mb: 1024,
+            error: null,
             experimental: false,
           },
           {
@@ -65,6 +69,10 @@ describe('ModelManagementPage', () => {
             task: 'diarization',
             provider: '3dspeaker',
             availability: 'available',
+            runtime_status: 'unloaded',
+            loaded: false,
+            gpu_memory_mb: null,
+            error: null,
             experimental: false,
           },
         ],
@@ -110,6 +118,8 @@ describe('ModelManagementPage', () => {
     expect(screen.getAllByText(/已加载 1/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/RTX 4060/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Worker 模型状态：在线/)).toBeInTheDocument();
+    expect(screen.getAllByText(/已加载 1 个/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Worker: 已就绪').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '加载' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '卸载' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '预热 Worker' }).length).toBeGreaterThan(0);

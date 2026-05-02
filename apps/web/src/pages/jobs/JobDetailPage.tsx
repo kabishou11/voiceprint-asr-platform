@@ -26,6 +26,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { fetchCorePipelineEvaluation, fetchSpeakerAliases, fetchTranscript } from '../../api/client';
 import {
   formatDateTime,
+  jobDisplayName,
   jobTypeLabels,
   type CorePipelineEvaluationResponse,
   type Segment,
@@ -511,7 +512,7 @@ export function JobDetailPage() {
   const buildCopyText = () => {
     const header = [
       `任务 ${data?.job?.job_id ?? '—'}`,
-      `文件 ${data?.job?.asset_name ?? '—'}`,
+      `文件 ${jobDisplayName(data?.job)}`,
       `类型 ${data?.job ? jobTypeLabels[data.job.job_type] : '—'}`,
       `状态 ${data?.job?.status ?? '—'}`,
     ];
@@ -563,7 +564,7 @@ export function JobDetailPage() {
   return (
     <PageSection
       compact
-      title={data?.job?.asset_name ?? '结果'}
+      title={jobDisplayName(data?.job) || '结果'}
       description={
         data?.job ? `${jobTypeLabels[data.job.job_type]} · 更新时间 ${formatDateTime(data.job.updated_at)}` : undefined
       }

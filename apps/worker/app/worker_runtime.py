@@ -63,6 +63,41 @@ def _runtime_loaded(adapter: object) -> bool:
     )
 
 
+def _cuda_memory_mb() -> int | None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            mem_info = torch.cuda.mem_get_info()
+            if len(mem_info) >= 2:
+                return int((mem_info[1] - mem_info[0]) / 1024 / 1024)
+            return int(torch.cuda.memory_allocated() / 1024 / 1024)
+    except Exception:
+        pass
+    return None
+
+
+def _adapter_runtime_status(entry) -> dict[str, Any]:
+    loaded = _runtime_loaded(entry.adapter)
+    if loaded:
+        runtime_status = "loaded"
+    elif entry.availability == "unavailable":
+        runtime_status = "load_failed"
+    else:
+        runtime_status = "unloaded"
+
+    error = None
+    if entry.availability == "unavailable":
+        error = "模型不可用：请检查本地模型文件、运行时依赖和 CUDA。"
+
+    return {
+        "runtime_status": runtime_status,
+        "loaded": loaded,
+        "gpu_memory_mb": _cuda_memory_mb() if loaded else None,
+        "error": error,
+    }
+
+
 def _load_adapter_runtime(adapter: object) -> bool:
     loaded = False
     if hasattr(adapter, "_load_model"):
@@ -89,6 +124,7 @@ def describe_worker_model_status() -> dict[str, Any]:
                 "provider": entry.provider,
                 "availability": entry.availability,
                 "experimental": entry.experimental,
+                **_adapter_runtime_status(entry),
             }
             for entry in registry.list_entries()
         ],

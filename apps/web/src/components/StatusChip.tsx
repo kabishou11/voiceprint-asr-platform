@@ -8,6 +8,7 @@ const colorMap: Record<JobStatus, 'default' | 'warning' | 'info' | 'success' | '
   running: 'info',
   succeeded: 'success',
   failed: 'error',
+  canceled: 'default',
 };
 
 export function StatusChip({ status }: { status: JobStatus }) {

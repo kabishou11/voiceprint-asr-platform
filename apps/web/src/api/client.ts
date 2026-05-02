@@ -6,6 +6,7 @@ import type {
   HealthResponse,
   EnrollVoiceprintResponse,
   IdentifyVoiceprintResponse,
+  JobDetail,
   JobListResponse,
   MeetingMinutesResponse,
   ModelListWithGPUResponse,
@@ -77,6 +78,14 @@ export function fetchVoiceprintJob(jobId: string): Promise<VoiceprintJobResponse
 
 export function deleteJob(jobId: string): Promise<{ job_id: string; deleted: boolean }> {
   return request<{ job_id: string; deleted: boolean }>(`/jobs/${jobId}`, { method: 'DELETE' });
+}
+
+export function cancelJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/jobs/${jobId}/cancel`, { method: 'POST' });
+}
+
+export function retryJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/jobs/${jobId}/retry`, { method: 'POST' });
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

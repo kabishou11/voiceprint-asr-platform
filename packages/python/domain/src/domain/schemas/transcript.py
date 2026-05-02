@@ -10,7 +10,7 @@ JobType = Literal[
     "voiceprint_verify",
     "voiceprint_identify",
 ]
-JobStatus = Literal["pending", "queued", "running", "succeeded", "failed"]
+JobStatus = Literal["pending", "queued", "running", "succeeded", "failed", "canceled"]
 
 
 class Segment(BaseModel):
@@ -65,6 +65,7 @@ class JobSummary(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     asset_name: str | None = None
+    original_filename: str | None = None
 
 
 class JobDetail(JobSummary):

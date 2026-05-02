@@ -20,6 +20,7 @@ export function useAsyncData<T>(
   const [version, setVersion] = useState(0);
   const timeoutRef = useRef<number | null>(null);
   const isPollingRefreshRef = useRef(false);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -27,6 +28,7 @@ export function useAsyncData<T>(
       setLoading(true);
     }
     setError(null);
+    inFlightRef.current = true;
 
     loader()
       .then((result) => {
@@ -43,11 +45,13 @@ export function useAsyncData<T>(
         if (active) {
           setLoading(false);
           isPollingRefreshRef.current = false;
+          inFlightRef.current = false;
         }
       });
 
     return () => {
       active = false;
+      inFlightRef.current = false;
     };
   }, [...deps, version]);
 
@@ -63,6 +67,10 @@ export function useAsyncData<T>(
         return;
       }
       if (polling.stopWhen?.(data ?? null)) {
+        return;
+      }
+      if (inFlightRef.current) {
+        timeoutRef.current = window.setTimeout(tick, nextInterval);
         return;
       }
       isPollingRefreshRef.current = true;

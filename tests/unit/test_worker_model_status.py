@@ -31,6 +31,7 @@ class _FakeRegistry:
                 provider="3dspeaker",
                 availability="available",
                 experimental=False,
+                adapter=_LoadableAdapter(),
             ),
         ]
 
@@ -92,6 +93,22 @@ def test_describe_worker_model_status_reports_registry_and_gpu(monkeypatch) -> N
         "funasr-nano",
         "3dspeaker-diarization",
     ]
+    assert payload["items"][0]["runtime_status"] == "unloaded"
+    assert payload["items"][0]["loaded"] is False
+
+
+def test_describe_worker_model_status_reports_loaded_runtime(monkeypatch) -> None:
+    adapter = _LoadableAdapter()
+    adapter._load_model()
+    monkeypatch.setattr(worker_runtime, "get_worker_registry", lambda: _FakeRegistry(adapter))
+    monkeypatch.setattr(worker_runtime, "_cuda_memory_mb", lambda: 1234)
+
+    payload = worker_runtime.describe_worker_model_status()
+
+    first = payload["items"][0]
+    assert first["runtime_status"] == "loaded"
+    assert first["loaded"] is True
+    assert first["gpu_memory_mb"] == 1234
 
 
 def test_warmup_worker_model_loads_runtime_in_worker_process(monkeypatch) -> None:
@@ -147,6 +164,10 @@ def test_get_worker_model_status_reads_sampled_worker_payload(monkeypatch) -> No
                 "task": "transcription",
                 "provider": "funasr",
                 "availability": "available",
+                "runtime_status": "loaded",
+                "loaded": True,
+                "gpu_memory_mb": 1024,
+                "error": None,
                 "experimental": False,
             }
         ],
@@ -162,6 +183,9 @@ def test_get_worker_model_status_reads_sampled_worker_payload(monkeypatch) -> No
     assert status.gpu is not None
     assert status.gpu.cuda_available is True
     assert [item.key for item in status.items] == ["funasr-nano"]
+    assert status.items[0].runtime_status.value == "loaded"
+    assert status.items[0].loaded is True
+    assert status.items[0].gpu_memory_mb == 1024
     assert fake_celery.task_name == worker_status_module.MODEL_STATUS_TASK_NAME
 
 

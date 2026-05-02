@@ -2,6 +2,10 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
+RUN apk add --no-cache tzdata
+
 COPY apps/web/package*.json ./
 RUN npm install
 

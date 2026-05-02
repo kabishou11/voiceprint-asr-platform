@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { TranscriptionWorkbenchPage } from './TranscriptionWorkbenchPage';
 import { appTheme } from '../../theme/appTheme';
 
 const fetchModels = vi.fn();
+const fetchHealth = vi.fn();
 const fetchJobs = vi.fn();
 const fetchVoiceprintGroups = vi.fn();
 const fetchVoiceprintProfiles = vi.fn();
@@ -15,6 +16,7 @@ const createTranscription = vi.fn();
 
 vi.mock('../../api/client', () => ({
   fetchModels: () => fetchModels(),
+  fetchHealth: () => fetchHealth(),
   fetchJobs: () => fetchJobs(),
   fetchVoiceprintGroups: () => fetchVoiceprintGroups(),
   fetchVoiceprintProfiles: () => fetchVoiceprintProfiles(),
@@ -37,6 +39,10 @@ function renderPage(initialEntry = '/') {
 }
 
 describe('TranscriptionWorkbenchPage', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     fetchModels.mockResolvedValue({
@@ -111,6 +117,32 @@ describe('TranscriptionWorkbenchPage', () => {
           asset_name: 'meeting.wav',
         },
       ],
+    });
+    fetchHealth.mockResolvedValue({
+      status: 'ok',
+      app_name: 'voiceprint-asr-platform',
+      broker_available: true,
+      worker_available: true,
+      async_available: true,
+      execution_mode: 'async',
+      sync_fallback_enabled: false,
+      broker_error: null,
+      worker_error: null,
+      audio_decoder: {
+        backend: 'ffmpeg',
+        ffmpeg_available: true,
+        ffmpeg_path: 'C:/ffmpeg/bin/ffmpeg.exe',
+        torchaudio_available: true,
+        warning: null,
+      },
+      meeting_minutes_llm: {
+        configured: false,
+        model: '',
+        base_url: '',
+        reasoning_split: true,
+        timeout_seconds: 60,
+        warning: null,
+      },
     });
     fetchVoiceprintGroups.mockResolvedValue({ items: [] });
     fetchVoiceprintProfiles.mockResolvedValue({ items: [] });
@@ -251,5 +283,48 @@ describe('TranscriptionWorkbenchPage', () => {
 
     expect(await screen.findByText(/当前后端没有可用音频解码器/)).toBeInTheDocument();
     expect(screen.getByText(/建议安装 ffmpeg/)).toBeInTheDocument();
+  });
+
+  it('blocks task creation when the worker queue is not ready', async () => {
+    fetchHealth.mockResolvedValueOnce({
+      status: 'ok',
+      app_name: 'voiceprint-asr-platform',
+      broker_available: true,
+      worker_available: false,
+      async_available: false,
+      execution_mode: 'sync',
+      sync_fallback_enabled: false,
+      broker_error: null,
+      worker_error: 'worker_offline',
+      audio_decoder: {
+        backend: 'ffmpeg',
+        ffmpeg_available: true,
+        ffmpeg_path: 'C:/ffmpeg/bin/ffmpeg.exe',
+        torchaudio_available: true,
+        warning: null,
+      },
+      meeting_minutes_llm: {
+        configured: false,
+        model: '',
+        base_url: '',
+        reasoning_split: true,
+        timeout_seconds: 60,
+        warning: null,
+      },
+    });
+    const { container } = renderPage();
+
+    await waitFor(() => {
+      expect(fetchHealth).toHaveBeenCalled();
+    });
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['meeting'], 'meeting.wav', { type: 'audio/wav' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(await screen.findByText(/Worker 未连接，暂不能创建转写任务/)).toBeInTheDocument();
+    expect(screen.getByText(/uv run python -m apps\.worker\.app\.worker/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '队列未就绪' })).toBeDisabled();
+    expect(createTranscription).not.toHaveBeenCalled();
   });
 });

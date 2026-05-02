@@ -6,11 +6,23 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 from domain.schemas.transcript import TranscriptResult
 
 logger = logging.getLogger(__name__)
+
+
+def is_job_canceled(job_id: str) -> bool:
+    """检查任务是否已被用户取消。"""
+    try:
+        from apps.api.app.services.job_db import JobRecord, session
+
+        with session() as db:
+            record = db.get(JobRecord, job_id)
+            return bool(record and record.status == "canceled")
+    except Exception as e:
+        logger.error(f"检查任务 {job_id} 取消状态失败: {e}")
+        return False
 
 
 def update_job_status(job_id: str, status: str) -> bool:
@@ -29,6 +41,9 @@ def update_job_status(job_id: str, status: str) -> bool:
         with session() as db:
             record = db.get(JobRecord, job_id)
             if record:
+                if record.status == "canceled" and status != "canceled":
+                    logger.info(f"任务 {job_id} 已取消，忽略状态更新: {status}")
+                    return False
                 record.status = status
                 record.updated_at = datetime.now(timezone.utc)
                 db.commit()
@@ -65,6 +80,9 @@ def update_job_result(
         with session() as db:
             record = db.get(JobRecord, job_id)
             if record:
+                if record.status == "canceled" and status != "canceled":
+                    logger.info(f"任务 {job_id} 已取消，忽略结果更新: status={status}")
+                    return False
                 record.status = status
                 record.updated_at = datetime.now(timezone.utc)
 

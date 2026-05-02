@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, HTTPException
 
 from apps.worker.app.celery_app import (
@@ -25,6 +27,15 @@ router = APIRouter(tags=["系统与模型"])
 registry = ModelRegistryService()
 
 
+def _sync_transcription_fallback_enabled() -> bool:
+    return os.environ.get("ALLOW_SYNC_TRANSCRIPTION_FALLBACK", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 @router.get(
     "/health",
     response_model=HealthResponse,
@@ -45,6 +56,7 @@ def health():
         worker_available=worker_ready,
         async_available=async_ready,
         execution_mode="async" if async_ready else "sync",
+        sync_fallback_enabled=_sync_transcription_fallback_enabled(),
         broker_error=broker_error(),
         worker_error=worker_error(),
     )

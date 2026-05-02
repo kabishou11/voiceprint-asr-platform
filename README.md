@@ -34,6 +34,27 @@
 下面这条路径是当前仓库在另一台 Windows + NVIDIA 机器上的推荐复现方式。  
 目标是只看这一页就能拉起。
 
+如果生产 Windows 已经安装好 Docker Desktop，并且 Docker GPU 透传正常，优先使用一键 Docker 部署：
+
+```powershell
+.\scripts\prod-up.ps1
+```
+
+这条命令会自动创建/补齐 `.env`、创建 `models/` 与 `storage/`、下载必需模型、
+下载 3D-Speaker 参考源码、构建镜像、启动 `api/worker/web/redis/postgres/minio`，
+等待 API 就绪并预热 Worker 里的核心模型，然后打印 health、models 验证命令。
+它不会替你安装 Windows 宿主机上的
+NVIDIA 驱动、Docker Desktop 或 Docker GPU 支持；这些必须先在系统层面可用。
+
+常用可选参数：
+
+```powershell
+.\scripts\prod-up.ps1 -Pull              # 先拉取 redis/postgres/minio 基础镜像
+.\scripts\prod-up.ps1 -SkipModelDownload # 已确认 models/ 和 ../3D-Speaker 齐全时跳过下载
+.\scripts\prod-up.ps1 -SkipGpuCheck      # 仅排查 Docker 构建问题时临时跳过 GPU 检查
+.\scripts\prod-up.ps1 -SkipWarmup        # 只启动服务，不自动预热 Worker 模型
+```
+
 ### 1. 系统前提
 
 已验证组合：
@@ -47,12 +68,29 @@
 建议额外安装：
 
 - `ffmpeg`
-  作用：稳定解码 `.mp3/.m4a/.mp4`
+  作用：稳定解码 `.mp3/.m4a/.mp4/.flac/.wav`，并把输入音频转成模型更稳定的采样率与声道格式。
+
+Windows 推荐安装：
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+安装后重新打开 PowerShell，并确认：
+
+```powershell
+where.exe ffmpeg
+ffmpeg -version
+```
 
 如果你只是想跑最小高精度链路，`ffmpeg` 不是硬性前提，但没有它时，压缩音频解码能力会变差。
+生产环境建议把它当成必需项：手机录音、会议软件导出的 `.m4a/.mp3`、部分变长码率音频，
+都更依赖 `ffmpeg` 做稳定解码；否则会退回 `torchaudio/librosa/audioread` 等能力，兼容性不可控。
 后端 `/api/v1/health` 与 `/api/v1/models` 会返回 `audio_decoder`，用于确认当前是 `ffmpeg`、`torchaudio` 回退还是无可用解码后端。
 `/api/v1/models` 还会返回 `worker_model_status`，用于区分 API 进程模型状态和 Celery Worker 进程实际可见的模型/CUDA 状态。
-需要预热真实任务执行进程时，调用 `POST /api/v1/models/{model_key}/warmup-worker`。
+其中每个 Worker 模型项会区分 `availability`（模型文件/依赖/CUDA 是否满足）与
+`runtime_status`（Worker 进程内是否已加载真实推理对象）。需要预热真实任务执行进程时，
+调用 `POST /api/v1/models/{model_key}/warmup-worker`。
 
 ### 2. 克隆项目并创建环境
 
@@ -197,13 +235,96 @@ uv run python scripts/deployment_preflight.py --json --strict
 
 ### 8. 启动服务
 
-开三个终端。
+方式 A：Docker Compose 一键启动。适合有 Docker 的本地机器、演示机器和交接验收环境。
+因为当前高精度链路强制要求 CUDA，Docker 方式还需要宿主机已启用容器 GPU 支持：
+
+- Windows Docker Desktop：确认 WSL2 后端可运行 `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`
+- Linux Docker Engine：确认已安装 NVIDIA Container Toolkit，并且上面的 `docker run --gpus all ... nvidia-smi` 能看到显卡
+
+Windows：
+
+```powershell
+.\scripts\dev-docker.ps1
+```
+
+Linux/macOS：
+
+```bash
+chmod +x scripts/dev-docker.sh
+./scripts/dev-docker.sh
+```
+
+脚本会调用 `infra/compose/docker-compose.yml`。不带参数时会启动完整工作台：`postgres`、`redis`、`minio`、`api`、`worker`、`web`。
+如果只想启动部分服务，可以把服务名追加到脚本后面。完整工作台也可以显式写全：
+
+```powershell
+.\scripts\dev-docker.ps1 redis api worker web
+```
+
+```bash
+./scripts/dev-docker.sh redis api worker web
+```
+
+如果只需要后端队列，不启动前端，则使用：
+
+```powershell
+.\scripts\dev-docker.ps1 redis api worker
+```
+
+```bash
+./scripts/dev-docker.sh redis api worker
+```
+
+常用访问地址：
+
+- API 健康检查：`http://127.0.0.1:8000/api/v1/health`
+- 前端工作台：`http://127.0.0.1:5173`
+- MinIO 控制台：`http://127.0.0.1:9001`
+
+查看 API 与 Worker 日志：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml logs -f api worker
+```
+
+容器启动后，建议再确认容器内 PyTorch 也能看到 CUDA：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml exec api python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-cuda')"
+docker compose -f infra/compose/docker-compose.yml exec worker python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-cuda')"
+```
+
+方式 B：无 Docker 手动启动。适合 Linux 服务器不能安装 Docker，或需要直接接入宿主机 CUDA/驱动/模型目录的场景。
+
+先启动 Redis。Linux 可以二选一：
+
+```bash
+redis-server
+```
+
+```bash
+sudo systemctl start redis
+```
+
+Windows 本地如果没有原生 Redis，建议只用 Docker 启动 Redis 这个基础依赖：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml up -d redis
+```
+
+然后开三个终端。
 
 终端 1，启动 API：
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Linux 服务器通常使用：
+
+```bash
+uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000
 ```
 
 终端 2，启动 Worker：
@@ -213,11 +334,36 @@ uv run uvicorn apps.api.app.main:app --host 0.0.0.0 --port 8000 --reload
 uv run python -m apps.worker.app.worker
 ```
 
+Linux 服务器同样可以直接启动：
+
+```bash
+uv run python -m apps.worker.app.worker
+```
+
+Windows 本地开发会默认使用 `--pool=solo --concurrency=1`，避免 Celery/billiard
+多进程池在 Windows 上报 `PermissionError: [WinError 5] 拒绝访问`。如果你手动用
+`celery -A ... worker` 启动，也请带上：
+
+```powershell
+uv run celery -A apps.worker.app.celery_app worker --loglevel=info --pool=solo --concurrency=1
+```
+
+如果日志出现 `Cannot connect to redis://localhost:6379/0`，说明 Redis 没启动。
+Linux/容器内可以通过 `CELERY_WORKER_POOL`、`CELERY_WORKER_CONCURRENCY`、
+`CELERY_WORKER_LOGLEVEL` 覆盖 Worker 启动参数；Windows 默认会自动降到 solo。
+
 终端 3，启动前端：
 
 ```powershell
 cd apps/web
 npm run dev
+```
+
+Linux 服务器如果需要局域网访问前端开发服务：
+
+```bash
+cd apps/web
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 ### 9. 最小验证
@@ -229,6 +375,13 @@ uv run pytest tests/integration/test_health.py -q
 ```
 
 pytest 默认会把临时目录写入 `storage/pytest-tmp`。如果你在 Windows 上遇到 `.pytest_cache` 或系统临时目录权限警告，优先确认没有旧测试进程占用文件；通常不需要再手动传 `--basetemp`。
+
+默认测试集会跳过真实模型推理和声纹注册类集成测试，避免 Windows native 依赖或 GPU 驱动问题直接导致测试进程崩溃。需要做模型验收时显式开启：
+
+```powershell
+$env:RUN_REAL_MODEL_INTEGRATION="1"
+uv run pytest tests/integration/test_health.py
+```
 
 如果 `uv` 访问用户目录缓存时报 `AppData\Local\uv\cache ... 拒绝访问`，可以临时把缓存放到仓库内的忽略目录：
 
@@ -260,18 +413,31 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 
 ### 10. 生产部署交接要点
 
-当前仓库的容器配置是“可交接的部署骨架”，不是已经完成 GPU 生产镜像的最终形态。正式部署前必须确认：
+当前仓库的容器配置是“可交接的部署骨架”，已经包含本地 CUDA 版 PyTorch 安装与 `api/worker` GPU 透传声明，但不是已经完成镜像瘦身、Nginx 静态托管和生产编排的最终形态。正式部署前必须确认：
 
-- API 与 Worker 镜像需要 `ffmpeg`、本地模型卷、持久化 `storage/` 卷。
-- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`，`uv.lock` 中的 PyPI `torch` 不能替代 CUDA wheel。
+- API 与 Worker 镜像需要 `ffmpeg`、C/C++ 构建工具、本地模型卷、持久化 `storage/` 卷。
+- Windows Docker 一键部署入口是 `.\scripts\prod-up.ps1`；它会通过 `model-init` 容器下载必需模型和 3D-Speaker 参考源码。
+- 必需模型下载源默认是 ModelScope：`FunAudioLLM/Fun-ASR-Nano-2512`、`iic/speech_fsmn_vad_zh-cn-16k-common-pytorch`、`iic/speech_campplus_sv_zh-cn_16k-common`。如需内网镜像，可在 `.env` 覆盖 `MODEL_DOWNLOAD_*`。
+- Windows 原生生产环境也需要安装 `ffmpeg` 并加入 PATH；`where.exe ffmpeg` 必须能找到可执行文件。
+- `ffmpeg` 缺失时，`scripts/deployment_preflight.py --strict` 会判定 `production_ready=false`，这是故意的生产保护，不是误报。
+- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`。Docker 镜像会先 `uv sync --no-install-project` 构建依赖层，再安装 `torch==2.6.0+cu124`、`torchvision==0.21.0+cu124`、`torchaudio==2.6.0+cu124`，最后用 `uv sync --inexact` 安装项目包以保留 CUDA wheel。手动启动仍需按前文安装。
+- Docker 生产部署必须保证 `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` 通过；否则容器内仍会显示 CUDA 不可用。
 - `infra/compose/docker-compose.yml` 会把容器内 DSN 覆盖为 `postgres`、`redis`、`minio` 服务名；如果手动启动，`.env` 中可以继续使用 `localhost`。
+- Docker Compose 已统一设置 `TZ=Asia/Shanghai`，API/Worker/Web 镜像也安装了时区数据；前端展示时间同样固定为北京时间。
+- `.\scripts\prod-up.ps1` 默认会在服务启动后等待 `/api/v1/health` 就绪，并依次预热 `funasr-nano`、`3dspeaker-diarization`、`3dspeaker-embedding` 三个 Worker 核心模型。模型页显示的 Worker 状态才是真实任务执行进程状态；如果只是 API 进程未加载但 Worker 已加载，GPU 占用仍然是正常的。
 - 当前业务数据真实落在 `storage/jobs.db`、`storage/uploads`、`storage/voiceprints`、`storage/minutes` 等本地目录；`POSTGRES_DSN` 与 `S3_*` 目前是部署预留配置，尚未承载主业务持久化。
 - 前端 Dockerfile 当前运行 Vite dev server。生产环境建议 `npm run build` 后用 Nginx/Caddy 静态托管，并反向代理 `/api` 到 API 服务。
 - Worker 必须启动 `python -m apps.worker.app.worker` 或等价 Celery worker；`apps.worker.app.main` 只用于打印能力，不会消费队列。
+- 队列任务支持轻量取消：`POST /api/v1/jobs/{job_id}/cancel` 会把 `pending/queued/running` 标记为 `canceled`。该操作不会强杀已经进入模型推理的进程，但 Worker 在开始前和写回结果时会尊重取消状态，避免取消后又被覆盖为成功或失败。
+- 失败或已取消的转写任务支持后端重试：`POST /api/v1/jobs/{job_id}/retry` 会读取原始创建参数，重新创建一个新任务，而不是把旧任务状态改回队列。历史任务如果缺少创建参数，会返回 409，避免用不完整参数误跑。
+- 创建转写任务默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误，而不会在请求线程里同步跑大模型。仅本地调试小音频时可设置 `ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1`。
+- 声纹注册、验证、识别同样默认必须走异步队列；如果 Redis/Worker 不可用，API 会快速返回错误。仅本地小音频调试时可设置 `ALLOW_SYNC_VOICEPRINT_FALLBACK=1`。
 
 生产验收推荐顺序：
 
 ```powershell
+where.exe ffmpeg
+ffmpeg -version
 uv run python scripts/deployment_preflight.py --strict
 uv run python scripts/check_models.py
 curl http://127.0.0.1:8000/api/v1/health
@@ -285,6 +451,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/models/funasr-nano/warmup-worker
 curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-diarization/warmup-worker
 curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-embedding/warmup-worker
 ```
+
+如果 `3D-Speaker Diarization` 预热提示“参考运行时代码未就绪”，说明只挂载了
+`models/3D-Speaker/campplus` 权重，但没有提供官方 3D-Speaker 参考项目源码。
+当前 diarization 的 CAM++ embedding 路径会导入参考项目中的 `speakerlab/`：
+
+- Docker 开发脚本默认按仓库同级目录查找 `../3D-Speaker`，并挂载为容器内 `/opt/3D-Speaker`。
+- 非 Docker 部署时，设置 `THREE_D_SPEAKER_REFERENCE_ROOT=/opt/3D-Speaker`，该目录下必须存在 `speakerlab/`。
+- 声纹 `3D-Speaker Embedding` 使用 ModelScope speaker-verification pipeline，仍读取 `models/3D-Speaker/campplus` 本地权重。
 
 ## 项目目录
 
@@ -310,6 +484,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/models/3dspeaker-embedding/warmup-work
 - `任务队列`
   - 用于持续查看后台异步任务
   - 刷新页面后仍可追踪排队中、处理中和已完成任务
+  - 失败或已取消任务可直接重试，系统会按原始参数创建新任务
+- `工作台`
+  - 创建任务前会读取 `/api/v1/health`
+  - Redis 或 Worker 未就绪且未开启本地同步回退时，会禁用“立即开始”并显示启动命令
 - `任务详情`
   - 以 speaker 过滤、时间线、分段阅读流为核心
   - 支持导出、快速重跑、跳转声纹库继续处理

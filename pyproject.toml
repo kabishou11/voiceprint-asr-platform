@@ -29,8 +29,12 @@ asr-funasr = [
   "modelscope>=1.28.0"
 ]
 speaker-3ds = [
+  "addict>=2.4.0",
+  "datasets>=4.8.4",
   "modelscope>=1.28.0",
-  "scikit-learn>=1.7.1"
+  "scikit-learn>=1.7.1",
+  "simplejson>=4.0.1",
+  "sortedcontainers>=2.4.0"
 ]
 diarization-pyannote = [
   "pyannote.audio>=4.0.1"

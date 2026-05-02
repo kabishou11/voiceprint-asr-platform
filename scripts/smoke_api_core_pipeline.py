@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-TERMINAL_STATUSES = {"succeeded", "failed"}
+TERMINAL_STATUSES = {"succeeded", "failed", "canceled"}
 
 
 @dataclass

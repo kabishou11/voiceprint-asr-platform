@@ -15,6 +15,7 @@ import {
   Divider,
   Grid,
   IconButton,
+  Pagination,
   Stack,
   Typography,
 } from '@mui/material';
@@ -22,13 +23,20 @@ import { alpha } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { deleteJob, fetchHealth, fetchJobs } from '../../api/client';
-import { formatDateTime, jobTypeLabels, type HealthResponse, type JobDetail } from '../../api/types';
+import { cancelJob, deleteJob, fetchHealth, fetchJobs, retryJob } from '../../api/client';
+import {
+  formatDateTime,
+  jobDisplayName,
+  jobTypeLabels,
+  type HealthResponse,
+  type JobDetail,
+} from '../../api/types';
 import { PageSection } from '../../components/PageSection';
 import { StatCard } from '../../components/StatCard';
 import { StatusChip } from '../../components/StatusChip';
 
 const POLL_INTERVAL_MS = 5000;
+const PAGE_SIZE = 10;
 
 interface ExpandedJobs {
   [jobId: string]: boolean;
@@ -43,14 +51,22 @@ function JobCard({
   expanded,
   onToggle,
   onDelete,
+  onCancel,
+  onRetry,
   deleting,
+  canceling,
+  retrying,
   queueBlocked,
 }: {
   job: JobDetail;
   expanded: boolean;
   onToggle: () => void;
   onDelete: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
+  onRetry: (jobId: string) => void;
   deleting: boolean;
+  canceling: boolean;
+  retrying: boolean;
   queueBlocked: boolean;
 }) {
   const navigate = useNavigate();
@@ -85,7 +101,7 @@ function JobCard({
           <Stack spacing={0.75} flex={1} minWidth={0}>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="h6" sx={{ wordBreak: 'break-all' }}>
-                {job.asset_name ?? job.job_id}
+                {jobDisplayName(job)}
               </Typography>
               <StatusChip status={job.status} />
               <Chip size="small" variant="outlined" label={jobTypeLabels[job.job_type]} />
@@ -98,6 +114,34 @@ function JobCard({
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
+            {job.status === 'queued' || job.status === 'running' ? (
+              <Button
+                size="small"
+                color="warning"
+                variant="text"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel(job.job_id);
+                }}
+                disabled={canceling}
+              >
+                {canceling ? '取消中' : '取消'}
+              </Button>
+            ) : null}
+            {job.status === 'failed' || job.status === 'canceled' ? (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<RefreshRounded />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(job.job_id);
+                }}
+                disabled={retrying}
+              >
+                {retrying ? '重试中' : '重试'}
+              </Button>
+            ) : null}
             <Button
               size="small"
               color="error"
@@ -149,10 +193,17 @@ function JobCard({
           <Divider sx={{ my: 2 }} />
           <Stack spacing={1.8}>
             {/* Error message */}
-            {job.error_message ? (
+            {job.status === 'failed' && job.error_message ? (
               <Alert severity="error">
                 <AlertTitle>任务失败</AlertTitle>
                 {job.error_message}
+              </Alert>
+            ) : null}
+
+            {job.status === 'canceled' ? (
+              <Alert severity="info">
+                <AlertTitle>任务已取消</AlertTitle>
+                {job.status_explanation ?? '任务已被标记为取消，后续结果不会覆盖该状态。'}
               </Alert>
             ) : null}
 
@@ -218,7 +269,7 @@ function JobCard({
                   查看详情
                 </Button>
               </Stack>
-            ) : job.status !== 'failed' ? (
+            ) : job.status !== 'failed' && job.status !== 'canceled' ? (
               <Alert severity="info">任务尚在处理中，结果暂不可用。</Alert>
             ) : null}
           </Stack>
@@ -242,12 +293,21 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
     );
   }
 
+  if (health.sync_fallback_enabled) {
+    return (
+      <Alert severity="warning">
+        <AlertTitle>本地同步回退已开启</AlertTitle>
+        异步队列未就绪，但当前允许 API 进程同步执行转写任务。仅建议用于本地小音频调试。
+      </Alert>
+    );
+  }
+
   if (!health.broker_available) {
     return (
       <Alert severity="warning">
-        <AlertTitle>当前为同步模式</AlertTitle>
-        Redis Broker 不可用，新任务会回退到 API 进程同步执行。错误：
-        {health.broker_error ?? 'broker_unavailable'}
+        <AlertTitle>异步队列不可用</AlertTitle>
+        Redis Broker 不可用，新转写任务默认会快速失败，不会在 API 请求线程里同步跑模型。
+        仅本地小音频调试时可启用同步回退。错误：{health.broker_error ?? 'broker_unavailable'}
       </Alert>
     );
   }
@@ -256,7 +316,7 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
     return (
       <Alert severity="warning">
         <AlertTitle>Worker 未连接</AlertTitle>
-        Redis Broker 可用，但没有检测到在线 Worker。已排队任务不会继续推进。错误：
+        Redis Broker 可用，但没有检测到在线 Worker。新转写任务默认会快速失败，已排队任务不会继续推进。错误：
         {health.worker_error ?? 'worker_offline'}
       </Alert>
     );
@@ -272,11 +332,15 @@ function RuntimeModeAlert({ health }: { health: HealthResponse | null }) {
 
 export function TaskQueuePage() {
   const [jobs, setJobs] = useState<JobDetail[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedJobs>({});
   const [refreshing, setRefreshing] = useState(false);
   const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set());
+  const [cancelingJobIds, setCancelingJobIds] = useState<Set<string>>(new Set());
+  const [retryingJobIds, setRetryingJobIds] = useState<Set<string>>(new Set());
   const [health, setHealth] = useState<HealthResponse | null>(null);
 
   const loadJobs = useCallback(async (isManual = false) => {
@@ -284,8 +348,12 @@ export function TaskQueuePage() {
       setLoading(true);
     }
     try {
-      const [data, runtime] = await Promise.all([fetchJobs(), fetchHealth()]);
+      const [data, runtime] = await Promise.all([
+        fetchJobs({ page, page_size: PAGE_SIZE }),
+        fetchHealth(),
+      ]);
       setJobs(data.items);
+      setTotal(data.meta?.total ?? data.items.length);
       setHealth(runtime);
       setError(null);
     } catch (err: unknown) {
@@ -311,7 +379,7 @@ export function TaskQueuePage() {
   }, [loadJobs]);
 
   const stats = useMemo(() => {
-    const counts = { queued: 0, running: 0, succeeded: 0, failed: 0 };
+    const counts = { queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0 };
     jobs.forEach((job) => {
       if (job.status in counts) {
         counts[job.status as keyof typeof counts]++;
@@ -343,10 +411,45 @@ export function TaskQueuePage() {
         return next;
       });
     }
+  }, [page]);
+
+  const handleCancel = useCallback(async (jobId: string) => {
+    setCancelingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      const updated = await cancelJob(jobId);
+      setJobs((current) => current.map((item) => (item.job_id === jobId ? updated : item)));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '取消任务失败');
+    } finally {
+      setCancelingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleRetry = useCallback(async (jobId: string) => {
+    setRetryingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      const created = await retryJob(jobId);
+      setJobs((current) => [created, ...current.filter((item) => item.job_id !== created.job_id)]);
+      setExpanded((current) => ({ ...current, [created.job_id]: true }));
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '重试任务失败');
+    } finally {
+      setRetryingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
   }, []);
 
   const queueBlocked = !!health?.broker_available && !health?.worker_available;
-  const executionLabel = health?.execution_mode === 'async' ? '异步模式' : '同步模式';
+  const executionLabel = health?.async_available ? '异步模式' : '队列未就绪';
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <PageSection
@@ -368,12 +471,14 @@ export function TaskQueuePage() {
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" color="warning" label={`处理中 ${stats.queued + stats.running}`} />
         <Chip size="small" color="success" label={`已完成 ${stats.succeeded}`} />
+        <Chip size="small" color="default" label={`已取消 ${stats.canceled}`} />
         <Chip
           size="small"
           color={health?.async_available ? 'success' : 'warning'}
           label={executionLabel}
           variant={health ? 'filled' : 'outlined'}
         />
+        <Chip size="small" label={`第 ${page}/${totalPages} 页`} variant="outlined" />
         <Chip size="small" label={`自动轮询 ${POLL_INTERVAL_MS / 1000}s`} variant="outlined" />
       </Stack>
 
@@ -408,7 +513,7 @@ export function TaskQueuePage() {
         <Grid size={{ xs: 6, sm: 3 }}>
           <StatCard
             label="全部任务"
-            value={jobs.length}
+            value={total}
             color="primary"
           />
         </Grid>
@@ -424,7 +529,11 @@ export function TaskQueuePage() {
               expanded={!!expanded[job.job_id]}
               onToggle={() => toggleExpanded(job.job_id)}
               onDelete={handleDelete}
+              onCancel={handleCancel}
+              onRetry={handleRetry}
               deleting={deletingJobIds.has(job.job_id)}
+              canceling={cancelingJobIds.has(job.job_id)}
+              retrying={retryingJobIds.has(job.job_id)}
               queueBlocked={queueBlocked}
             />
           ))
@@ -432,6 +541,17 @@ export function TaskQueuePage() {
           <Alert severity="info">暂无任务，请到转写工作台发起任务。</Alert>
         )}
       </Stack>
+
+      {totalPages > 1 ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1 }}>
+          <Pagination
+            count={totalPages}
+            page={page}
+            color="primary"
+            onChange={(_, value) => setPage(value)}
+          />
+        </Box>
+      ) : null}
     </PageSection>
   );
 }

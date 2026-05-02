@@ -32,7 +32,7 @@ from ..pipelines.alignment import (
 )
 from ..pipelines.audio_preprocess import preprocess_audio
 from ..worker_runtime import get_worker_registry
-from ._base import update_job_result, update_job_status
+from ._base import is_job_canceled, update_job_result, update_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -506,10 +506,17 @@ def execute_multi_speaker_transcription_task(
     更新任务状态为 running，执行转写，然后更新结果。
     此函数会被 Celery 自动调用。
     """
+    if is_job_canceled(job_id):
+        logger.info(f"多人转写任务 {job_id} 已取消，跳过执行")
+        return TranscriptResult(text="", language=language, segments=[])
+
     # 更新状态为 running
     update_job_status(job_id, "running")
 
     try:
+        if is_job_canceled(job_id):
+            logger.info(f"多人转写任务 {job_id} 已取消，跳过执行")
+            return TranscriptResult(text="", language=language, segments=[])
         result = _run_multi_speaker_transcription_sync(
             job_id=job_id,
             asset_name=asset_name,

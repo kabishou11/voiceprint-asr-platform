@@ -7,9 +7,12 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import cast
 from uuid import uuid4
 
 from domain.schemas.transcript import JobDetail, JobSummary, Segment, TranscriptResult
@@ -28,8 +31,60 @@ from apps.worker.app.tasks.multi_speaker import (
 from apps.worker.app.tasks.transcription import run_transcription, run_transcription_task
 
 from . import job_db
+from .asset_storage import asset_storage_service
 
 logger = logging.getLogger(__name__)
+
+CANCELABLE_JOB_STATUSES = {"pending", "queued", "running"}
+RETRYABLE_JOB_STATUSES = {"failed", "canceled"}
+
+
+class JobRetryError(RuntimeError):
+    """Raised when a job cannot be retried safely."""
+
+
+def _sync_transcription_fallback_enabled() -> bool:
+    return os.environ.get("ALLOW_SYNC_TRANSCRIPTION_FALLBACK", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _build_transcription_request_payload(
+    *,
+    asset_name: str,
+    job_type: str,
+    asr_model: str,
+    diarization_model: str | None,
+    hotwords: list[str] | None,
+    language: str,
+    vad_enabled: bool,
+    itn: bool,
+    voiceprint_scope_mode: str,
+    voiceprint_group_id: str | None,
+    voiceprint_profile_ids: list[str] | None,
+    num_speakers: int | None,
+    min_speakers: int | None,
+    max_speakers: int | None,
+) -> dict[str, object]:
+    return {
+        "asset_name": asset_name,
+        "job_type": job_type,
+        "asr_model": asr_model,
+        "diarization_model": diarization_model,
+        "hotwords": hotwords,
+        "language": language,
+        "vad_enabled": vad_enabled,
+        "itn": itn,
+        "voiceprint_scope_mode": voiceprint_scope_mode,
+        "voiceprint_group_id": voiceprint_group_id,
+        "voiceprint_profile_ids": voiceprint_profile_ids,
+        "num_speakers": num_speakers,
+        "min_speakers": min_speakers,
+        "max_speakers": max_speakers,
+    }
 
 
 def _init_demo_job() -> None:
@@ -91,11 +146,25 @@ class JobService:
             if job_type:
                 query = query.filter(job_db.JobRecord.job_type == job_type)
             if keyword:
-                like_keyword = f"%{keyword}%"
-                query = query.filter(
-                    (job_db.JobRecord.asset_name.like(like_keyword))
-                    | (job_db.JobRecord.job_id.like(like_keyword))
+                normalized_keyword = keyword.lower()
+                records = (
+                    query.order_by(job_db.JobRecord.created_at.desc())
+                    .all()
                 )
+                filtered_records = [
+                    record
+                    for record in records
+                    if _job_record_matches_keyword(record, normalized_keyword)
+                ]
+                total = len(filtered_records)
+                page_records = filtered_records[(page - 1) * page_size: page * page_size]
+                details = [
+                    self._with_asset_metadata(
+                        self._with_status_explanation(record.to_job_detail())
+                    )
+                    for record in page_records
+                ]
+                return [d for d in details if d is not None], total
 
             total = query.count()
             records = (
@@ -104,13 +173,17 @@ class JobService:
                 .limit(page_size)
                 .all()
             )
-            details = [self._with_status_explanation(record.to_job_detail()) for record in records]
+            details = [
+                self._with_asset_metadata(self._with_status_explanation(record.to_job_detail()))
+                for record in records
+            ]
             return [d for d in details if d is not None], total
 
     def get_job(self, job_id: str) -> JobDetail | None:
         with job_db.session() as db:
             record = db.get(job_db.JobRecord, job_id)
-            return self._with_status_explanation(record.to_job_detail()) if record else None
+            detail = self._with_status_explanation(record.to_job_detail()) if record else None
+            return self._with_asset_metadata(detail)
 
     def delete_job(self, job_id: str) -> bool:
         with job_db.session() as db:
@@ -120,6 +193,67 @@ class JobService:
             db.delete(record)
             db.commit()
             return True
+
+    def cancel_job(self, job_id: str) -> JobDetail | None:
+        """将可取消任务标记为 canceled。
+
+        取消是轻量语义：不强杀已经进入模型推理的 Worker，但会阻止 Worker 在开始前
+        或收尾写结果时把任务覆盖为 succeeded/failed。
+        """
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            if record is None:
+                return None
+            if record.status not in CANCELABLE_JOB_STATUSES:
+                return self._with_status_explanation(record.to_job_detail())
+
+            record.status = "canceled"
+            record.error_message = "用户取消任务"
+            record.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(record)
+            return self._with_status_explanation(record.to_job_detail())
+
+    def retry_job(self, job_id: str) -> JobDetail | None:
+        """基于原始创建参数重新创建一个转写任务。"""
+        with job_db.session() as db:
+            record = db.get(job_db.JobRecord, job_id)
+            if record is None:
+                return None
+            if record.status not in RETRYABLE_JOB_STATUSES:
+                raise JobRetryError(f"任务当前状态为 {record.status}，仅失败或已取消任务可重试")
+            if record.job_type not in job_db.TRANSCRIPTION_JOB_TYPES:
+                raise JobRetryError("当前仅转写任务支持重试")
+            if not record.request_payload:
+                raise JobRetryError("历史任务缺少创建参数，无法安全重试")
+            try:
+                payload = json.loads(record.request_payload)
+            except json.JSONDecodeError as exc:
+                raise JobRetryError("历史任务创建参数已损坏，无法安全重试") from exc
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("asset_name"), str):
+            raise JobRetryError("历史任务创建参数不完整，无法安全重试")
+
+        job_type = payload.get("job_type", "transcription")
+        if job_type not in job_db.TRANSCRIPTION_JOB_TYPES:
+            raise JobRetryError("历史任务类型不支持重试")
+
+        return self.create_transcription_job(
+            asset_name=payload["asset_name"],
+            job_type=cast(str, job_type),
+            asr_model=cast(str, payload.get("asr_model") or "funasr-nano"),
+            diarization_model=cast(str | None, payload.get("diarization_model")),
+            hotwords=cast(list[str] | None, payload.get("hotwords")),
+            language=cast(str, payload.get("language") or "zh-cn"),
+            vad_enabled=bool(payload.get("vad_enabled", True)),
+            itn=bool(payload.get("itn", True)),
+            voiceprint_scope_mode=cast(str, payload.get("voiceprint_scope_mode") or "none"),
+            voiceprint_group_id=cast(str | None, payload.get("voiceprint_group_id")),
+            voiceprint_profile_ids=cast(list[str] | None, payload.get("voiceprint_profile_ids")),
+            num_speakers=cast(int | None, payload.get("num_speakers")),
+            min_speakers=cast(int | None, payload.get("min_speakers")),
+            max_speakers=cast(int | None, payload.get("max_speakers")),
+        )
 
     def create_transcription_job(
         self,
@@ -165,6 +299,22 @@ class JobService:
         """
         job_id = str(uuid4())
         now = datetime.now(timezone.utc)
+        request_payload = _build_transcription_request_payload(
+            asset_name=asset_name,
+            job_type=job_type,
+            asr_model=asr_model,
+            diarization_model=diarization_model,
+            hotwords=hotwords,
+            language=language,
+            vad_enabled=vad_enabled,
+            itn=itn,
+            voiceprint_scope_mode=voiceprint_scope_mode,
+            voiceprint_group_id=voiceprint_group_id,
+            voiceprint_profile_ids=voiceprint_profile_ids,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
 
         # 先创建任务记录（状态为 queued）
         job = JobDetail(
@@ -185,6 +335,7 @@ class JobService:
                 job_type=job.job_type,
                 status=job.status,
                 asset_name=job.asset_name,
+                request_payload=json.dumps(request_payload, ensure_ascii=False),
                 result=None,
                 error_message=None,
                 created_at=job.created_at,
@@ -196,6 +347,7 @@ class JobService:
         # 检查是否启用异步模式
         async_available = is_async_available(refresh=True)
 
+        async_submit_error: str | None = None
         if async_available:
             # 异步模式：推送到 Celery 队列
             try:
@@ -238,8 +390,26 @@ class JobService:
                 return job
 
             except Exception as e:
+                async_submit_error = str(e)
                 logger.warning(f"异步提交失败，回退到同步执行: {e}")
-                # 回退到同步执行
+                # 根据配置决定是否允许回退同步执行
+
+        if not async_available or async_submit_error:
+            reason = (
+                async_submit_error
+                or worker_error()
+                or broker_error()
+                or "async_queue_unavailable"
+            )
+            if not _sync_transcription_fallback_enabled():
+                message = (
+                    "异步任务队列不可用，已拒绝在 API 请求线程中同步执行大模型任务。"
+                    "请启动 Redis/Celery Worker，或仅在本地调试时设置 "
+                    "ALLOW_SYNC_TRANSCRIPTION_FALLBACK=1。"
+                    f"原因：{reason}"
+                )
+                self._update_job_result(job_id, status="failed", error_message=message)
+                raise RuntimeError(message)
 
         # 同步模式：直接执行任务
         logger.info(f"任务 {job_id} 同步执行")
@@ -349,6 +519,9 @@ class JobService:
             with job_db.session() as db:
                 record = db.get(job_db.JobRecord, job_id)
                 if record:
+                    if record.status == "canceled" and status != "canceled":
+                        logger.info(f"任务 {job_id} 已取消，忽略状态更新: {status}")
+                        return False
                     record.status = status
                     record.updated_at = datetime.now(timezone.utc)
                     db.commit()
@@ -371,6 +544,9 @@ class JobService:
             with job_db.session() as db:
                 record = db.get(job_db.JobRecord, job_id)
                 if record:
+                    if record.status == "canceled" and status != "canceled":
+                        logger.info(f"任务 {job_id} 已取消，忽略结果更新: status={status}")
+                        return False
                     record.status = status
                     record.updated_at = datetime.now(timezone.utc)
                     if error_message is not None:
@@ -420,8 +596,30 @@ class JobService:
             return None
         return job.model_copy(update={"status_explanation": explain_job_status(job)})
 
+    def _with_asset_metadata(self, job: JobDetail | None) -> JobDetail | None:
+        if job is None:
+            return None
+        original_filename = asset_storage_service.get_original_filename(job.asset_name)
+        if not original_filename:
+            return job
+        return job.model_copy(update={"original_filename": original_filename})
+
 
 job_service = JobService()
+
+
+def _job_record_matches_keyword(record: job_db.JobRecord, normalized_keyword: str) -> bool:
+    original_filename = asset_storage_service.get_original_filename(record.asset_name)
+    candidates = [
+        record.asset_name,
+        record.job_id,
+        original_filename,
+    ]
+    return any(
+        normalized_keyword in str(candidate).lower()
+        for candidate in candidates
+        if candidate
+    )
 
 
 def explain_job_status(job: JobDetail) -> str | None:
@@ -445,6 +643,11 @@ def explain_job_status(job: JobDetail) -> str | None:
         return _explain_failure(job.error_message)
     if job.status == "succeeded":
         return "任务已完成。"
+    if job.status == "canceled":
+        return (
+            "任务已取消；若 Worker 已开始模型推理，本次取消不会强杀进程，"
+            "但后续结果不会覆盖取消状态。"
+        )
     return None
 
 
