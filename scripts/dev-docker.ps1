@@ -18,6 +18,10 @@ if ($Services -and $Services.Count -gt 0) {
 }
 
 & docker @ComposeArgs
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Docker Compose failed with exit code $LASTEXITCODE."
+    exit $LASTEXITCODE
+}
 
 Write-Host ""
 Write-Host "Services are starting. Useful URLs:"

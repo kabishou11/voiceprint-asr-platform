@@ -40,6 +40,8 @@ services:
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
       - postgres
       - redis
@@ -50,10 +52,11 @@ services:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
     healthcheck:
-      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).read()"]
+      test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
       retries: 3
+    gpus: all
     restart: unless-stopped
 
   worker:
@@ -66,6 +69,8 @@ services:
       POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/voiceprint
       REDIS_DSN: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
       - postgres
       - redis
@@ -73,14 +78,7 @@ services:
     volumes:
       - ../../models:/app/models:ro
       - ../../storage:/app/storage
-    # GPU 生产部署示例。需要宿主机安装 NVIDIA Container Toolkit 后再启用。
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    gpus: all
     restart: unless-stopped
 
   web:

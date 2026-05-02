@@ -200,6 +200,10 @@ uv run python scripts/deployment_preflight.py --json --strict
 ### 8. 启动服务
 
 方式 A：Docker Compose 一键启动。适合有 Docker 的本地机器、演示机器和交接验收环境。
+因为当前高精度链路强制要求 CUDA，Docker 方式还需要宿主机已启用容器 GPU 支持：
+
+- Windows Docker Desktop：确认 WSL2 后端可运行 `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`
+- Linux Docker Engine：确认已安装 NVIDIA Container Toolkit，并且上面的 `docker run --gpus all ... nvidia-smi` 能看到显卡
 
 Windows：
 
@@ -234,6 +238,13 @@ chmod +x scripts/dev-docker.sh
 
 ```powershell
 docker compose -f infra/compose/docker-compose.yml logs -f api worker
+```
+
+容器启动后，建议再确认容器内 PyTorch 也能看到 CUDA：
+
+```powershell
+docker compose -f infra/compose/docker-compose.yml exec api python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-cuda')"
+docker compose -f infra/compose/docker-compose.yml exec worker python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-cuda')"
 ```
 
 方式 B：无 Docker 手动启动。适合 Linux 服务器不能安装 Docker，或需要直接接入宿主机 CUDA/驱动/模型目录的场景。
@@ -355,10 +366,11 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 
 ### 10. 生产部署交接要点
 
-当前仓库的容器配置是“可交接的部署骨架”，不是已经完成 GPU 生产镜像的最终形态。正式部署前必须确认：
+当前仓库的容器配置是“可交接的部署骨架”，已经包含本地 CUDA 版 PyTorch 安装与 `api/worker` GPU 透传声明，但不是已经完成镜像瘦身、Nginx 静态托管和生产编排的最终形态。正式部署前必须确认：
 
-- API 与 Worker 镜像需要 `ffmpeg`、本地模型卷、持久化 `storage/` 卷。
-- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`，`uv.lock` 中的 PyPI `torch` 不能替代 CUDA wheel。
+- API 与 Worker 镜像需要 `ffmpeg`、C/C++ 构建工具、本地模型卷、持久化 `storage/` 卷。
+- 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`。Docker 镜像会在 `uv sync` 后额外安装 `torch==2.6.0+cu124`、`torchvision==0.21.0+cu124`、`torchaudio==2.6.0+cu124`，手动启动仍需按前文安装。
+- Docker 生产部署必须保证 `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` 通过；否则容器内仍会显示 CUDA 不可用。
 - `infra/compose/docker-compose.yml` 会把容器内 DSN 覆盖为 `postgres`、`redis`、`minio` 服务名；如果手动启动，`.env` 中可以继续使用 `localhost`。
 - 当前业务数据真实落在 `storage/jobs.db`、`storage/uploads`、`storage/voiceprints`、`storage/minutes` 等本地目录；`POSTGRES_DSN` 与 `S3_*` 目前是部署预留配置，尚未承载主业务持久化。
 - 前端 Dockerfile 当前运行 Vite dev server。生产环境建议 `npm run build` 后用 Nginx/Caddy 静态托管，并反向代理 `/api` 到 API 服务。
