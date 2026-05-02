@@ -30,6 +30,27 @@ services:
       - minio-data:/data
     restart: unless-stopped
 
+  model-init:
+    profiles:
+      - init
+    build:
+      context: ../../
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      THREE_D_SPEAKER_REFERENCE_ROOT: /opt/3D-Speaker
+    volumes:
+      - ../../models:/app/models
+      - ../../../3D-Speaker:/opt/3D-Speaker
+    command:
+      - .venv/bin/python
+      - scripts/download_models.py
+      - --models-root
+      - /app/models
+      - --reference-root
+      - /opt/3D-Speaker
+
   api:
     build:
       context: ../../

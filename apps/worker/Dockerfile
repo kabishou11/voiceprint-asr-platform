@@ -9,7 +9,7 @@ ENV PATH="/app/.venv/bin:${PATH}"
 COPY pyproject.toml uv.lock README.md /app/
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ffmpeg \
+    && apt-get install -y --no-install-recommends build-essential ffmpeg git \
     && rm -rf /var/lib/apt/lists/* \
     && pip install uv \
     && uv sync --extra asr-funasr --extra speaker-3ds --no-install-project \

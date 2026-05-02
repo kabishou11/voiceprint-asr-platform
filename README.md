@@ -34,6 +34,25 @@
 下面这条路径是当前仓库在另一台 Windows + NVIDIA 机器上的推荐复现方式。  
 目标是只看这一页就能拉起。
 
+如果生产 Windows 已经安装好 Docker Desktop，并且 Docker GPU 透传正常，优先使用一键 Docker 部署：
+
+```powershell
+.\scripts\prod-up.ps1
+```
+
+这条命令会自动创建/补齐 `.env`、创建 `models/` 与 `storage/`、下载必需模型、
+下载 3D-Speaker 参考源码、构建镜像、启动 `api/worker/web/redis/postgres/minio`，
+并打印后续 health、models、warmup 验证命令。它不会替你安装 Windows 宿主机上的
+NVIDIA 驱动、Docker Desktop 或 Docker GPU 支持；这些必须先在系统层面可用。
+
+常用可选参数：
+
+```powershell
+.\scripts\prod-up.ps1 -Pull              # 先拉取 redis/postgres/minio 基础镜像
+.\scripts\prod-up.ps1 -SkipModelDownload # 已确认 models/ 和 ../3D-Speaker 齐全时跳过下载
+.\scripts\prod-up.ps1 -SkipGpuCheck      # 仅排查 Docker 构建问题时临时跳过 GPU 检查
+```
+
 ### 1. 系统前提
 
 已验证组合：
@@ -395,6 +414,8 @@ cmd /c .\node_modules\.bin\tsc.cmd -b
 当前仓库的容器配置是“可交接的部署骨架”，已经包含本地 CUDA 版 PyTorch 安装与 `api/worker` GPU 透传声明，但不是已经完成镜像瘦身、Nginx 静态托管和生产编排的最终形态。正式部署前必须确认：
 
 - API 与 Worker 镜像需要 `ffmpeg`、C/C++ 构建工具、本地模型卷、持久化 `storage/` 卷。
+- Windows Docker 一键部署入口是 `.\scripts\prod-up.ps1`；它会通过 `model-init` 容器下载必需模型和 3D-Speaker 参考源码。
+- 必需模型下载源默认是 ModelScope：`FunAudioLLM/Fun-ASR-Nano-2512`、`iic/speech_fsmn_vad_zh-cn-16k-common-pytorch`、`iic/speech_campplus_sv_zh-cn_16k-common`。如需内网镜像，可在 `.env` 覆盖 `MODEL_DOWNLOAD_*`。
 - Windows 原生生产环境也需要安装 `ffmpeg` 并加入 PATH；`where.exe ffmpeg` 必须能找到可执行文件。
 - `ffmpeg` 缺失时，`scripts/deployment_preflight.py --strict` 会判定 `production_ready=false`，这是故意的生产保护，不是误报。
 - 高精度 ASR / diarization / voiceprint 需要 CUDA 版 `torch/torchaudio`。Docker 镜像会先 `uv sync --no-install-project` 构建依赖层，再安装 `torch==2.6.0+cu124`、`torchvision==0.21.0+cu124`、`torchaudio==2.6.0+cu124`，最后用 `uv sync --inexact` 安装项目包以保留 CUDA wheel。手动启动仍需按前文安装。
