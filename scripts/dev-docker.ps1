@@ -8,9 +8,65 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Resolve-Path (Join-Path $ScriptDir "..")
 $ComposeFile = Join-Path $Root "infra/compose/docker-compose.yml"
+$EnvExample = Join-Path $Root ".env.example"
+$EnvFile = Join-Path $Root ".env"
+
+function Read-EnvMap {
+    param([string]$Path)
+    $Map = [ordered]@{}
+    if (-not (Test-Path $Path)) {
+        return $Map
+    }
+    foreach ($Line in Get-Content $Path) {
+        if ($Line -match '^\s*#' -or $Line -notmatch '=') {
+            continue
+        }
+        $Parts = $Line.Split('=', 2)
+        $Key = $Parts[0].Trim()
+        if ($Key) {
+            $Map[$Key] = $Parts[1]
+        }
+    }
+    return $Map
+}
+
+function Sync-EnvFile {
+    if (-not (Test-Path $EnvExample)) {
+        Write-Error ".env.example not found: $EnvExample"
+        exit 1
+    }
+
+    if (-not (Test-Path $EnvFile)) {
+        Copy-Item $EnvExample $EnvFile
+        Write-Host "Created .env from .env.example"
+        return
+    }
+
+    $ExampleMap = Read-EnvMap $EnvExample
+    $CurrentMap = Read-EnvMap $EnvFile
+    $MissingLines = New-Object System.Collections.Generic.List[string]
+
+    foreach ($Key in $ExampleMap.Keys) {
+        if (-not $CurrentMap.Contains($Key)) {
+            $MissingLines.Add("$Key=$($ExampleMap[$Key])")
+        }
+    }
+
+    if ($MissingLines.Count -eq 0) {
+        return
+    }
+
+    Add-Content -Path $EnvFile -Value ""
+    Add-Content -Path $EnvFile -Value "# Added by scripts/dev-docker.ps1 to align with .env.example"
+    foreach ($Line in $MissingLines) {
+        Add-Content -Path $EnvFile -Value $Line
+    }
+    Write-Host "Added missing .env keys: $($MissingLines.Count)"
+}
 
 Write-Host "Starting Docker Compose stack..."
 Write-Host "Compose file: $ComposeFile"
+Sync-EnvFile
 
 $ComposeArgs = @("compose", "-f", $ComposeFile, "up", "-d", "--build")
 if ($Services -and $Services.Count -gt 0) {
