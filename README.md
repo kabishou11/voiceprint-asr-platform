@@ -218,7 +218,18 @@ chmod +x scripts/dev-docker.sh
 ./scripts/dev-docker.sh
 ```
 
-脚本会调用 `infra/compose/docker-compose.yml` 启动 `postgres`、`redis`、`minio`、`api`、`worker`、`web`。如果只想启动部分服务，可以把服务名追加到脚本后面，例如：
+脚本会调用 `infra/compose/docker-compose.yml`。不带参数时会启动完整工作台：`postgres`、`redis`、`minio`、`api`、`worker`、`web`。
+如果只想启动部分服务，可以把服务名追加到脚本后面。完整工作台也可以显式写全：
+
+```powershell
+.\scripts\dev-docker.ps1 redis api worker web
+```
+
+```bash
+./scripts/dev-docker.sh redis api worker web
+```
+
+如果只需要后端队列，不启动前端，则使用：
 
 ```powershell
 .\scripts\dev-docker.ps1 redis api worker

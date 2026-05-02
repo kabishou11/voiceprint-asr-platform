@@ -23,11 +23,32 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+$StartsAllServices = -not ($Services -and $Services.Count -gt 0)
+$RequestedServices = @()
+if (-not $StartsAllServices) {
+    $RequestedServices = $Services | ForEach-Object { $_.ToLowerInvariant() }
+}
+$StartsApi = $StartsAllServices -or $RequestedServices -contains "api"
+$StartsWorker = $StartsAllServices -or $RequestedServices -contains "worker"
+$StartsWeb = $StartsAllServices -or $RequestedServices -contains "web"
+$StartsMinio = $StartsAllServices -or $RequestedServices -contains "minio" -or $StartsApi -or $StartsWorker
+
 Write-Host ""
 Write-Host "Services are starting. Useful URLs:"
-Write-Host "  API health:    http://127.0.0.1:8000/api/v1/health"
-Write-Host "  Web:           http://127.0.0.1:5173"
-Write-Host "  MinIO console: http://127.0.0.1:9001"
+if ($StartsApi) {
+    Write-Host "  API health:    http://127.0.0.1:8000/api/v1/health"
+}
+if ($StartsWeb) {
+    Write-Host "  Web:           http://127.0.0.1:5173"
+}
+else {
+    Write-Host "  Web:           not requested. Start it with: .\scripts\dev-docker.ps1 web"
+}
+if ($StartsMinio) {
+    Write-Host "  MinIO console: http://127.0.0.1:9001"
+}
 Write-Host ""
-Write-Host "Follow API/worker logs:"
-Write-Host "  docker compose -f infra/compose/docker-compose.yml logs -f api worker"
+if ($StartsApi -or $StartsWorker) {
+    Write-Host "Follow API/worker logs:"
+    Write-Host "  docker compose -f infra/compose/docker-compose.yml logs -f api worker"
+}
